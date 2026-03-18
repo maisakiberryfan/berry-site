@@ -42,6 +42,13 @@ jobs:
           npm ci
           echo "$(pwd)/node_modules/.bin" >> $GITHUB_PATH
 
+      # Build fansite JS/CSS bundle
+      - name: Build fansite
+        working-directory: fansite
+        run: |
+          npm ci
+          npm run build
+
       # Build Lambda
       - run: sam build
 
