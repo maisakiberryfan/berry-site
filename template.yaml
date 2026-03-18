@@ -94,6 +94,13 @@ Resources:
             Schedule: cron(0/30 14-19 * * ? *)
             Description: "Polling check (UTC 14-19 = Taiwan 22-03)"
             Enabled: true
+        WarmUp:
+          Type: Schedule
+          Properties:
+            Schedule: rate(5 minutes)
+            Description: "Keep Lambda warm to avoid cold start"
+            Enabled: true
+            Input: '{"source":"warmup"}'
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
