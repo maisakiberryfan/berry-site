@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - '*.md'
+  workflow_dispatch:
 
 env:
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
