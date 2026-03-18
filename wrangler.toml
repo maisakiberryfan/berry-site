@@ -20,7 +20,7 @@ LAMBDA_MATCHER_URL = "https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.co
 # Hyperdrive binding (DB 連線)
 [[hyperdrive]]
 binding = "HYPERDRIVE"
-id = "aa8d76fa8d584d8db7c0f8542b447009"  # berry-test (mbdb_test) — 測完換回 3794cb90bec64a1f9e92bc3b4a60ea41
+id = "3794cb90bec64a1f9e92bc3b4a60ea41"  # mbdb (production)
 
 # Cron triggers — 備用站不跑 cron，由 AWS (EventBridge) 負責
 # 正式啟用時取消註解
