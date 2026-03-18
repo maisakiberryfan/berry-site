@@ -7,7 +7,7 @@ import { Searcher } from 'fast-fuzzy'
 import leven from 'leven'
 
 // API URL from environment variable
-const HYPERDRIVE_API_URL = process.env.HYPERDRIVE_API_URL || 'https://d36w2d8blmdfr.cloudfront.net'
+const BERRY_SITE_API_URL = process.env.BERRY_SITE_API_URL || 'https://d36w2d8blmdfr.cloudfront.net'
 
 // Matching configuration
 const CONFIG = {
@@ -17,14 +17,14 @@ const CONFIG = {
 }
 
 // ============================================================================
-// Data Fetching (HTTP instead of Service Binding)
+// Data Fetching from Berry Site API
 // ============================================================================
 
 /**
- * Fetch aliases data from Hyperdrive API
+ * Fetch aliases data from Berry Site API
  */
 async function getAliasesData() {
-  const response = await fetch(`${HYPERDRIVE_API_URL}/api/aliases/grouped`)
+  const response = await fetch(`${BERRY_SITE_API_URL}/api/aliases/grouped`)
 
   if (!response.ok) {
     throw new Error(`Aliases API error: ${response.status}`)
@@ -40,10 +40,10 @@ async function getAliasesData() {
 }
 
 /**
- * Fetch songlist data from Hyperdrive API (optimized format)
+ * Fetch songlist data from Berry Site API (optimized format)
  */
 async function getSonglistData() {
-  const response = await fetch(`${HYPERDRIVE_API_URL}/api/songlist/optimized`)
+  const response = await fetch(`${BERRY_SITE_API_URL}/api/songlist/optimized`)
 
   if (!response.ok) {
     throw new Error(`Songlist API error: ${response.status}`)
@@ -439,7 +439,7 @@ function findBestMatch(parsedSong, songlistData, aliasesData) {
 async function matchSetlist(setlistComment) {
   const startTime = Date.now()
 
-  // Fetch data from Hyperdrive API
+  // Fetch data from Berry Site API
   const [aliasesData, songlistData] = await Promise.all([
     getAliasesData(),
     getSonglistData()

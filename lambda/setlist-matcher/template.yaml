@@ -11,10 +11,10 @@ Parameters:
     Type: Number
     Default: 512
     Description: Lambda function memory in MB
-  HyperdriveApiUrl:
+  BerrySiteApiUrl:
     Type: String
     Default: 'https://d36w2d8blmdfr.cloudfront.net'
-    Description: Berry Site API URL for songlist/aliases data
+    Description: Berry Site API base URL for songlist/aliases data
 
 Globals:
   Function:
@@ -33,7 +33,7 @@ Resources:
       CodeUri: .
       Environment:
         Variables:
-          HYPERDRIVE_API_URL: !Ref HyperdriveApiUrl
+          HYPERDRIVE_API_URL: !Ref BerrySiteApiUrl
       Events:
         MatchSetlist:
           Type: Api
