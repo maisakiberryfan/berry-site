@@ -6,4 +6,4 @@ region = "ap-northeast-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 resolve_s3 = true
-parameter_overrides = "HyperdriveApiUrl=https://d36w2d8blmdfr.cloudfront.net"
+parameter_overrides = "BerrySiteApiUrl=https://d36w2d8blmdfr.cloudfront.net"
