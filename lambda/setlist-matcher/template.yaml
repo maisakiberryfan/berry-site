@@ -13,14 +13,14 @@ Parameters:
     Description: Lambda function memory in MB
   HyperdriveApiUrl:
     Type: String
-    Default: 'https://hyperdrive.katani.workers.dev'
+    Default: 'https://d36w2d8blmdfr.cloudfront.net'
     Description: Berry Site API URL for songlist/aliases data
 
 Globals:
   Function:
     Timeout: !Ref FunctionTimeout
     MemorySize: !Ref FunctionMemory
-    Runtime: nodejs22.x
+    Runtime: nodejs24.x
     Architectures:
       - arm64
 
