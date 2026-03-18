@@ -1,0 +1,510 @@
+<div id="analyticsPage">
+  <!-- 頁面標題 -->
+  <div class="text-center mb-4">
+    <h1>
+      <span data-lang="zh">資料分析</span>
+      <span data-lang="en" class="d-none">Analytics</span>
+      <span data-lang="ja" class="d-none">データ分析</span>
+    </h1>
+    <p class="text-muted">
+      <span data-lang="zh">查詢歌單資料、分析演唱趨勢</span>
+      <span data-lang="en" class="d-none">Query setlist data and analyze performance trends</span>
+      <span data-lang="ja" class="d-none">セットリストデータを検索、歌唱傾向を分析</span>
+    </p>
+    <p class="text-muted small" id="dataUpdateInfo">
+      <i class="bi bi-clock-history"></i>
+      <span data-lang="zh">資料更新時間：</span>
+      <span data-lang="en" class="d-none">Data updated: </span>
+      <span data-lang="ja" class="d-none">データ更新日時：</span>
+      <span id="dataUpdateTime">
+        <span data-lang="zh">載入中...</span>
+        <span data-lang="en" class="d-none">Loading...</span>
+        <span data-lang="ja" class="d-none">読み込み中...</span>
+      </span>
+    </p>
+  </div>
+
+  <!-- 查詢面板 -->
+  <div class="mb-4">
+    <h5 class="mb-3">
+      <span data-lang="zh">查詢面板</span>
+      <span data-lang="en" class="d-none">Query Panel</span>
+      <span data-lang="ja" class="d-none">クエリパネル</span>
+    </h5>
+    <div class="border rounded p-3 bg-body-tertiary">
+      <!-- 模式切換 -->
+      <div class="mb-3">
+        <div class="btn-group w-100" role="group">
+          <input type="radio" class="btn-check" name="queryMode" id="modeSimple" value="simple" checked>
+          <label class="btn btn-outline-primary" for="modeSimple">
+            <i class="bi bi-lightning-fill"></i>
+            <span data-lang="zh">簡易模式</span>
+            <span data-lang="en" class="d-none">Simple Mode</span>
+            <span data-lang="ja" class="d-none">シンプルモード</span>
+          </label>
+
+          <input type="radio" class="btn-check" name="queryMode" id="modeAdvanced" value="advanced">
+          <label class="btn btn-outline-primary" for="modeAdvanced">
+            <i class="bi bi-code-slash"></i>
+            <span data-lang="zh">進階 SQL</span>
+            <span data-lang="en" class="d-none">Advanced SQL</span>
+            <span data-lang="ja" class="d-none">上級 SQL</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- 簡易模式面板 -->
+      <div id="simpleModePanel">
+        <!-- 查詢類型選擇 -->
+        <div class="mb-3">
+          <label for="queryType" class="form-label">
+            <span data-lang="zh">查詢類型</span>
+            <span data-lang="en" class="d-none">Query Type</span>
+            <span data-lang="ja" class="d-none">クエリタイプ</span>
+          </label>
+          <select id="queryType" class="form-select">
+            <option value="" data-zh="-- 選擇查詢類型 --" data-en="-- Select Query Type --" data-ja="-- クエリタイプを選択 --">-- 選擇查詢類型 --</option>
+            <option value="song-frequency" data-zh="歌曲演唱次數" data-en="Song Performance Frequency" data-ja="楽曲演唱回数">歌曲演唱次數</option>
+            <option value="top-songs" data-zh="熱門歌曲排行" data-en="Top Songs by Days" data-ja="人気楽曲ランキング">熱門歌曲排行</option>
+          </select>
+        </div>
+
+        <!-- 錯誤提示區域 -->
+        <div id="queryErrorAlert" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none;">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>
+          <span id="queryErrorMessage"></span>
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+
+        <!-- 查詢參數區域（動態顯示） -->
+        <div id="queryParams"></div>
+
+        <!-- 執行按鈕 -->
+        <div class="d-grid gap-2">
+          <button id="btnRunQuery" class="btn btn-primary btn-lg" disabled>
+            <i class="bi bi-play-circle-fill"></i>
+            <span data-lang="zh">執行查詢</span>
+            <span data-lang="en" class="d-none">Run Query</span>
+            <span data-lang="ja" class="d-none">クエリ実行</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 進階模式面板（初始隱藏） -->
+      <div id="advancedModePanel" style="display: none;">
+        <div class="mb-3">
+          <label for="sqlEditor" class="form-label">
+            <span data-lang="zh">SQL 查詢</span>
+            <span data-lang="en" class="d-none">SQL Query</span>
+            <span data-lang="ja" class="d-none">SQL クエリ</span>
+            <a href="https://duckdb.org/docs/stable/sql/introduction" target="_blank" rel="noopener noreferrer" class="ms-2 text-decoration-none small" title="DuckDB SQL 語法文檔">
+              (<span data-lang="zh">SQL 可用語法</span><span data-lang="en" class="d-none">SQL Syntax</span><span data-lang="ja" class="d-none">SQL 構文</span> <i class="bi bi-box-arrow-up-right"></i>)
+            </a>
+            <a href="#" id="btnAiHelper" class="ms-2 text-decoration-none small text-info" data-bs-toggle="modal" data-bs-target="#aiHelperModal">
+              <i class="bi bi-magic"></i>
+              <span data-lang="zh">SQL 小幫手</span>
+              <span data-lang="en" class="d-none">SQL Helper</span>
+              <span data-lang="ja" class="d-none">SQL ヘルパー</span>
+            </a>
+          </label>
+          <textarea id="sqlEditor" class="form-control font-monospace" rows="5"
+                    placeholder="SELECT * FROM berry_data WHERE ..."></textarea>
+          <div class="form-text mb-2">
+            Table: <code>berry_data</code>
+            <button class="btn btn-sm btn-link p-0 ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#columnReference">
+              <i class="bi bi-info-circle"></i>
+              <span data-lang="zh">顯示可用欄位</span>
+              <span data-lang="en" class="d-none">Show Available Columns</span>
+              <span data-lang="ja" class="d-none">利用可能なカラムを表示</span>
+            </button>
+            <button class="btn btn-sm btn-link p-0 ms-3" type="button" data-bs-toggle="collapse" data-bs-target="#timezoneConverter">
+              <i class="bi bi-clock-history"></i>
+              <span data-lang="zh">時間轉換</span>
+              <span data-lang="en" class="d-none">Timezone</span>
+              <span data-lang="ja" class="d-none">時間変換</span>
+            </button>
+            <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip" data-bs-placement="top"
+               data-bs-title="資料庫時間為 UTC，此工具可將本地時間轉換後插入查詢"></i>
+            <span class="text-muted small ms-1">(<span id="userTimezone">...</span> <code id="userTimezoneOffset">...</code>)</span>
+          </div>
+          <div class="collapse" id="columnReference">
+            <div class="border rounded p-3 bg-body-secondary mt-2">
+              <h6 class="mb-2">
+                <span data-lang="zh">可用欄位：</span>
+                <span data-lang="en" class="d-none">Available Columns:</span>
+                <span data-lang="ja" class="d-none">利用可能なカラム：</span>
+              </h6>
+              <div class="row">
+                <div class="col-md-6">
+                  <ul class="list-unstyled mb-0">
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="streamID">
+                        <code>streamID</code>
+                      </button> -
+                      <span data-lang="zh">直播 ID</span>
+                      <span data-lang="en" class="d-none">Stream ID</span>
+                      <span data-lang="ja" class="d-none">配信 ID</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="streamTitle">
+                        <code>streamTitle</code>
+                      </button> -
+                      <span data-lang="zh">直播標題</span>
+                      <span data-lang="en" class="d-none">Stream Title</span>
+                      <span data-lang="ja" class="d-none">配信タイトル</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="time">
+                        <code>time</code>
+                      </button> -
+                      <span data-lang="zh">直播時間</span>
+                      <span data-lang="en" class="d-none">Stream Time</span>
+                      <span data-lang="ja" class="d-none">配信時間</span>
+                      (TIMESTAMP)
+                      <br><small class="text-muted">
+                        <span data-lang="zh">範例：</span>
+                        <span data-lang="en" class="d-none">Example: </span>
+                        <span data-lang="ja" class="d-none">例：</span>
+                        <code>time >= '2025-11-03'</code>
+                      </small>
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="categories">
+                        <code>categories</code>
+                      </button> -
+                      <span data-lang="zh">直播分類</span>
+                      <span data-lang="en" class="d-none">Categories</span>
+                      <span data-lang="ja" class="d-none">カテゴリ</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="segmentNo">
+                        <code>segmentNo</code>
+                      </button> -
+                      <span data-lang="zh">場次編號</span>
+                      <span data-lang="en" class="d-none">Segment No.</span>
+                      <span data-lang="ja" class="d-none">セグメント番号</span>
+                      (INT)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="trackNo">
+                        <code>trackNo</code>
+                      </button> -
+                      <span data-lang="zh">曲目編號</span>
+                      <span data-lang="en" class="d-none">Track No.</span>
+                      <span data-lang="ja" class="d-none">トラック番号</span>
+                      (INT)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="songID">
+                        <code>songID</code>
+                      </button> -
+                      <span data-lang="zh">歌曲 ID</span>
+                      <span data-lang="en" class="d-none">Song ID</span>
+                      <span data-lang="ja" class="d-none">楽曲 ID</span>
+                      (INT)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="songName">
+                        <code>songName</code>
+                      </button> -
+                      <span data-lang="zh">歌名（日文）</span>
+                      <span data-lang="en" class="d-none">Song Name (JA)</span>
+                      <span data-lang="ja" class="d-none">曲名（日本語）</span>
+                      (VARCHAR)
+                    </li>
+                  </ul>
+                </div>
+                <div class="col-md-6">
+                  <ul class="list-unstyled mb-0">
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="songNameEn">
+                        <code>songNameEn</code>
+                      </button> -
+                      <span data-lang="zh">歌名（英文）</span>
+                      <span data-lang="en" class="d-none">Song Name (EN)</span>
+                      <span data-lang="ja" class="d-none">曲名（英語）</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="artist">
+                        <code>artist</code>
+                      </button> -
+                      <span data-lang="zh">歌手（日文）</span>
+                      <span data-lang="en" class="d-none">Artist (JA)</span>
+                      <span data-lang="ja" class="d-none">アーティスト（日本語）</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="artistEn">
+                        <code>artistEn</code>
+                      </button> -
+                      <span data-lang="zh">歌手（英文）</span>
+                      <span data-lang="en" class="d-none">Artist (EN)</span>
+                      <span data-lang="ja" class="d-none">アーティスト（英語）</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="genre">
+                        <code>genre</code>
+                      </button> -
+                      <span data-lang="zh">類型</span>
+                      <span data-lang="en" class="d-none">Genre</span>
+                      <span data-lang="ja" class="d-none">ジャンル</span>
+                      (VARCHAR)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="tieup">
+                        <code>tieup</code>
+                      </button> -
+                      <span data-lang="zh">作品綁定</span>
+                      <span data-lang="en" class="d-none">Tie-up</span>
+                      <span data-lang="ja" class="d-none">タイアップ</span>
+                      (TEXT)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="setlistNote">
+                        <code>setlistNote</code>
+                      </button> -
+                      <span data-lang="zh">歌單備註</span>
+                      <span data-lang="en" class="d-none">Setlist Note</span>
+                      <span data-lang="ja" class="d-none">セットリスト備考</span>
+                      (TEXT)
+                    </li>
+                    <li>
+                      <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="songNote">
+                        <code>songNote</code>
+                      </button> -
+                      <span data-lang="zh">歌曲備註</span>
+                      <span data-lang="en" class="d-none">Song Note</span>
+                      <span data-lang="ja" class="d-none">楽曲備考</span>
+                      (TEXT)
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 時間轉換工具（折疊內容） -->
+        <div class="collapse" id="timezoneConverter">
+          <div class="border rounded p-3 bg-body-secondary mb-3">
+            <div class="row g-2">
+              <div class="col-md-5">
+                <label for="startDateInput" class="form-label small mb-1">
+                  <span data-lang="zh">開始</span>
+                  <span data-lang="en" class="d-none">Start</span>
+                  <span data-lang="ja" class="d-none">開始</span>
+                </label>
+                <input type="datetime-local" id="startDateInput" class="form-control form-control-sm">
+              </div>
+              <div class="col-md-5">
+                <label for="endDateInput" class="form-label small mb-1">
+                  <span data-lang="zh">結束</span>
+                  <span data-lang="en" class="d-none">End</span>
+                  <span data-lang="ja" class="d-none">終了</span>
+                </label>
+                <input type="datetime-local" id="endDateInput" class="form-control form-control-sm">
+              </div>
+              <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary btn-sm w-100" id="btnInsertRange" disabled>
+                  <i class="bi bi-plus-circle"></i>
+                  <span data-lang="zh">插入</span>
+                  <span data-lang="en" class="d-none">Insert</span>
+                  <span data-lang="ja" class="d-none">挿入</span>
+                </button>
+              </div>
+            </div>
+            <div class="mt-2">
+              <input type="text" id="utcRangeOutput" class="form-control form-control-sm font-monospace" readonly placeholder="UTC 時間範圍">
+            </div>
+          </div>
+        </div>
+
+        <!-- 執行按鈕 -->
+        <div class="d-grid gap-2 mb-3">
+          <button id="btnRunSQL" class="btn btn-primary">
+            <i class="bi bi-play-circle-fill"></i>
+            <span data-lang="zh">執行 SQL</span>
+            <span data-lang="en" class="d-none">Execute SQL</span>
+            <span data-lang="ja" class="d-none">SQL 実行</span>
+          </button>
+        </div>
+
+        <!-- 範例查詢（tag 樣式） -->
+        <div class="mb-3">
+          <small class="text-muted me-2">
+            <span data-lang="zh">範例：</span>
+            <span data-lang="en" class="d-none">Examples:</span>
+            <span data-lang="ja" class="d-none">例：</span>
+          </small>
+          <button type="button" class="btn btn-sm btn-outline-info example-query me-1 mb-1"
+                  data-query="SELECT songName, artist, COUNT(*) as count FROM berry_data GROUP BY songID, songName, artist ORDER BY count DESC LIMIT 20">
+            <span data-lang="zh">Top 20</span>
+            <span data-lang="en" class="d-none">Top 20</span>
+            <span data-lang="ja" class="d-none">TOP 20</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-info example-query me-1 mb-1"
+                  data-query="SELECT artist, COUNT(DISTINCT songID) as songCount, COUNT(*) as perfCount FROM berry_data GROUP BY artist ORDER BY perfCount DESC LIMIT 20">
+            <span data-lang="zh">熱門歌手</span>
+            <span data-lang="en" class="d-none">Artists</span>
+            <span data-lang="ja" class="d-none">歌手</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-info example-query me-1 mb-1"
+                  data-query="SELECT genre, COUNT(*) as count FROM berry_data WHERE genre IS NOT NULL AND genre != '' GROUP BY genre ORDER BY count DESC">
+            <span data-lang="zh">類型分類</span>
+            <span data-lang="en" class="d-none">Genre</span>
+            <span data-lang="ja" class="d-none">ジャンル</span>
+          </button>
+          <button id="btnSaveQuery" class="btn btn-sm btn-outline-warning me-1 mb-1">
+            <i class="bi bi-bookmark"></i>
+            <span data-lang="zh">儲存</span>
+            <span data-lang="en" class="d-none">Save</span>
+            <span data-lang="ja" class="d-none">保存</span>
+          </button>
+        </div>
+
+        <!-- Saved Queries Panel -->
+        <div id="savedQueriesPanel" style="display: none;">
+          <div class="border rounded p-3 bg-body-secondary mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">
+                <span data-lang="zh">收藏的查詢</span>
+                <span data-lang="en" class="d-none">Saved Queries</span>
+                <span data-lang="ja" class="d-none">保存したクエリ</span>
+              </h6>
+              <small class="text-muted">
+                <span data-lang="zh">點擊載入並執行</span>
+                <span data-lang="en" class="d-none">Click to load & execute</span>
+                <span data-lang="ja" class="d-none">クリックで読み込み・実行</span>
+              </small>
+            </div>
+            <div id="savedQueriesList" class="list-group"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結果顯示區域 -->
+  <div class="mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">
+        <span data-lang="zh">查詢結果</span>
+        <span data-lang="en" class="d-none">Query Results</span>
+        <span data-lang="ja" class="d-none">クエリ結果</span>
+      </h5>
+      <div>
+        <button id="btnExportXLSX" class="btn btn-sm btn-outline-success" disabled>
+          <i class="bi bi-file-earmark-excel"></i> Export XLSX
+        </button>
+      </div>
+    </div>
+
+    <!-- 通用訊息提示區域 -->
+    <div id="messageAlert" class="alert alert-dismissible fade" role="alert" style="display: none;">
+      <i id="messageIcon" class="me-2"></i>
+      <span id="messageText"></span>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
+    <div class="border rounded p-3 bg-body-tertiary">
+      <!-- 載入狀態 -->
+      <div id="loadingIndicator" class="text-center py-5" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+          <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-3 text-muted">
+          <span data-lang="zh">載入資料並執行查詢中...</span>
+          <span data-lang="en" class="d-none">Loading data and executing query...</span>
+          <span data-lang="ja" class="d-none">データを読み込んでクエリを実行中...</span>
+        </p>
+      </div>
+
+      <!-- 錯誤訊息 -->
+      <div id="errorMessage" class="alert alert-danger" role="alert" style="display: none;"></div>
+
+      <!-- 結果資訊 -->
+      <div id="resultInfo" class="mb-3" style="display: none;">
+        <small class="text-muted">
+          <span data-lang="zh">返回 <span id="resultCount">0</span> 筆資料，耗時 <span id="queryTime">0</span>ms</span>
+          <span data-lang="en" class="d-none">Returned <span id="resultCountEn">0</span> rows in <span id="queryTimeEn">0</span>ms</span>
+          <span data-lang="ja" class="d-none"><span id="resultCountJa">0</span> 件を返却、処理時間 <span id="queryTimeJa">0</span>ms</span>
+        </small>
+      </div>
+
+      <!-- Tabulator 表格 -->
+      <div id="resultsTable"></div>
+
+      <!-- 空狀態提示 -->
+      <div id="emptyState" class="text-center py-5 text-muted">
+        <i class="bi bi-search" style="font-size: 3rem;"></i>
+        <p class="mt-3">
+          <span data-lang="zh">選擇查詢類型並執行查詢以查看結果</span>
+          <span data-lang="en" class="d-none">Select a query type and run a query to see results</span>
+          <span data-lang="ja" class="d-none">クエリタイプを選択して実行し、結果を表示</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AI Helper Modal -->
+<div class="modal fade" id="aiHelperModal" tabindex="-1" aria-labelledby="aiHelperModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark text-light">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title" id="aiHelperModalLabel">
+          <i class="bi bi-magic me-2"></i>
+          <span data-lang="zh">SQL 小幫手</span>
+          <span data-lang="en" class="d-none">SQL Helper</span>
+          <span data-lang="ja" class="d-none">SQL ヘルパー</span>
+        </h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label for="aiQueryInput" class="form-label">
+          <span data-lang="zh">輸入你想查詢的問題（最多 80 字元）：</span>
+          <span data-lang="en" class="d-none">Enter your query (max 80 characters):</span>
+          <span data-lang="ja" class="d-none">クエリを入力（最大80文字）：</span>
+        </label>
+        <input type="text" id="aiQueryInput" class="form-control bg-dark text-light border-secondary" maxlength="80"
+               placeholder="例：唱最多的歌、2024年唱過幾次夜に駆ける">
+        <div class="form-text text-muted mt-2">
+          <span data-lang="zh">例如：唱最多的歌、2024年唱過幾次夜に駆ける、各年前10名</span>
+          <span data-lang="en" class="d-none">e.g., most sung songs, how many times 夜に駆ける was sung in 2024</span>
+          <span data-lang="ja" class="d-none">例：最も歌われた曲、2024年に夜に駆けるを何回歌った</span>
+        </div>
+        <div id="aiHelperError" class="text-danger mt-2 d-none"></div>
+        <div id="aiHelperLoading" class="text-info mt-2 d-none">
+          <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+          <span data-lang="zh">正在生成 SQL...</span>
+          <span data-lang="en" class="d-none">Generating SQL...</span>
+          <span data-lang="ja" class="d-none">SQL を生成中...</span>
+        </div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <span data-lang="zh">取消</span>
+          <span data-lang="en" class="d-none">Cancel</span>
+          <span data-lang="ja" class="d-none">キャンセル</span>
+        </button>
+        <button type="button" class="btn btn-primary" id="btnSubmitAiQuery">
+          <i class="bi bi-magic me-1"></i>
+          <span data-lang="zh">生成 SQL</span>
+          <span data-lang="en" class="d-none">Generate SQL</span>
+          <span data-lang="ja" class="d-none">SQL を生成</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SheetJS for XLSX export -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+<!-- Note: analytics.js module is dynamically loaded by tool.js when this page is loaded -->
+<!-- jQuery doesn't execute <script type="module"> tags in dynamic content -->

@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Berry Site - VTuber fan site API (Hono on Lambda)
+
+Globals:
+  Function:
+    Timeout: 180
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: m-b.win
+  DbHost:
+    Type: String
+  DbPort:
+    Type: String
+    Default: '3306'
+  DbUser:
+    Type: String
+  DbPassword:
+    Type: String
+    NoEcho: true
+  DbName:
+    Type: String
+  YoutubeApiKey:
+    Type: String
+    NoEcho: true
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+  DiscordWebhookUrl:
+    Type: String
+    Default: ''
+  LambdaMatcherUrl:
+    Type: String
+    Default: 'https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.com/Prod/match-setlist'
+  PubsubCallbackUrl:
+    Type: String
+    Default: ''
+
+Resources:
+  # --- Lambda Function ---
+  BerryApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: berry-api
+      Handler: entry-lambda.handler
+      Description: Berry Site unified API
+      Environment:
+        Variables:
+          MODE: prod
+          DB_HOST: !Ref DbHost
+          DB_PORT: !Ref DbPort
+          DB_USER: !Ref DbUser
+          DB_PASSWORD: !Ref DbPassword
+          DB_NAME: !Ref DbName
+          YOUTUBEAPIKEY: !Ref YoutubeApiKey
+          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
+          DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
+          LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
+          PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
+      Events:
+        HttpApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BerryHttpApi
+            Path: /{proxy+}
+            Method: ANY
+        HttpApiRoot:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref BerryHttpApi
+            Path: /
+            Method: ANY
+        DailyUpdate:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 7 * * ? *)
+            Description: "Daily auto-update (UTC 07:00 = Taiwan 15:00)"
+            Enabled: true
+        PollingCheck:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0/30 14-19 * * ? *)
+            Description: "Polling check (UTC 14-19 = Taiwan 22-03)"
+            Enabled: true
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        Minify: true
+        Target: es2022
+        Sourcemap: false
+        EntryPoints:
+          - entry-lambda.js
+
+  # --- API Gateway HTTP API ---
+  BerryHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      CorsConfiguration:
+        AllowOrigins:
+          - !Sub "https://${DomainName}"
+          - !Sub "https://www.${DomainName}"
+          - "http://localhost:8787"
+          - "http://localhost:8788"
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - If-None-Match
+          - X-Source
+          - X-Requested-With
+        MaxAge: 600
+
+  # --- S3 Bucket for Fansite static files ---
+  FansiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "berry-fansite-${AWS::AccountId}"
+
+  FansiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FansiteBucket
+      PolicyDocument:
+        Statement:
+          - Sid: CloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${FansiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # --- CloudFront Distribution ---
+  CloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: berry-fansite-oac
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_200
+        Comment: !Sub "Berry Site - ${DomainName}"
+
+        Origins:
+          # S3 origin (fansite static files)
+          - Id: S3Origin
+            DomainName: !GetAtt FansiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+
+          # API Gateway origin
+          - Id: ApiOrigin
+            DomainName: !Sub "${BerryHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          Compress: true
+
+        CacheBehaviors:
+          # All data API routes under /api/* → API Gateway (no cache)
+          - PathPattern: /api/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          # Infrastructure routes (no /api/ prefix)
+          - PathPattern: /health
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            AllowedMethods: [GET, HEAD, OPTIONS]
+          - PathPattern: /webhook/*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+          - PathPattern: /trigger-*
+            TargetOriginId: ApiOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+        # SPA: return index.html for 403/404
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 10
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub "https://${BerryHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+  CloudFrontUrl:
+    Description: CloudFront distribution URL
+    Value: !Sub "https://${CloudFrontDistribution.DomainName}"
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID (for DNS CNAME)
+    Value: !Ref CloudFrontDistribution
+  FansiteBucketName:
+    Description: S3 bucket for fansite static files
+    Value: !Ref FansiteBucket

@@ -1,0 +1,47 @@
+name = "berry-site"
+main = "entry-worker.js"
+compatibility_date = "2024-11-06"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Static Assets — fansite 靜態檔案（備用站完整網站）
+[assets]
+directory = "fansite"
+binding = "ASSETS"
+
+[observability]
+enabled = true
+
+# 生產環境變數
+[vars]
+MODE = "prod"
+# Lambda URL for fuzzy matching
+LAMBDA_MATCHER_URL = "https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.com/Prod/match-setlist"
+
+# Hyperdrive binding (DB 連線)
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "aa8d76fa8d584d8db7c0f8542b447009"  # berry-test (mbdb_test) — 測完換回 3794cb90bec64a1f9e92bc3b4a60ea41
+
+# Cron triggers — 備用站不跑 cron，由 AWS (EventBridge) 負責
+# 正式啟用時取消註解
+# [triggers]
+# crons = ["0 7 * * *", "*/30 14-19 * * *"]
+
+# --- 開發環境 ---
+[env.dev]
+name = "berry-site-dev"
+main = "entry-worker.js"
+
+[env.dev.assets]
+directory = "fansite"
+binding = "ASSETS"
+
+[env.dev.vars]
+MODE = "test"
+LAMBDA_MATCHER_URL = "http://localhost:3000/match-setlist"
+
+# 需要使用 wrangler secret put 設定的秘密變數：
+# wrangler secret put YOUTUBEAPIKEY
+# wrangler secret put DISCORD_WEBHOOK_URL
+# wrangler secret put ANTHROPIC_API_KEY
+# wrangler secret put PUBSUB_CALLBACK_URL

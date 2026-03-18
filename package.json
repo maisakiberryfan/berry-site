@@ -1,0 +1,35 @@
+{
+  "name": "berry-site",
+  "version": "3.0.0",
+  "description": "VTuber maisakiberry fan site - unified backend + static frontend",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev -e dev",
+    "dev:fansite": "cd fansite && npx wrangler pages dev ./",
+    "build:fansite": "cd fansite && npm run build",
+    "deploy:cf": "wrangler deploy",
+    "deploy:aws": "sam build && sam deploy --region ap-northeast-1"
+  },
+  "keywords": [
+    "vtuber",
+    "hono",
+    "cloudflare-workers",
+    "aws-lambda",
+    "youtube",
+    "setlist"
+  ],
+  "author": "Berry Pro",
+  "license": "MIT",
+  "dependencies": {
+    "dayjs": "^1.11.19",
+    "hono": "^4.9.7",
+    "mysql2": "^3.6.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4",
+    "wrangler": "^4.26.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

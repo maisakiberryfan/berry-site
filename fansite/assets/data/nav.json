@@ -1,0 +1,64 @@
+{
+  "brand": {
+    "label": "苺咲べりぃ非公式倉庫",
+    "labelEn": "Maisaki Berry Unofficial Archive",
+    "labelJa": "苺咲べりぃ非公式倉庫",
+    "href": "/"
+  },
+  "left": [
+    {
+      "label": "草莓的",
+      "labelEn": "Berry's",
+      "labelJa": "べりぃの",
+      "items": [
+        { "label": "個人資料", "labelEn": "Profile", "labelJa": "プロフィール", "href": "/profile", "ext": ".htm" },
+        { "label": "歷史", "labelEn": "History", "labelJa": "沿革", "href": "/history", "ext": ".md" },
+        { "label": "服裝", "labelEn": "Clothes", "labelJa": "衣装", "href": "/clothes", "ext": ".htm" }
+      ]
+    },
+    {
+      "label": "列表",
+      "labelEn": "List",
+      "labelJa": "リスト",
+      "items": [
+        { "label": "歌曲列表", "labelEn": "Song List", "labelJa": "楽曲リスト", "href": "/songlist", "ext": "" },
+        { "label": "直播列表", "labelEn": "Stream List", "labelJa": "配信リスト", "href": "/streamlist", "ext": ".json" },
+        { "label": "歌單", "labelEn": "Set List", "labelJa": "セットリスト", "href": "/setlist", "ext": ".json" },
+        { "label": "別名", "labelEn": "Aliases", "labelJa": "エイリアス", "href": "/aliases", "ext": "" },
+        { "divider": true },
+        { "label": "分析", "labelEn": "Analytics", "labelJa": "分析", "href": "/analytics", "ext": ".htm" }
+      ]
+    },
+    {
+      "label": "其他 Wiki",
+      "labelEn": "Other Wiki",
+      "labelJa": "他のWiki",
+      "items": [
+        { "label": "seesaawiki", "labelEn": "seesaawiki", "labelJa": "seesaawiki", "href": "https://seesaawiki.jp/maisakiberry/", "external": true },
+        { "label": "HackMD", "labelEn": "HackMD", "labelJa": "HackMD", "href": "https://hackmd.io/@MaisakiBerry", "external": true },
+        { "label": "Fandom", "labelEn": "Fandom", "labelJa": "Fandom", "href": "https://virtualyoutuber.fandom.com/wiki/Maisaki_Berry", "external": true }
+      ]
+    },
+    {
+      "label": "粉絲",
+      "labelEn": "Fan",
+      "labelJa": "ファン",
+      "icon": "bi-discord",
+      "items": [
+        { "label": "中文", "labelEn": "Chinese", "labelJa": "中国語", "href": "https://discord.gg/sXdaXB7", "external": true },
+        { "label": "English", "labelEn": "English", "labelJa": "English", "href": "https://discord.gg/csQ77FEyTA", "external": true }
+      ]
+    },
+    {
+      "href": "https://github.com/maisakiberryfan/website",
+      "icon": "bi-github",
+      "external": true,
+      "borderStart": true
+    }
+  ],
+  "right": [
+    { "label": "官方", "labelEn": "Official", "labelJa": "公式", "href": "https://www.maisakiberry.com/", "icon": "bi-house-fill", "external": true },
+    { "href": "https://twitter.com/MaisakiBerry", "icon": "bi-twitter-x", "external": true },
+    { "href": "https://www.youtube.com/channel/UC7A7bGRVdIwo93nqnA3x-OQ", "icon": "bi-youtube", "external": true }
+  ]
+}

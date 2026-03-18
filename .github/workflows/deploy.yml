@@ -1,0 +1,85 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - '.dev.vars'
+      - 'wrangler.toml'
+
+env:
+  AWS_REGION: ap-northeast-1
+  SAM_CLI_TELEMETRY: 0
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: aws-actions/setup-sam@v2
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Build Lambda
+      - run: sam build
+
+      # Deploy Lambda + API Gateway + CloudFront
+      - run: |
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset \
+            --stack-name berry-site \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              DbHost=${{ secrets.DB_HOST }} \
+              DbPort=${{ secrets.DB_PORT }} \
+              DbUser=${{ secrets.DB_USER }} \
+              DbPassword=${{ secrets.DB_PASSWORD }} \
+              DbName=${{ secrets.DB_NAME }} \
+              YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
+              AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
+              DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
+              LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
+              PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }}
+
+      # Get S3 bucket name and CloudFront distribution ID from stack outputs
+      - name: Get stack outputs
+        id: stack
+        run: |
+          echo "bucket=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`FansiteBucketName`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
+          echo "cf_dist=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
+
+      # Sync fansite static files to S3
+      - name: Sync fansite to S3
+        run: |
+          aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
+            --delete \
+            --cache-control "public, max-age=86400" \
+            --exclude "*.html" \
+            --exclude "config.js"
+          aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
+            --cache-control "no-cache, must-revalidate" \
+            --include "*.html" \
+            --include "config.js"
+
+      # Invalidate CloudFront cache for updated files
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.stack.outputs.cf_dist }} \
+            --paths "/*.html" "/config.js" "/assets/*"

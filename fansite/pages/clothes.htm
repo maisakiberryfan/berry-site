@@ -1,0 +1,139 @@
+<div class="fs-5"><p>點擊服裝看更多 / Click on the outfit to see more. / 衣装をクリックして、詳細をご覧ください。</p></div>
+<div id="pic" class="row row-cols-auto">
+    <!-- javascript寫入內容 -->
+</div>
+
+<script>
+    sourceArray = [
+        {"name":"2D-冬服","date":"20260212","designer":"みわうに","modeler":"うなぬん","link":"OraWP0bLPfY","count":"4"},
+        {"name":"2D-アイドル衣装3","date":"20250526","designer":"みわうに","modeler":"うなぬん","link":"9G0RAa5cOlY","count":"5"},
+        {"name":"2D-JK服","date":"20250120","designer":"みわうに","modeler":"乃樹坂くしお","link":"s8xse8ghpTw","count":"7"},
+        {"name":"3D-衣装4","date":"20241205","designer":"ana","modeler":"Rぷりん","link":"tXgcfNdmL84","count":"8", "sideView":"2"},
+        {"name":"2D-和服メイド","date":"20240617","designer":"みわうに","modeler":"乃樹坂くしお","link":"x4_vih6njco","count":"6"},
+        {"name":"2D-ルームウェア","date":"20240116","designer":"みわうに","modeler":"乃樹坂くしお","link":"_puahGBIXPs","count":"8"},
+        {"name":"3D-衣装3","date":"20230905","designer":"ana","modeler":"Rぷりん","link":"61TdPwpqekc","count":"7", "sideView":"2"},
+        {"name":"2D-新衣装","date":"20230515","designer":"みわうに","modeler":"乃樹坂くしお","link":"LZPbxTodH7M","count":"5"},
+        {"name":"2D-アイドル衣装2","date":"20220905","designer":"みわうに","modeler":"クワガタ","link":"42suuMXG2Gw","count":"5"},
+        {"name":"3D-衣装2","date":"20220815","designer":"ana","modeler":"REI","link":"k7dberaRllk","count":"6", "sideView":"2"},
+        {"name":"2D-衣装","date":"20220515","designer":"みわうに","modeler":"わくー。","link":"-UNwTux9VSw","count":"6"},
+        {"name":"2D-アイドル衣装1","date":"20210910","designer":"みわうに","modeler":"わくー。","link":"mqIXh62KGoo","count":"5"},
+        {"name":"3D-衣装1","date":"20210724","designer":"ana","modeler":"REI","link":"Tv-B6rqKhMU","count":"6", "sideView":"2"},
+        {"name":"2D-ver1.5","date":"20210213","designer":"ケイ","modeler":"わくー。","link":"RQC8Af2TWHc","count":"1"},
+        {"name":"2D-初期衣装","date":"20200815","designer":"ケイ","modeler":"わくー。","link":"DkoSEEItb5Y","count":"1"}
+    ]
+
+    itemsBaseURL = "img/clothes/"
+
+  $(()=>{
+    
+    //生成預覽
+    let data = sourceArray.map(e => {
+      //第一張要帶連結
+      let item =
+        `<figure class="col figure figure-cloth"><a href='${itemsBaseURL}${e.date}/s1.webp' data-fancybox="${e.date}"><img src="${itemsBaseURL}${e.date}/s1.webp" class="figure-img" width="324" height="576"></a>`
+
+      let itemSideView = ''
+
+      for (let i = 1; i < e.count; i++) {
+        item = item + `<a href='${itemsBaseURL}${e.date}/s${i + 1}.webp' data-fancybox="${e.date}"></a>`
+      }
+
+      if (e.sideView > 0) {
+        //有四面圖另外處理
+        itemSideView = `<a href="${itemsBaseURL}${e.date}/c1.webp" data-fancybox="${e.date}_s">四面圖</a>`
+        for (let j = 1; j < e.sideView; j++) {
+          itemSideView = itemSideView + `<a href="${itemsBaseURL}${e.date}/c${j + 1}.webp" data-fancybox="${e.date}_s"></a>`
+        }
+      }
+
+      item = item +
+        `<figcaption class="figure-caption fs-5">
+        <p><a href='http://youtu.be/${e.link}'>${e.name}</a>` + (e.sideView > 0 ? `&emsp;${itemSideView}` : '') + `<br>
+          date：${dayjs(e.date, "YYYYMMDD").format('YYYY/MM/DD')}<br>
+          designer：${e.designer}<br>
+          modeler：${e.modeler}
+        </figcaption>
+      </figure>`
+      return item
+    })
+
+    $('#pic').html(data.join(''))
+
+    // Lazy load Fancybox and bind
+    window.loadFancybox().then(Fancybox => {
+      Fancybox.bind('[data-fancybox]', {
+        Hash: true,
+        Thumbs: {
+          autoStart: true
+        },
+        Toolbar: {
+          display: [
+            { id: 'counter', position: 'left' },
+            'zoom',
+            'close'
+          ]
+        },
+        Carousel: {
+          transition: 'fade',
+          infinite: false
+        }
+      })
+    })
+
+    // Handle URL hash navigation
+    function handleHashNavigation() {
+      const hash = window.location.hash.substring(1) // Remove #
+      if (!hash) return
+
+      const parts = hash.split('-')
+      const date = parts[0]
+      const index = parts[1] ? parseInt(parts[1]) - 1 : 0 // Convert to 0-based index
+
+      const outfit = sourceArray.find(e => e.date === date)
+      if (!outfit) return
+
+      // Wait for DOM to be ready with all images
+      setTimeout(() => {
+        // Build gallery items for this outfit
+        const existingLinks = document.querySelectorAll(`[data-fancybox="${date}"]`)
+        const galleryItems = existingLinks.length > 0
+          ? Array.from(existingLinks).map(link => ({ src: link.href, thumb: link.href }))
+          : (() => {
+              const items = []
+              for (let i = 0; i < outfit.count; i++) {
+                items.push({ src: `${itemsBaseURL}${outfit.date}/s${i + 1}.webp`, thumb: `${itemsBaseURL}${outfit.date}/s${i + 1}.webp` })
+              }
+              if (outfit.sideView > 0) {
+                for (let j = 0; j < outfit.sideView; j++) {
+                  items.push({ src: `${itemsBaseURL}${outfit.date}/c${j + 1}.webp`, thumb: `${itemsBaseURL}${outfit.date}/c${j + 1}.webp` })
+                }
+              }
+              return items
+            })()
+
+        if (galleryItems.length === 0) return
+
+        window.loadFancybox().then(() => {
+          Fancybox.show(galleryItems, {
+            startIndex: Math.min(index, galleryItems.length - 1),
+            Hash: true,
+            Thumbs: { autoStart: true },
+            Toolbar: {
+              display: [
+                { id: 'counter', position: 'left' },
+                'zoom',
+                'close'
+              ]
+            },
+            Carousel: { transition: 'fade', infinite: false }
+          })
+        })
+      }, 100)
+    }
+
+    // Handle hash navigation on page load and hash change
+    handleHashNavigation()
+    window.addEventListener('hashchange', handleHashNavigation)
+
+  })
+  </script>

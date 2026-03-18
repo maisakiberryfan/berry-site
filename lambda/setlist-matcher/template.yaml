@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Berry Setlist Matcher - Fuzzy matching service for setlist parsing
+
+Parameters:
+  FunctionTimeout:
+    Type: Number
+    Default: 60
+    Description: Lambda function timeout in seconds
+  FunctionMemory:
+    Type: Number
+    Default: 512
+    Description: Lambda function memory in MB
+  HyperdriveApiUrl:
+    Type: String
+    Default: 'https://hyperdrive.katani.workers.dev'
+    Description: Berry Site API URL for songlist/aliases data
+
+Globals:
+  Function:
+    Timeout: !Ref FunctionTimeout
+    MemorySize: !Ref FunctionMemory
+    Runtime: nodejs22.x
+    Architectures:
+      - arm64
+
+Resources:
+  MatchSetlistFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: berry-setlist-matcher
+      Handler: src/handler.handler
+      CodeUri: .
+      Environment:
+        Variables:
+          HYPERDRIVE_API_URL: !Ref HyperdriveApiUrl
+      Events:
+        MatchSetlist:
+          Type: Api
+          Properties:
+            Path: /match-setlist
+            Method: post
+        MatchSetlistOptions:
+          Type: Api
+          Properties:
+            Path: /match-setlist
+            Method: options
+
+  MatchSetlistLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${MatchSetlistFunction}
+      RetentionInDays: 30
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/match-setlist"
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt MatchSetlistFunction.Arn
