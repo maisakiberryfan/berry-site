@@ -3582,11 +3582,13 @@ function preCategory(t){
 
 async function getLatest(){
   try {
-    const [ytLatest, dataUpdates, gitCommitMsg] = await Promise.all([
+    const results = await Promise.allSettled([
       getYTlatest(),
       getDataUpdates(),
       getGitCommitMsg()
     ])
+    const [ytLatest, dataUpdates, gitCommitMsg] = results.map(r => r.status === 'fulfilled' ? r.value : '')
+    results.filter(r => r.status === 'rejected').forEach(r => console.warn('getLatest partial failure:', r.reason))
     // Two-column layout: video on left, updates on right
     return `
     <div class="row mt-3">
