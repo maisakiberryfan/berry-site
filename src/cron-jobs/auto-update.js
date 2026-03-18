@@ -11,6 +11,7 @@ import { sendDiscordNotification } from '../utils/discord-notifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
+import { iso8601ToMySQL } from '../utils/middleware.js'
 
 /**
  * Main auto-update function
@@ -322,7 +323,7 @@ export async function runPollingCheck(env) {
           })
           await db.execute(
             'UPDATE streamlist SET time = ? WHERE streamID = ?',
-            [scheduledStartTime, stream.id]
+            [iso8601ToMySQL(scheduledStartTime), stream.id]
           )
           stream.time = scheduledStartTime
         }

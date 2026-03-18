@@ -8,6 +8,7 @@ import { getLogger } from './unified-logger.js'
 import { Database } from './database.js'
 import { getVideoComments as getVideoCommentsCore } from './youtube-comments.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
+import { iso8601ToMySQL } from './middleware.js'
 import { getSecret } from '../platform.js'
 
 /**
@@ -692,7 +693,7 @@ export class DataProcessor {
         try {
           await db.execute(
             'INSERT INTO streamlist (streamID, title, time, categories, note, setlistComplete) VALUES (?, ?, ?, ?, ?, ?)',
-            [streamID, title, time, categoriesJson, note, setlistComplete]
+            [streamID, title, iso8601ToMySQL(time), categoriesJson, note, setlistComplete]
           )
           insertedCount++
         } catch (error) {
