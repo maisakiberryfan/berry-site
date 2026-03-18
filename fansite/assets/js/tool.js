@@ -2967,19 +2967,6 @@ $(()=>{
   })
 
   function fillVedioInfo(obj){
-    // query youtube api get info
-    // You can use your API key to query the info
-    // https://developers.google.com/youtube/v3/getting-started
-    // if you have api key then decomment the following code
-    // and comment url:'https://getytvideoinfo.katani.workers.dev/?id='+id, decomment url:url
-
-    /* const YOUTUBEAPIKEY = 'YOUR_YOUTUBE_API_KEY'
-     let url = https://www.googleapis.com/youtube/v3/videos?key=' + YOUTUBEAPIKEY 
-           + '&part=id,snippet,liveStreamingDetails'
-           + '&fields=items(id,snippet(publishedAt,channelId,title),liveStreamingDetails(scheduledStartTime))'
-           + '&id='+id
-    */
-    
     const BERRYCHANNEL = ['UC7A7bGRVdIwo93nqnA3x-OQ', 'UCBOGwPeBtaPRU59j8jshdjQ', 'UC2cgr_UtYukapRUt404In-A']
 
     let id = getYoutubeVideoId(obj.val())
@@ -2987,8 +2974,7 @@ $(()=>{
 
     //load content
     $.ajax({
-      url:'https://getytvideoinfo.katani.workers.dev/?id='+id,
-      //url:url
+      url: API_CONFIG.BASE_URL + '/api/yt?id='+id,
       })
       .done((d, textStatus, request)=>{
         let info = d.items[0]
@@ -3643,7 +3629,7 @@ function getDataUpdates(){
 function getYTlatest(){
   return new Promise((resolve, reject)=>{
     $.ajax({
-      url:'https://getytvideoinfo.katani.workers.dev/latest'
+      url: API_CONFIG.BASE_URL + '/api/yt/latest'
     })
     .done((d)=>{
       let v = d.items[0].snippet
