@@ -11,6 +11,7 @@ on:
 env:
   AWS_REGION: ap-northeast-1
   SAM_CLI_TELEMETRY: 0
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   deploy:
@@ -24,7 +25,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - uses: actions/setup-python@v5
         with:
