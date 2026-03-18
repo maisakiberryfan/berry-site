@@ -42,6 +42,10 @@ Parameters:
   PubsubCallbackUrl:
     Type: String
     Default: ''
+  GithubToken:
+    Type: String
+    NoEcho: true
+    Default: ''
 
 Resources:
   # --- Lambda Function ---
@@ -64,6 +68,7 @@ Resources:
           DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
           LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
+          GITHUB_TOKEN: !Ref GithubToken
       Events:
         HttpApi:
           Type: HttpApi

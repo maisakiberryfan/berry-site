@@ -67,7 +67,8 @@ jobs:
               AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
-              PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }}
+              PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \
+              GithubToken=${{ secrets.GH_PAT_TOKEN }}
 
       # Get S3 bucket name and CloudFront distribution ID from stack outputs
       - name: Get stack outputs
