@@ -37,8 +37,10 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Install dependencies (esbuild needed for SAM build)
-      - run: npm ci
+      # Install dependencies and make esbuild available on PATH
+      - run: |
+          npm ci
+          echo "$(pwd)/node_modules/.bin" >> $GITHUB_PATH
 
       # Build Lambda
       - run: sam build
