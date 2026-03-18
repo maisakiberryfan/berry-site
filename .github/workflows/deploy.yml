@@ -47,7 +47,7 @@ jobs:
 
       # Deploy Lambda + API Gateway + CloudFront
       - run: |
-          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset \
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
