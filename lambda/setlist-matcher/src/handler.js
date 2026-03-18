@@ -7,7 +7,7 @@ import { Searcher } from 'fast-fuzzy'
 import leven from 'leven'
 
 // API URL from environment variable
-const HYPERDRIVE_API_URL = process.env.HYPERDRIVE_API_URL || 'https://hyperdrive.katani.workers.dev'
+const HYPERDRIVE_API_URL = process.env.HYPERDRIVE_API_URL || 'https://d36w2d8blmdfr.cloudfront.net'
 
 // Matching configuration
 const CONFIG = {
