@@ -33,7 +33,7 @@ Resources:
       CodeUri: .
       Environment:
         Variables:
-          HYPERDRIVE_API_URL: !Ref BerrySiteApiUrl
+          BERRY_SITE_API_URL: !Ref BerrySiteApiUrl
       Events:
         MatchSetlist:
           Type: Api
