@@ -65,7 +65,8 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - jQuery 3.7.1 + Bootstrap 5.3.3（深色主題）
 - Tabulator 6.3.1 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
 - DuckDB-WASM（Analytics）
-- esbuild 建置
+- esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
+- Tabulator pin 在 6.3.1（6.4.0 改用 `@use` 與自訂 SCSS 不相容）
 
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
@@ -92,14 +93,32 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | 路由 | 說明 |
 |------|------|
 | `/api/songlist` | 歌曲 CRUD |
+| `/api/songlist/artists` | 藝人列表 |
+| `/api/songlist/optimized` | 優化版歌曲查詢 |
+| `/api/songlist.json` | 前端用歌曲 proxy |
 | `/api/streamlist` | 直播 CRUD |
+| `/api/streamlist/latest` | 最新直播 |
+| `/api/streamlist/pending` | 待解析歌枠 |
 | `/api/setlist` | 歌單 CRUD（composite key: streamID/segmentNo/trackNo） |
 | `/api/aliases` | 別名管理 |
+| `/api/yt?id={videoId}` | 單一影片資訊 |
+| `/api/yt/latest` | 最新影片（從 DB） |
+| `/api/yt/newvideos` | 多頻道新影片查詢 |
+| `/api/yt/live-details?id={videoId}` | 直播狀態（isLive, isEnded） |
 | `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher） |
 | `/api/get-comments` | YouTube 留言抓取 |
-| `/api/text-to-sql` | AI SQL 查詢（每日 $0.1 預算） |
-| `/api/github/latest-commit` | GitHub commit 代理 |
-| `/health` | 健康檢查 |
+| `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
+| `/api/github/latest-commit` | GitHub commit 代理（5 分鐘快取） |
+| `/api/stats/last-updated` | 各表最後更新時間 |
+
+### 基礎設施路由（無 `/api/` 前綴）
+
+| 路由 | 說明 |
+|------|------|
+| `/health` | 健康檢查 + DB 連線測試 |
+| `/webhook/youtube` | PubSubHubbub webhook（GET 驗證 / POST 通知） |
+| `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`) |
+| `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true` 跳過歌枠檢查） |
 
 ### Cron Triggers
 
@@ -123,6 +142,36 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - 配置：threshold=0.88, titleWeight=0.75, artistWeight=0.25
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
 - 部署：`sam build && sam deploy`（獨立 SAM stack）
+
+### CloudFront 架構
+
+**Origins**：
+- `S3Origin` → FansiteBucket（靜態檔案）
+- `ThumbnailOrigin` → ThumbnailBucket（縮圖，key: `tb/{streamID}.jpg`）
+- `ApiOrigin` → API Gateway
+
+**CacheBehaviors**：
+| 路徑 | Origin | 快取 |
+|------|--------|------|
+| `/tb/*` | ThumbnailOrigin | CachingOptimized |
+| `/api/*` | ApiOrigin | CachingDisabled |
+| `/webhook/*` | ApiOrigin | CachingDisabled |
+| `/trigger-*` | ApiOrigin | CachingDisabled |
+| `/health` | ApiOrigin | CachingDisabled |
+| `*`（預設） | S3Origin | CachingOptimized + BotBlockerFunction |
+
+**BotBlockerFunction**（CloudFront Function, viewer-request）：
+- 惡意路徑（`.php`, `/wp-*`, `/.env`）→ 404
+- SPA 路由白名單 → rewrite `/index.html`
+- 其他 → 交給 S3（存在=200，不存在=真 404）
+
+**存取日誌**：LogBucket（30 天自動過期）
+
+### 縮圖系統
+
+- 新影片透過 `runAutoUpdate` / PubSub 自動下載到 S3（`src/utils/thumbnail.js`）
+- 前端 `imageLink()` 使用 `/tb/{id}.jpg`，onerror fallback YouTube CDN
+- 小於 5KB 視為 YouTube 預設佔位圖，跳過上傳
 
 ---
 
@@ -216,9 +265,10 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.1 | 2026-03-21 | SPA 路由白名單、縮圖 S3 存儲、Polling 10 分鐘、CloudFront 存取日誌 |
 | v3.0 | 2026-03-18 | AWS 遷移完成：CloudFront + Lambda + S3、CI/CD、舊 Workers 停用 |
 | v2.9 | 2026-02-26 | PubSub 直播時間修正 |
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-03-18
+**最後更新**：2026-03-21
