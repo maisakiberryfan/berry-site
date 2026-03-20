@@ -105,7 +105,7 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 
 ```
 UTC 07:00       = 台灣 15:00     每日備援 runAutoUpdate
-UTC 14:00~19:00 = 台灣 22:00~03:00  每 30 分鐘 runPollingCheck
+UTC 14:00~19:00 = 台灣 22:00~03:00  每 10 分鐘 runPollingCheck
 ```
 
 AWS EventBridge 為主要排程。CF cron 已停用。
