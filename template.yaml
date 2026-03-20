@@ -198,6 +198,13 @@ Resources:
         HttpVersion: http2and3
         PriceClass: PriceClass_200
         Comment: !Sub "Berry Site - ${DomainName}"
+        Aliases:
+          - !Ref DomainName
+          - !Sub "www.${DomainName}"
+        ViewerCertificate:
+          AcmCertificateArn: arn:aws:acm:us-east-1:495219733379:certificate/086af653-fef6-466c-af06-655cf7f590a3
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
 
         Origins:
           # S3 origin (fansite static files)
