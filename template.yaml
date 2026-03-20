@@ -157,6 +157,28 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
+  # --- CloudFront Function (bot blocker) ---
+  BotBlockerFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: berry-bot-blocker
+      AutoPublish: true
+      FunctionConfig:
+        Comment: "Block WordPress bot scanning (.php, /wp-*)"
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var uri = event.request.uri.toLowerCase();
+          if (uri.endsWith('.php') || uri.match(/\.php\d*$/) || uri.startsWith('/wp-')) {
+            return {
+              statusCode: 404,
+              statusDescription: 'Not Found',
+              body: { encoding: 'text', data: '' }
+            };
+          }
+          return event.request;
+        }
+
   # --- CloudFront Distribution ---
   CloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
@@ -199,6 +221,9 @@ Resources:
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
           Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt BotBlockerFunction.FunctionARN
 
         CacheBehaviors:
           # All data API routes under /api/* → API Gateway (no cache)
