@@ -511,9 +511,14 @@ app.post('/webhook/youtube', async (c) => {
   })()
 
   // Platform-specific: CF uses waitUntil, Lambda just awaits
-  if (c.executionCtx?.waitUntil) {
-    c.executionCtx.waitUntil(bgWork)
-  } else {
+  try {
+    const ctx = c.executionCtx
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(bgWork)
+    } else {
+      await bgWork
+    }
+  } catch {
     await bgWork
   }
 
