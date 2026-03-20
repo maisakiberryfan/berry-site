@@ -10,7 +10,7 @@
     "dev": "npx wrangler pages dev ./",
     "clean": "rimraf assets/dist",
     "build:tabulator": "sass --load-path=node_modules assets/css/tabulator-bootstrap5-custom.scss assets/css/tabulator-bootstrap5-custom.css",
-    "build:js": "npm run clean && esbuild assets/js/tool.js --bundle --splitting --format=esm --target=es2022 --minify --sourcemap --outdir=assets/dist --loader:.css=css --log-level=info",
+    "build:js": "npm run clean && esbuild assets/js/tool.js --bundle --format=esm --target=es2022 --minify --sourcemap --outdir=assets/dist --loader:.css=css --log-level=info",
     "build": "npm run build:tabulator && npm run build:js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -26,7 +26,7 @@
     "jquery": "^3.7.1",
     "marked": "^17.0.1",
     "select2": "^4.1.0-rc.0",
-    "tabulator-tables": "^6.3.1"
+    "tabulator-tables": "6.3.1"
   },
   "devDependencies": {
     "esbuild": "^0.27.0",

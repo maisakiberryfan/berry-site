@@ -210,11 +210,12 @@ export async function getNewVideosFromChannels(env, db) {
     const videoDetailsResult = await getVideoDetails(allVideoIds, env)
     authMethods.add(videoDetailsResult.authMethod)
 
-    // Filter by actual publish/start date
+    // Filter by actual publish/start date and add .time field
     const filteredVideos = []
     videoDetailsResult.items.forEach(video => {
       const actualStartTime = video.liveStreamingDetails?.scheduledStartTime || video.snippet?.publishedAt
       if (actualStartTime && new Date(actualStartTime) > baselineTime) {
+        video.time = actualStartTime
         filteredVideos.push(video)
       }
     })
@@ -271,9 +272,4 @@ export async function getLiveDetails(videoId, env) {
   }
 }
 
-// Get latest video from specific playlist
-export async function getLatestVideo(env) {
-  const playlistId = 'UU7A7bGRVdIwo93nqnA3x-OQ'
-  const url = `${YOUTUBE_API_BASE}/playlistItems?playlistId=${playlistId}&part=snippet,contentDetails&fields=items(snippet(publishedAt,title,thumbnails(medium),resourceId(videoId)))&maxResults=1`
-  return await makeYouTubeAPIRequest(url, env)
-}
+

@@ -1,7 +1,7 @@
 <div class="fs-5 m-2">
     <div class="row">
       <div class="col-sm text-end">
-        <img src="img/profile/profile.webp" width="544px" height="544px">
+        <img src="img/profile/profile.webp" width="544" height="544">
       </div>
       <div class="col-sm">
         <div>誕生日／Birthday：08/15</div>
@@ -22,7 +22,7 @@
     </div>
 
     <div id="intro" class="text-center my-4">
-        <H1>Introduction</H1>
+        <h2>Introduction</h2>
         <!-- 日文 (hidden) -->
         <div data-lang="ja" class="d-none">
             <blockquote class="blockquote fs-4"><i>苺の国からやってきた、歌うことが大好きなアイドルVtuber！</i></blockquote>
@@ -44,14 +44,14 @@
     </div>
 
     <div id="logo" class="mt-4">
-        <H1 class="text-center">Logo</H1>
+        <h2 class="text-center">Logo</h2>
         <div class="row">
             <figure class="figure col text-center">
-                <img class="figure-img img-fluid rounded" src="img/profile/mainlogo.webp" width="576px" height="324px">
+                <img class="figure-img img-fluid rounded" src="img/profile/mainlogo.webp" width="576" height="324">
                 <figcaption class="figure-caption">​main logo／来宮りお</figcaption>
             </figure>
             <figure class="figure col text-center">
-                <img class="figure-img img-fluid rounded" src="img/profile/symbol.webp" width="324px" height="324px">
+                <img class="figure-img img-fluid rounded" src="img/profile/symbol.webp" width="324" height="324">
                 <figcaption class="figure-caption">symbol logo／ますだめぐみ</figcaption>
             </figure>
         </div>
@@ -59,7 +59,7 @@
     <!-- bgm -->
 
     <div id="BGM" class="text-center mt-4">
-        <H1>BGM</H1>
+        <h2>BGM</h2>
 
         <div class="form-check form-check-inline">
             <input class="form-check-input" type="radio" name="bgm" id="bgm1" value="1">
@@ -100,7 +100,7 @@
             const val = $('input[name="bgm"]:checked').val()
             if(!val) return
             player.src = `img/profile/bgm/${val}.mp3`
-            player.play()
+            player.play().catch(() => {})
         })
 
         // 計算出道時間（年月日）

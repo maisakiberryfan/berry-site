@@ -72,6 +72,10 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - 即時編輯：Tabulator inline editing + API 同步
 - 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋
 - SPA 路由：`setContent(path)` + `history.pushState`
+
+### ⚠️ SPA 路由同步
+新增前端頁面路由時，**必須同步更新** `template.yaml` 的 `BotBlockerFunction` 中 `spaRoutes` 陣列。
+路由清單來源：`fansite/assets/data/nav.json`
 - `Promise.allSettled` 確保首頁各區塊獨立載入
 
 ### 建置
@@ -178,6 +182,18 @@ cd fansite && npm run build:js
 ### Setlist Composite Key
 - 路由：`/api/setlist/:streamID/:segmentNo/:trackNo`
 - 新增 row 用 `_isNew` flag 區分 POST/PUT
+
+### PubSubHubbub 訂閱
+- Lease 5 天，由 `runAutoUpdate` 每 4 天自動續訂
+- **DNS 切換、長時間中斷後必須手動重新訂閱**（lease 過期 + callback 不可達 = 訂閱失效）
+- 手動訂閱指令：
+  ```bash
+  for CH in UC7A7bGRVdIwo93nqnA3x-OQ UCBOGwPeBtaPRU59j8jshdjQ UC2cgr_UtYukapRUt404In-A; do
+    curl -X POST https://pubsubhubbub.appspot.com/subscribe \
+      -d "hub.callback=https://m-b.win/webhook/youtube&hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$CH&hub.verify=async&hub.mode=subscribe&hub.lease_seconds=432000"
+  done
+  ```
+- 驗證：log 應出現 `GET /webhook/youtube?hub.challenge=...` 回應 200
 
 ### 部署
 - **AWS / CF**：push 到 GitHub 自動部署

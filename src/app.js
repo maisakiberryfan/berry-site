@@ -13,9 +13,9 @@ import { extractVideoId } from './utils/url-helpers.js'
 import { initLogger, getLogger } from './utils/unified-logger.js'
 import { sendDiscordNotification } from './utils/discord-notifier.js'
 import { getVideoComments } from './utils/youtube-comments.js'
-import { errorHandler } from './utils/middleware.js'
+import { errorHandler, mysqlToISO8601 } from './utils/middleware.js'
 import {
-  getVideoInfo, getNewVideosFromChannels, getLatestVideo,
+  getVideoInfo, getNewVideosFromChannels,
   getLiveDetails, preCategory, makeYouTubeAPIRequest
 } from './utils/youtube-api.js'
 
@@ -126,11 +126,27 @@ api.get('/yt', async (c) => {
   }
 })
 
-// Latest video
+// Latest video (from streamlist DB)
 api.get('/yt/latest', async (c) => {
   try {
-    const result = await getLatestVideo(c.env)
-    return c.json(result)
+    const db = c.get('db')
+    const rows = await db.query(
+      'SELECT streamID, title, time, categories FROM streamlist ORDER BY time DESC LIMIT 1'
+    )
+    if (!rows || rows.length === 0) {
+      return c.json({ error: 'No streams found' }, 404)
+    }
+    const latest = rows[0]
+    return c.json({
+      success: true,
+      data: {
+        videoId: latest.streamID,
+        title: latest.title,
+        time: mysqlToISO8601(latest.time),
+        categories: typeof latest.categories === 'string'
+          ? JSON.parse(latest.categories) : latest.categories
+      }
+    })
   } catch (error) {
     return c.json({ error: '無法獲取最新影片', details: error.message }, 500)
   }

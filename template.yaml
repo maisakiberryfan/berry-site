@@ -69,6 +69,12 @@ Resources:
           LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
           GITHUB_TOKEN: !Ref GithubToken
+          THUMBNAIL_BUCKET: !Ref ThumbnailBucket
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: s3:PutObject
+              Resource: !Sub "${ThumbnailBucket.Arn}/*"
       Events:
         HttpApi:
           Type: HttpApi
@@ -171,6 +177,28 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
+  # --- S3 Bucket for Thumbnails ---
+  ThumbnailBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "berry-thumbnails-${AWS::AccountId}"
+
+  ThumbnailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ThumbnailBucket
+      PolicyDocument:
+        Statement:
+          - Sid: CloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${ThumbnailBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
   # --- CloudFront Function (bot blocker) ---
   BotBlockerFunction:
     Type: AWS::CloudFront::Function
@@ -178,17 +206,22 @@ Resources:
       Name: berry-bot-blocker
       AutoPublish: true
       FunctionConfig:
-        Comment: "Block WordPress bot scanning (.php, /wp-*)"
+        Comment: "SPA route whitelist + bot blocking"
         Runtime: cloudfront-js-2.0
       FunctionCode: |
         function handler(event) {
-          var uri = event.request.uri.toLowerCase();
-          if (uri.endsWith('.php') || uri.match(/\.php\d*$/) || uri.startsWith('/wp-')) {
-            return {
-              statusCode: 404,
-              statusDescription: 'Not Found',
-              body: { encoding: 'text', data: '' }
-            };
+          var uri = event.request.uri;
+          var uriLower = uri.toLowerCase();
+          if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) || uriLower.startsWith('/wp-') || uriLower === '/.env' || uriLower.startsWith('/.env.')) {
+            return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
+          }
+          // SPA routes -> rewrite to /index.html
+          // When adding new frontend pages, update this array (see fansite/assets/data/nav.json)
+          var spaRoutes = ['/', '/profile', '/history', '/clothes', '/songlist', '/streamlist', '/setlist', '/aliases', '/analytics'];
+          var clean = uri.replace(/\/$/, '') || '/';
+          if (spaRoutes.indexOf(clean) >= 0) {
+            event.request.uri = '/index.html';
+            return event.request;
           }
           return event.request;
         }
@@ -233,6 +266,13 @@ Resources:
             S3OriginConfig:
               OriginAccessIdentity: ''
 
+          # S3 origin (thumbnails)
+          - Id: ThumbnailOrigin
+            DomainName: !GetAtt ThumbnailBucket.RegionalDomainName
+            OriginAccessControlId: !Ref CloudFrontOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+
           # API Gateway origin
           - Id: ApiOrigin
             DomainName: !Sub "${BerryHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
@@ -252,6 +292,12 @@ Resources:
               FunctionARN: !GetAtt BotBlockerFunction.FunctionARN
 
         CacheBehaviors:
+          # Thumbnails → ThumbnailBucket (cached)
+          - PathPattern: /tb/*
+            TargetOriginId: ThumbnailOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+            Compress: true
           # All data API routes under /api/* → API Gateway (no cache)
           - PathPattern: /api/*
             TargetOriginId: ApiOrigin
@@ -278,16 +324,6 @@ Resources:
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
-        # SPA: return index.html for 403/404
-        CustomErrorResponses:
-          - ErrorCode: 403
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 10
-          - ErrorCode: 404
-            ResponseCode: 200
-            ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 10
 
 Outputs:
   ApiUrl:
@@ -302,3 +338,6 @@ Outputs:
   FansiteBucketName:
     Description: S3 bucket for fansite static files
     Value: !Ref FansiteBucket
+  ThumbnailBucketName:
+    Description: S3 bucket for stream thumbnails
+    Value: !Ref ThumbnailBucket

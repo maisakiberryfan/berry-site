@@ -12,6 +12,7 @@ import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
 import { iso8601ToMySQL } from '../utils/middleware.js'
+import { saveThumbnail } from '../utils/thumbnail.js'
 
 /**
  * Main auto-update function
@@ -157,6 +158,15 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
           err: { message: error.message }
         })
         result.errors.push(`Streamlist 寫入失敗: ${error.message}`)
+      }
+
+      // Step 2.5: Download thumbnails to S3
+      for (const video of newVideos) {
+        try {
+          await saveThumbnail(video.id, env)
+        } catch (e) {
+          logger.warn('THUMBNAIL', `縮圖下載失敗: ${video.id}`, { err: { message: e.message } })
+        }
       }
     }
 
