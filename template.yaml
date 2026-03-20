@@ -135,6 +135,20 @@ Resources:
           - X-Requested-With
         MaxAge: 600
 
+  # --- S3 Bucket for CloudFront access logs ---
+  LogBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "berry-cloudfront-logs-${AWS::AccountId}"
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 30
+
   # --- S3 Bucket for Fansite static files ---
   FansiteBucket:
     Type: AWS::S3::Bucket
@@ -205,6 +219,11 @@ Resources:
           AcmCertificateArn: arn:aws:acm:us-east-1:495219733379:certificate/086af653-fef6-466c-af06-655cf7f590a3
           SslSupportMethod: sni-only
           MinimumProtocolVersion: TLSv1.2_2021
+
+        Logging:
+          Bucket: !GetAtt LogBucket.DomainName
+          IncludeCookies: false
+          Prefix: cf-logs/
 
         Origins:
           # S3 origin (fansite static files)
