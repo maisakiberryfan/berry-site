@@ -1,3 +1,10 @@
+## 2026
+* 2026/03/13　[AWA公式番組「#アワステ」ゲスト](https://x.com/AWA_official/status/2032441548705825110)
+* 2026/02/14　[ライブイベント「#ぶいかふぇ♪」vol.208 出演キャスト](https://x.com/MaisakiBerry/status/2022655123101811036)
+* 2026/02/12　[新しいお洋服をみて♥](https://www.youtube.com/live/OraWP0bLPfY)
+* 2026/02/11　[V COLLECTION【#CHETCollection #11】](https://x.com/C_H_E_T_art/status/2021561521365823874)
+* 2026/01/07　SOUND VORTEX新曲「CAKE,Cake'n Cake!」[twitter](https://x.com/MaisakiBerry/status/2009086847532855343) / [youtube](https://www.youtube.com/watch?v=JxIktLT2VqY)
+
 ## 2025
 * 2025/12/20　Single 『いつも通りのI love you』[youtube](https://www.youtube.com/watch?v=4kQH6ELDJ8Q) / [booth](https://maisakiberry.booth.pm/items/7776451)
 * 2025/11/30　Single 『季節の歩幅』[youtube](https://www.youtube.com/watch?v=zqyrT6ONh_c) / [booth](https://maisakiberry.booth.pm/items/7707663)
@@ -76,7 +83,7 @@
 * 2023/05/17　高評価1000での初オリソン歌唱
 * 2023/05/15　新衣装/Live2D202お披露目
 * 2023/05/10　サブチャンネルの登録者が2000人を超え、メンバーシップが開設出来るようになる
-* 2023/05/07　夜に駆ける50万再生  高評価1000でオリソンを新しい目標に設定
+* 2023/05/07　夜に駆ける50万再生　高評価1000でオリソンを新しい目標に設定
 * 2023/05/04　Twitterフォロワー7,000人
 * 2023/04/30　[4th album『BBB!』発売](https://www.maisakiberry.com/4th-bbb)
 * 2023/04/17～30　毎日歌枠
@@ -109,7 +116,7 @@
 * 2022/05/10　夜に駆ける30万再生
 * 2022/04/24　[2nd album『 Bouquet.』 発売](https://www.maisakiberry.com/2nd-bouquet)
 * 2022/04/23　チャンネル登録60,000人
-* 2022/04/02　1stアルバム配信開始  配信に伴いchが公式アーティスト認定を受ける(♪が付く)
+* 2022/04/02　1stアルバム配信開始　配信に伴いchが公式アーティスト認定を受ける(♪が付く)
 * 2022/02/25　チャンネル登録55,000人/歌枠直後
 * 2022/02/22　Twitterフォロワー4,000人
 * 2022/02/13　新衣装お披露目
