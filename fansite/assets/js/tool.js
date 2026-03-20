@@ -406,6 +406,14 @@ $(()=>{
     // Set page title
     document.title = title + '苺咲べりぃ非公式倉庫'
 
+    // Cleanup before switching pages
+    $('#content [data-bs-toggle="tooltip"]').each(function() {
+      const tip = bootstrap.Tooltip.getInstance(this)
+      if (tip) tip.dispose()
+    })
+    const audio = document.getElementById('bgmPlayer')
+    if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load() }
+
     // For API endpoints (setlist, streamlist, songlist, aliases), skip $.ajax() and directly call configJsonTable
     // This eliminates duplicate requests (previously $.ajax() + Tabulator's ajaxURL)
     if(process=='setlist' || process=='streamlist' || process=='songlist' || process=='aliases'){
@@ -529,9 +537,15 @@ $(()=>{
 
           //append latest video info / update info
           if(url == 'pages/main.md'){
-            getLatest().then(r=>{
-              $("#content").append(r)
-            })
+            $("#content").append(`
+              <div class="row mt-3">
+                <div class="col-lg-6 col-md-12 mb-3" id="yt-slot"></div>
+                <div class="col-lg-6 col-md-12" id="info-slot"></div>
+              </div>
+            `)
+            getYTlatest().then(html => $("#yt-slot").html(html)).catch(()=>{})
+            getDataUpdates().then(html => $("#info-slot").prepend(html)).catch(()=>{})
+            getGitCommitMsg().then(html => $("#info-slot").append(html)).catch(()=>{})
           }
 
           //if data is remote, tell the source
@@ -1472,7 +1486,7 @@ $(()=>{
   function imageLink(cell){
     const data = cell.getData()
     const id = data.id || data.streamID  // Support both old and new field names
-    return `<img src='https://i.ytimg.com/vi/${id}/hqdefault.jpg' width="160" height="120">`
+    return `<img src='/tb/${id}.jpg' onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${id}/hqdefault.jpg'" width="160" height="120">`
   }
 
   function canEdit(){
@@ -3566,32 +3580,6 @@ function preCategory(t){
   return categories.length > 0 ? categories : ['other']
 }
 
-async function getLatest(){
-  try {
-    const results = await Promise.allSettled([
-      getYTlatest(),
-      getDataUpdates(),
-      getGitCommitMsg()
-    ])
-    const [ytLatest, dataUpdates, gitCommitMsg] = results.map(r => r.status === 'fulfilled' ? r.value : '')
-    results.filter(r => r.status === 'rejected').forEach(r => console.warn('getLatest partial failure:', r.reason))
-    // Two-column layout: video on left, updates on right
-    return `
-    <div class="row mt-3">
-      <div class="col-lg-6 col-md-12 mb-3">
-        ${ytLatest}
-      </div>
-      <div class="col-lg-6 col-md-12">
-        ${dataUpdates}
-        ${gitCommitMsg}
-      </div>
-    </div>
-    `
-  }
-  catch (error) {
-    console.error('Error fetching data:', error)
-  }
-}
 
 // Get database last updated times
 function getDataUpdates(){
@@ -3625,21 +3613,22 @@ function getDataUpdates(){
   })
 }
 
-//get berry latest public video
+//get berry latest stream from DB
 function getYTlatest(){
   return new Promise((resolve, reject)=>{
     $.ajax({
       url: API_CONFIG.BASE_URL + '/api/yt/latest'
     })
     .done((d)=>{
-      let v = d.items[0].snippet
+      if (!d.success || !d.data) { resolve(''); return }
+      const v = d.data
       let html =`
       <div id='YTlatest' class='card'>
-        <a href="https://www.youtube.com/watch?v=${v.resourceId.videoId}" class="card-link"><img src="${v.thumbnails.medium.url}" class="card-img-top"></a>
+        <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg" class="card-img-top"></a>
         <div class="card-body">
-          <h5 class="card-title">Latest Public Video</h5>
-          <h6 class="card-subtitle mb-2 text-body-secondary">publish @ ${dayjs(v.publishedAt).format('YYYY/MM/DD HH:mmZ')}</h6>
-          <a href="https://www.youtube.com/watch?v=${v.resourceId.videoId}" class="card-link">${v.title}</a>
+          <h5 class="card-title">Latest Stream</h5>
+          <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
+          <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link">${v.title}</a>
         </div>
       </div>
       `
