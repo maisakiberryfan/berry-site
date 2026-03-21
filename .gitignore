@@ -6,4 +6,8 @@ node_modules/
 dist/
 .aws-sam/
 samconfig.toml
-scripts/
+scripts/.env
+scripts/node_modules/
+scripts/*.log
+scripts/*.sql
+scripts/*.parquet

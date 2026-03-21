@@ -1,0 +1,22 @@
+{
+  "name": "berry-parquet-export",
+  "version": "1.0.0",
+  "description": "MariaDB to Parquet export script for Berry Fansite",
+  "type": "module",
+  "main": "export-parquet-standalone.js",
+  "scripts": {
+    "export": "node export-parquet-standalone.js"
+  },
+  "keywords": [
+    "berry",
+    "parquet",
+    "mariadb"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.0",
+    "parquetjs": "^0.11.2"
+  }
+}
