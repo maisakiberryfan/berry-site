@@ -1,8 +1,8 @@
 {
-  "time": "2026-03-21T00:56:38+08:00",
+  "time": "2026-03-22T00:26:27+08:00",
   "msg": {
-    "zh": "新增 2026 活動歷史、更新衣裝頁面",
-    "en": "Added 2026 event history, updated outfits page",
-    "ja": "2026年イベント履歴を追加、衣装ページを更新"
+    "zh": "歌單新增時間戳欄位，YouTube 連結可直接跳到歌曲開始位置",
+    "en": "Added timestamp columns to setlist, YouTube links now jump to song start",
+    "ja": "セットリストにタイムスタンプ欄を追加、YouTubeリンクで曲の開始位置にジャンプ可能に"
   }
 }

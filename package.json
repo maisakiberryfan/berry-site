@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev -e dev",
-    "dev:fansite": "cd fansite && npx wrangler pages dev ./",
+    "dev:fansite": "cd fansite && npm run dev",
     "build:fansite": "cd fansite && npm run build",
     "deploy:cf": "wrangler deploy",
     "deploy:aws": "sam build && sam deploy --region ap-northeast-1"

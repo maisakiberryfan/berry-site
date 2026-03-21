@@ -418,6 +418,11 @@ $(()=>{
             <button id='dlcsv' class='btn btn-outline-light'>${t('下載 CSV', 'Get CSV', 'CSV取得')}</button>
             <button id='dljson' class='btn btn-outline-light'>${t('下載 JSON', 'Get JSON', 'JSON取得')}</button>`
             + (process=='setlist'?`
+            <label class="btn btn-outline-light ms-2" style="font-size: 0.85em;">
+              <input type="checkbox" id="toggleTimestamp" class="form-check-input me-1">
+              ${t('時間戳', 'Timestamp', 'タイムスタンプ')}
+            </label>`:'')
+            + (process=='setlist'?`
             <div class="my-2">
               <button id='addNewSongInSetlist' class='btn btn-success' style="display: none;">
                 ➕ ${t('新增初回歌曲', 'Add New Song', '新規楽曲追加')}
@@ -1203,6 +1208,30 @@ $(()=>{
     }, width:'150', formatter:dateWithYTLink},
     {title:t('段落', 'Seg', 'セグ'), field:"segmentNo", sorter:'number', width:60},
     {title:t('曲序', 'Track', 'トラック'), field:"trackNo", sorter:'number', width:80},
+    {title:t('開始', 'Start', '開始'), field:"startTime", visible: false, sorter:'number', width:80, download:true,
+      formatter: function(cell) {
+        const v = cell.getValue();
+        if (v == null) return '';
+        const h = Math.floor(v / 3600);
+        const m = Math.floor((v % 3600) / 60);
+        const s = v % 60;
+        return h > 0
+          ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+          : `${m}:${String(s).padStart(2,'0')}`;
+      }
+    },
+    {title:t('結束', 'End', '終了'), field:"endTime", visible: false, sorter:'number', width:80, download:true,
+      formatter: function(cell) {
+        const v = cell.getValue();
+        if (v == null) return '';
+        const h = Math.floor(v / 3600);
+        const m = Math.floor((v % 3600) / 60);
+        const s = v % 60;
+        return h > 0
+          ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+          : `${m}:${String(s).padStart(2,'0')}`;
+      }
+    },
     {
       title:t('曲名', 'Song', '曲名'),
       field:"songName",
@@ -2883,6 +2912,16 @@ $(()=>{
   $('#content').on('click', '#dljson', ()=>{
     let filename=getProcess()
     jsonTable.download('json', filename + '.json')
+  })
+
+  $('#content').on('change', '#toggleTimestamp', function() {
+    if (this.checked) {
+      jsonTable.showColumn('startTime')
+      jsonTable.showColumn('endTime')
+    } else {
+      jsonTable.hideColumn('startTime')
+      jsonTable.hideColumn('endTime')
+    }
   })
 
   $('#setlistDate').on('blur', (e)=>{
