@@ -1896,19 +1896,6 @@ $(()=>{
 
         modal.hide()
 
-        // Force complete redraw of this row to recalculate height
-        setTimeout(() => {
-          row.reformat()
-
-          // Success visual feedback after redraw
-          setTimeout(() => {
-            cell.getElement().style.backgroundColor = '#d4edda'
-            setTimeout(() => {
-              cell.getElement().style.backgroundColor = ''
-            }, 1000)
-          }, 50)
-        }, 50)
-
         success(newJA) // Return primary language value
       } catch (error) {
         console.error('Error updating bilingual field:', error)
@@ -2167,6 +2154,12 @@ $(()=>{
           return
         }
 
+        // Skip songName/artist in songlist (already synced in bilingualEditor)
+        if (p === 'songlist' && (field === 'songName' || field === 'artist')) {
+          console.log('Bilingual field already synced in bilingualEditor, skipping API sync')
+          return
+        }
+
         console.log(`Cell edited: ${field} = ${value}`)
 
         // Determine API endpoint and ID field
@@ -2233,19 +2226,11 @@ $(()=>{
           await apiRequest('PUT', `${endpoint}/${id}`, updateData)
         }
 
-        // 更新快取
+        // 更新快取（reloadTable 會重建所有 cell，之後 cell 參照失效）
         await reloadTable()
-
-        // Show brief success indicator
-        cell.getElement().style.backgroundColor = '#d4edda'
-        setTimeout(() => {
-          cell.getElement().style.backgroundColor = ''
-        }, 1000)
 
       } catch (error) {
         console.error('Error syncing cell edit:', error)
-        // Revert cell value on error
-        cell.restoreOldValue()
         alert(`Error saving changes: ${error.message}`)
       }
     })
