@@ -311,6 +311,14 @@
           background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075));
         }
       }
+
+      &.tabulator-selected:hover {
+        background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95);
+
+        .tabulator-cell {
+          background-color: transparent;
+        }
+      }
     }
 
     &.tabulator-selected {
@@ -406,6 +414,14 @@ html[data-bs-theme="dark"] .tabulator {
 
         .tabulator-cell {
           background-color: var(--bs-table-hover-bg);
+        }
+      }
+
+      &.tabulator-selected:hover {
+        background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95);
+
+        .tabulator-cell {
+          background-color: transparent;
         }
       }
     }

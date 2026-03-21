@@ -1875,6 +1875,12 @@ body.tabulator-print-fullscreen-hide > *:not(.tabulator-print-fullscreen) {
   .tabulator.table-dark .tabulator-row:hover .tabulator-cell {
     background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075));
   }
+  .tabulator.table-dark .tabulator-row.tabulator-selected:hover {
+    background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95);
+  }
+  .tabulator.table-dark .tabulator-row.tabulator-selected:hover .tabulator-cell {
+    background-color: transparent;
+  }
 }
 .tabulator.table-dark .tabulator-row.tabulator-selected {
   background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85);
@@ -1952,6 +1958,12 @@ html[data-bs-theme=dark] .tabulator .tabulator-row {
   }
   html[data-bs-theme=dark] .tabulator .tabulator-row:hover .tabulator-cell {
     background-color: var(--bs-table-hover-bg);
+  }
+  html[data-bs-theme=dark] .tabulator .tabulator-row.tabulator-selected:hover {
+    background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95);
+  }
+  html[data-bs-theme=dark] .tabulator .tabulator-row.tabulator-selected:hover .tabulator-cell {
+    background-color: transparent;
   }
 }
 html[data-bs-theme=dark] .tabulator .tabulator-row.tabulator-selected {
