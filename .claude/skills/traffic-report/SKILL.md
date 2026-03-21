@@ -1,7 +1,6 @@
 ---
 name: traffic-report
 description: "Generate CloudFront traffic analysis report. Use when user asks for traffic report, IP analysis, bot analysis, or access log review for m-b.win."
-allowed-tools: [Bash, Read, Write, Glob, Grep]
 argument-hint: "[from-date] [to-date]"
 ---
 
@@ -55,11 +54,13 @@ C:\Users\katy\.claude\projects\E--website-berry-pro\cf-report-last.txt
 ### Step 2: Download Logs from S3
 
 ```bash
-mkdir -p /tmp/cf-logs
-MSYS_NO_PATHCONV=1 aws s3 sync s3://berry-cloudfront-logs-495219733379/cf-logs/ /tmp/cf-logs/ --region ap-northeast-1
+mkdir -p C:/Users/katy/.claude/projects/E--website-berry-site/cf-logs
+MSYS_NO_PATHCONV=1 aws s3 sync s3://berry-cloudfront-logs-495219733379/cf-logs/ C:/Users/katy/.claude/projects/E--website-berry-site/cf-logs/ --delete --region ap-northeast-1
 ```
 
-Filter log files by date range based on filename pattern: `E2J83LAK96PIJH.YYYY-MM-DD-HH.*.gz`
+- 本地檔案持久保留，sync 只下載新增檔案
+- `--delete`：S3 30 天過期後，本地也會在下次 sync 時自動清除（只刪本地，不動 S3）
+- 日誌檔名格式：`E2J83LAK96PIJH.YYYY-MM-DD-HH.*.gz`（UTC 時間）
 
 ### Step 3: Parse and Analyze
 
@@ -199,12 +200,6 @@ C:\Users\katy\.claude\projects\E--website-berry-pro\cf-report-last.txt
 ```
 
 Format: `YYYY-MM-DD HH:MM:SS UTC`（使用 `date -u`）
-
-### Step 6: Cleanup
-
-```bash
-rm -rf /tmp/cf-logs
-```
 
 ## Important Notes
 

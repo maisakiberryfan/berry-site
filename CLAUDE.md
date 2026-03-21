@@ -108,7 +108,6 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher） |
 | `/api/get-comments` | YouTube 留言抓取 |
 | `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
-| `/api/github/latest-commit` | GitHub commit 代理（5 分鐘快取） |
 | `/api/stats/last-updated` | 各表最後更新時間 |
 
 ### 基礎設施路由（無 `/api/` 前綴）
