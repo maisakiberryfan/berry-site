@@ -1,11 +1,7 @@
 {
-  "name": "website",
+  "name": "berry-fansite",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "description": "VTuber maisakiberry fan site - static frontend",
   "scripts": {
     "dev": "npx wrangler pages dev ./",
     "clean": "rimraf assets/dist",

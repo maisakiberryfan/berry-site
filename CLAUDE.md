@@ -132,7 +132,8 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 
 - `songlist`：歌曲資訊
 - `streamlist`：直播資訊
-- `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist）
+- `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist，YTLink 含 `?t=startTime`）
+  - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補
 - `aliases`：歌曲別名
 
 ### Lambda setlist-matcher
