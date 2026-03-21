@@ -40,8 +40,8 @@ OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR}"
 PARQUET_BASENAME="berry-data.parquet"
 PARQUET_FILE="$OUTPUT_DIR/$PARQUET_BASENAME"
 
-NODE_BIN="${NODE_BIN:-node}"
-PARQUET_SCRIPT="$SCRIPT_DIR/export-parquet.js"
+DUCKDB_IMAGE="duckdb/duckdb"
+DUCKDB_NETWORK="db_default"
 
 TIMESTAMP="$(date +"%Y-%m-%d_%H-%M-%S")"
 DATE_STR="$(date +%Y-%m-%d)"
@@ -125,11 +125,12 @@ check_docker_container() {
   fi
 }
 
-check_node() {
-  if ! command -v "$NODE_BIN" &>/dev/null; then
-    error_exit "Node not found: $NODE_BIN"
+check_duckdb_image() {
+  if ! docker image inspect "$DUCKDB_IMAGE" &>/dev/null; then
+    info "Pulling DuckDB image..."
+    docker pull "$DUCKDB_IMAGE"
   fi
-  info "Using Node.js: $("$NODE_BIN" -v)"
+  info "DuckDB image: $DUCKDB_IMAGE"
 }
 
 create_backup() {
@@ -180,10 +181,42 @@ compare_backups() {
 
 run_parquet_export() {
   mkdir -p "$OUTPUT_DIR"
-  info "Running parquet export..."
+  info "Running parquet export (DuckDB Docker)..."
 
-  if ! "$NODE_BIN" "$PARQUET_SCRIPT"; then
+  local SQL_FILE="$SCRIPT_DIR/.export.sql"
+  cat > "$SQL_FILE" << EXPORTSQL
+INSTALL mysql;
+LOAD mysql;
+ATTACH 'host=db user=${DB_USER} password=${DB_PASSWORD} port=3306 database=${DB_NAME}' AS mariadb (TYPE MYSQL, READ_ONLY);
+COPY (
+  SELECT
+    so.streamID, sl.title AS streamTitle, sl.time,
+    sl.categories, sl.setlistComplete,
+    so.segmentNo, so.trackNo, so.songID,
+    s.songName, s.songNameEn, s.artist, s.artistEn,
+    s.genre, s.tieup, so.note AS setlistNote, s.songNote
+  FROM mariadb.setlist_ori so
+  LEFT JOIN mariadb.streamlist sl ON so.streamID = sl.streamID
+  LEFT JOIN mariadb.songlist s ON so.songID = s.songID
+  ORDER BY sl.time DESC, so.segmentNo, so.trackNo
+) TO '/data/${PARQUET_BASENAME}' (
+  FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 100000
+);
+EXPORTSQL
+
+  if ! docker run --rm -i \
+    --network="$DUCKDB_NETWORK" \
+    -v "$OUTPUT_DIR:/data" \
+    "$DUCKDB_IMAGE" \
+    duckdb < "$SQL_FILE"; then
+    rm -f "$SQL_FILE"
     error_exit "Parquet export failed"
+  fi
+
+  rm -f "$SQL_FILE"
+
+  if [ ! -f "$PARQUET_FILE" ]; then
+    error_exit "Parquet file not found after export"
   fi
 }
 
@@ -212,7 +245,7 @@ detect_parquet_changes() {
 }
 
 # ========================================
-# GitHub Multi-File Commit (嵌入式 JS)
+# GitHub Multi-File Commit (curl + jq)
 # ========================================
 github_multi_file_commit() {
   local DB_CHANGED="$1"
@@ -221,226 +254,112 @@ github_multi_file_commit() {
 
   [ "$DB_CHANGED" -eq 0 ] && [ "$PQ_CHANGED" -eq 0 ] && return 1
 
-  local DBFILE=""
-  local PQFILE=""
+  if [ -z "$GITHUB_TOKEN" ] || [ -z "$GITHUB_OWNER" ] || [ -z "$GITHUB_REPO" ]; then
+    warn "GitHub config missing - skipping"
+    return 1
+  fi
 
-  [ "$DB_CHANGED" -eq 1 ] && DBFILE="$BACKUP_DIR/latest_mbdb.sql"
-  [ "$PQ_CHANGED" -eq 1 ] && PQFILE="$PARQUET_FILE"
+  if ! command -v jq &>/dev/null; then
+    warn "jq not installed - skipping GitHub upload"
+    return 1
+  fi
 
-  info "Starting GitHub upload..."
+  local API="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
+  local AUTH="Authorization: Bearer ${GITHUB_TOKEN}"
+  local ACCEPT="Accept: application/vnd.github+json"
+  local API_VER="X-GitHub-Api-Version: 2022-11-28"
 
-  DB_CHANGED="$DB_CHANGED" \
-  PQ_CHANGED="$PQ_CHANGED" \
-  DBFILE="$DBFILE" \
-  PQFILE="$PQFILE" \
-  COMMIT_MESSAGE="$COMMIT_MESSAGE" \
-  GITHUB_TOKEN="$GITHUB_TOKEN" \
-  GITHUB_OWNER="$GITHUB_OWNER" \
-  GITHUB_REPO="$GITHUB_REPO" \
-  GITHUB_BRANCH="$GITHUB_BRANCH" \
-  LOG_FILE="$LOG_FILE" \
-  "$NODE_BIN" <<'GITHUB_JS_EOF'
-const fs = require('fs');
-const https = require('https');
+  info "----- GITHUB UPLOAD START -----"
 
-// ============ Config ============
-const {
-  DB_CHANGED,
-  PQ_CHANGED,
-  DBFILE,
-  PQFILE,
-  COMMIT_MESSAGE,
-  GITHUB_TOKEN,
-  GITHUB_OWNER,
-  GITHUB_REPO,
-  GITHUB_BRANCH = 'main',
-  LOG_FILE,
-} = process.env;
-
-// ============ Logging ============
-function ts() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-function log(level, msg) {
-  const line = `[${ts()}] ${level} ${msg}\n`;
-  if (LOG_FILE) fs.appendFileSync(LOG_FILE, line);
-  process.stderr.write(line);
-}
-
-const info = (m) => log('INFO', m);
-const error = (m) => log('ERROR', m);
-const success = (m) => log('SUCCESS', m);
-
-// ============ GitHub API Helper ============
-function githubAPI(endpoint, method = 'GET', body = null) {
-  return new Promise((resolve, reject) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: `/repos/${GITHUB_OWNER}/${GITHUB_REPO}${endpoint}`,
-      method,
-      headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'backup-script',
-      },
-    };
-
-    if (body) {
-      options.headers['Content-Type'] = 'application/json';
-    }
-
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (res.statusCode >= 200 && res.statusCode < 300) {
-            resolve(json);
-          } else {
-            reject(new Error(`GitHub API ${res.statusCode}: ${json.message || data}`));
-          }
-        } catch (e) {
-          reject(new Error(`Parse error: ${data}`));
-        }
-      });
-    });
-
-    req.on('error', reject);
-    req.setTimeout(30000, () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
-    });
-
-    if (body) req.write(JSON.stringify(body));
-    req.end();
-  });
-}
-
-// ============ Core Functions ============
-async function getLatestCommitSha() {
-  const data = await githubAPI(`/git/ref/heads/${GITHUB_BRANCH}`);
-  return data.object.sha;
-}
-
-async function getTreeSha(commitSha) {
-  const data = await githubAPI(`/git/commits/${commitSha}`);
-  return data.tree.sha;
-}
-
-async function createBlob(content, encoding = 'base64') {
-  const data = await githubAPI('/git/blobs', 'POST', { content, encoding });
-  return data.sha;
-}
-
-async function createTree(baseTreeSha, files) {
-  const tree = files.map(f => ({
-    path: f.path,
-    mode: '100644',
-    type: 'blob',
-    sha: f.sha,
-  }));
-
-  const data = await githubAPI('/git/trees', 'POST', { base_tree: baseTreeSha, tree });
-  return data.sha;
-}
-
-async function createCommit(message, treeSha, parentSha) {
-  const data = await githubAPI('/git/commits', 'POST', {
-    message,
-    tree: treeSha,
-    parents: [parentSha],
-  });
-  return data.sha;
-}
-
-async function updateRef(commitSha) {
-  await githubAPI(`/git/refs/heads/${GITHUB_BRANCH}`, 'PATCH', { sha: commitSha, force: false });
-}
-
-// ============ Main ============
-async function main() {
-  info('----- GITHUB UPLOAD START -----');
-
-  // 準備檔案清單
-  const files = [];
-
-  if (DB_CHANGED === '1' && DBFILE && fs.existsSync(DBFILE)) {
-    files.push({ localPath: DBFILE, remotePath: 'latest_mbdb.sql' });
-  }
-  if (PQ_CHANGED === '1' && PQFILE && fs.existsSync(PQFILE)) {
-    files.push({ localPath: PQFILE, remotePath: 'berry-data.parquet' });
+  # Helper: GitHub API call
+  _gh_api() {
+    local method="$1" endpoint="$2"
+    shift 2
+    curl -sS -X "$method" -H "$AUTH" -H "$ACCEPT" -H "$API_VER" -H "User-Agent: backup-script" "$@" "${API}${endpoint}"
   }
 
-  if (files.length === 0) {
-    info('No files to upload');
-    return;
-  }
+  # 準備檔案清單
+  local -a LOCAL_FILES=()
+  local -a REMOTE_PATHS=()
 
-  info(`Files to upload: ${files.length}`);
-  files.forEach(f => {
-    const size = Math.round(fs.statSync(f.localPath).size / 1024);
-    info(`  - ${f.remotePath} (${size} KB)`);
-  });
+  if [ "$DB_CHANGED" -eq 1 ] && [ -f "$BACKUP_DIR/latest_mbdb.sql" ]; then
+    LOCAL_FILES+=("$BACKUP_DIR/latest_mbdb.sql")
+    REMOTE_PATHS+=("latest_mbdb.sql")
+  fi
+  if [ "$PQ_CHANGED" -eq 1 ] && [ -f "$PARQUET_FILE" ]; then
+    LOCAL_FILES+=("$PARQUET_FILE")
+    REMOTE_PATHS+=("berry-data.parquet")
+  fi
 
-  // Step 1: 取得最新 commit
-  info('Getting latest commit...');
-  const latestCommitSha = await getLatestCommitSha();
-  info(`Latest commit: ${latestCommitSha.substring(0, 7)}`);
+  if [ ${#LOCAL_FILES[@]} -eq 0 ]; then
+    info "No files to upload"
+    return 1
+  fi
 
-  // Step 2: 取得 tree SHA
-  const baseTreeSha = await getTreeSha(latestCommitSha);
+  info "Files to upload: ${#LOCAL_FILES[@]}"
+  for f in "${LOCAL_FILES[@]}"; do
+    local sz
+    sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+    info "  - $(basename "$f") ($((sz / 1024)) KB)"
+  done
 
-  // Step 3: 創建 blobs
-  info('Creating blobs...');
-  const fileBlobs = [];
+  # Step 1: Get latest commit SHA
+  info "Getting latest commit..."
+  local LATEST_SHA
+  LATEST_SHA=$(_gh_api GET "/git/ref/heads/${GITHUB_BRANCH}" | jq -r '.object.sha')
+  info "Latest commit: ${LATEST_SHA:0:7}"
 
-  for (const file of files) {
-    const content = fs.readFileSync(file.localPath).toString('base64');
-    const blobSha = await createBlob(content, 'base64');
-    fileBlobs.push({ path: file.remotePath, sha: blobSha });
-    info(`  Blob: ${file.remotePath} -> ${blobSha.substring(0, 7)}`);
-  }
+  # Step 2: Get base tree SHA
+  local BASE_TREE
+  BASE_TREE=$(_gh_api GET "/git/commits/${LATEST_SHA}" | jq -r '.tree.sha')
 
-  // Step 4: 創建 tree
-  info('Creating tree...');
-  const newTreeSha = await createTree(baseTreeSha, fileBlobs);
-  info(`New tree: ${newTreeSha.substring(0, 7)}`);
+  # Step 3: Create blobs
+  info "Creating blobs..."
+  local TREE_ENTRIES="[]"
+  local i
+  for i in "${!LOCAL_FILES[@]}"; do
+    local CONTENT
+    CONTENT=$(base64 -w0 "${LOCAL_FILES[$i]}")
+    local BLOB_SHA
+    BLOB_SHA=$(printf '{"content":"%s","encoding":"base64"}' "$CONTENT" | \
+      _gh_api POST "/git/blobs" -H "Content-Type: application/json" -d @- | jq -r '.sha')
+    info "  Blob: ${REMOTE_PATHS[$i]} -> ${BLOB_SHA:0:7}"
+    TREE_ENTRIES=$(echo "$TREE_ENTRIES" | jq --arg path "${REMOTE_PATHS[$i]}" --arg sha "$BLOB_SHA" \
+      '. + [{"path": $path, "mode": "100644", "type": "blob", "sha": $sha}]')
+  done
 
-  // Step 5: 創建 commit
-  info('Creating commit...');
-  const newCommitSha = await createCommit(COMMIT_MESSAGE, newTreeSha, latestCommitSha);
-  info(`New commit: ${newCommitSha.substring(0, 7)}`);
+  # Step 4: Create tree
+  info "Creating tree..."
+  local NEW_TREE
+  NEW_TREE=$(printf '{"base_tree":"%s","tree":%s}' "$BASE_TREE" "$TREE_ENTRIES" | \
+    _gh_api POST "/git/trees" -H "Content-Type: application/json" -d @- | jq -r '.sha')
+  info "New tree: ${NEW_TREE:0:7}"
 
-  // Step 6: 更新 ref
-  info('Updating branch ref...');
-  await updateRef(newCommitSha);
+  # Step 5: Create commit
+  info "Creating commit..."
+  local NEW_COMMIT
+  NEW_COMMIT=$(printf '{"message":"%s","tree":"%s","parents":["%s"]}' "$COMMIT_MESSAGE" "$NEW_TREE" "$LATEST_SHA" | \
+    _gh_api POST "/git/commits" -H "Content-Type: application/json" -d @- | jq -r '.sha')
+  info "New commit: ${NEW_COMMIT:0:7}"
 
-  success('GitHub upload completed!');
-  info(`URL: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/commit/${newCommitSha}`);
-  info('----- GITHUB UPLOAD END -----');
-}
+  # Step 6: Update ref
+  info "Updating branch ref..."
+  _gh_api PATCH "/git/refs/heads/${GITHUB_BRANCH}" -H "Content-Type: application/json" \
+    -d "{\"sha\":\"${NEW_COMMIT}\",\"force\":false}" >/dev/null
 
-main().catch(err => {
-  error(`Upload failed: ${err.message}`);
-  process.exit(1);
-});
-GITHUB_JS_EOF
+  success "GitHub upload completed!"
+  info "URL: https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/commit/${NEW_COMMIT}"
+  info "----- GITHUB UPLOAD END -----"
 }
 
 # ========================================
-# R2 Upload (嵌入式 JS)
+# R2 Upload (rclone)
 # ========================================
 upload_to_r2() {
   local PQFILE="$1"
 
-  if [ -z "$R2_ACCOUNT_ID" ] || [ -z "$R2_ACCESS_KEY_ID" ] || [ -z "$R2_SECRET_ACCESS_KEY" ] || [ -z "$R2_BUCKET" ]; then
-    warn "R2 config missing - skipping R2 upload"
+  if ! command -v rclone &>/dev/null; then
+    warn "rclone not installed - skipping R2 upload"
     return 1
   fi
 
@@ -449,83 +368,20 @@ upload_to_r2() {
     return 1
   fi
 
-  info "Starting R2 upload..."
+  local FILE_SIZE
+  FILE_SIZE=$(stat -c%s "$PQFILE" 2>/dev/null || echo 0)
+  info "----- R2 UPLOAD START -----"
+  info "Uploading $(basename "$PQFILE") ($((FILE_SIZE / 1024)) KB) to R2..."
 
-  R2_ACCOUNT_ID="$R2_ACCOUNT_ID" \
-  R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
-  R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" \
-  R2_BUCKET="$R2_BUCKET" \
-  PQFILE="$PQFILE" \
-  LOG_FILE="$LOG_FILE" \
-  "$NODE_BIN" --input-type=commonjs <<'R2_JS_EOF'
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const fs = require('fs');
-const path = require('path');
+  if rclone copyto "$PQFILE" "r2:${R2_BUCKET}/$(basename "$PQFILE")" --s3-no-check-bucket 2>&1; then
+    success "R2 upload completed: $(basename "$PQFILE")"
+  else
+    error "R2 upload failed"
+    info "----- R2 UPLOAD END -----"
+    return 1
+  fi
 
-const {
-  R2_ACCOUNT_ID,
-  R2_ACCESS_KEY_ID,
-  R2_SECRET_ACCESS_KEY,
-  R2_BUCKET,
-  PQFILE,
-  LOG_FILE,
-} = process.env;
-
-// ============ Logging ============
-function ts() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
-         `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-function log(level, msg) {
-  const line = `[${ts()}] ${level} ${msg}\n`;
-  if (LOG_FILE) fs.appendFileSync(LOG_FILE, line);
-  process.stderr.write(line);
-}
-
-const info = (m) => log('INFO', m);
-const error = (m) => log('ERROR', m);
-const success = (m) => log('SUCCESS', m);
-
-// ============ Main ============
-async function main() {
-  info('----- R2 UPLOAD START -----');
-
-  const client = new S3Client({
-    region: 'auto',
-    endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: R2_ACCESS_KEY_ID,
-      secretAccessKey: R2_SECRET_ACCESS_KEY,
-    },
-  });
-
-  const fileBuffer = fs.readFileSync(PQFILE);
-  const fileName = path.basename(PQFILE);
-  const fileSize = Math.round(fileBuffer.length / 1024);
-
-  info(`Uploading ${fileName} (${fileSize} KB) to R2...`);
-
-  const command = new PutObjectCommand({
-    Bucket: R2_BUCKET,
-    Key: fileName,
-    Body: fileBuffer,
-    ContentType: 'application/octet-stream',
-  });
-
-  await client.send(command);
-
-  success(`R2 upload completed: ${fileName}`);
-  info('----- R2 UPLOAD END -----');
-}
-
-main().catch(err => {
-  error(`R2 upload failed: ${err.message}`);
-  process.exit(1);
-});
-R2_JS_EOF
+  info "----- R2 UPLOAD END -----"
 }
 
 # ========================================
@@ -540,7 +396,7 @@ main() {
 
   ensure_backup_dir
   check_docker_container
-  check_node
+  check_duckdb_image
 
   # 資料庫備份
   local BACKUP_FILE
@@ -591,12 +447,8 @@ main() {
 
   # GitHub 上傳
   if [ "$DB_CHANGED" -eq 1 ] || [ "$PQ_CHANGED" -eq 1 ]; then
-    if [ -n "$GITHUB_TOKEN" ] && [ -n "$GITHUB_OWNER" ] && [ -n "$GITHUB_REPO" ]; then
-      if github_multi_file_commit "$DB_CHANGED" "$PQ_CHANGED" "$COMMIT_MESSAGE"; then
-        GITHUB_OK=1
-      fi
-    else
-      warn "GitHub config missing - skipping GitHub upload"
+    if github_multi_file_commit "$DB_CHANGED" "$PQ_CHANGED" "$COMMIT_MESSAGE"; then
+      GITHUB_OK=1
     fi
   fi
 
