@@ -666,7 +666,7 @@ async function handleAiQuery() {
   UI.btnSubmitAiQuery.disabled = true;
 
   try {
-    const response = await fetch(`${API_CONFIG.WORKER_URL}/api/text-to-sql`, {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/text-to-sql`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query })

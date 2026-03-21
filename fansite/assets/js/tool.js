@@ -102,9 +102,9 @@ function buildDropdown(item) {
     if (sub.divider) return '<li><hr class="dropdown-divider"></li>'
     const subLabel = getLabel(sub)
     const classes = sub.external ? 'dropdown-item' : 'dropdown-item setContent'
-    const ext = sub.ext !== undefined ? `data-ext="${sub.ext}"` : ''
+    const type = sub.type ? `data-type="${sub.type}"` : ''
     const target = sub.external ? 'target="_blank"' : ''
-    return `<li><a class="${classes}" href="${sub.href}" ${ext} ${target}>${subLabel}</a></li>`
+    return `<li><a class="${classes}" href="${sub.href}" ${type} ${target}>${subLabel}</a></li>`
   }).join('')
 
   return `
@@ -120,12 +120,12 @@ function buildNavItem(item) {
   const label = getLabel(item)
   const target = item.external ? 'target="_blank"' : ''
   const classes = item.external ? 'nav-link px-2' : 'nav-link px-2 setContent'
-  const ext = item.ext !== undefined ? `data-ext="${item.ext}"` : ''
+  const type = item.type ? `data-type="${item.type}"` : ''
   const borderClass = item.borderStart ? ' border-start ps-2 ms-2' : ''
 
   return `
     <li class="nav-item${borderClass}">
-      <a class="${classes}" href="${item.href}" ${ext} ${target}>${label ? `<span>${label}</span>` : ''}${icon}</a>
+      <a class="${classes}" href="${item.href}" ${type} ${target}>${label ? `<span>${label}</span>` : ''}${icon}</a>
     </li>`
 }
 
@@ -339,6 +339,11 @@ $(()=>{
   // Initialize navigation from config (async, store promise)
   let navReadyPromise = renderNav()
 
+  // Handle browser back/forward navigation
+  window.addEventListener('popstate', () => {
+    setContent(location.pathname, false)
+  })
+
   function setContent(path, clk=false){
     //clk: by click
     /*
@@ -369,31 +374,14 @@ $(()=>{
           title = t.text()+' - '
           process = url
 
-          // 根據檔案類型設定正確的路徑
-          let ext = t.data().ext
-          if(ext === '.json') {
-            // Use new API endpoints instead of JSON files
-            if (process === 'streamlist') {
-              url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.streamlist
-            } else if (process === 'setlist') {
-              url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist
-            } else {
-              url = 'assets/data/' + url + ext
-            }
-          } else if(ext === '.htm' || ext === '.md') {
-            url = 'pages/' + url + ext
+          // Route by page type (from nav.json data-type attribute)
+          const pageType = t.data().type
+          if (pageType === 'api') {
+            url = API_CONFIG.BASE_URL + (API_CONFIG.ENDPOINTS[process] || `/api/${process}`)
+          } else if (pageType === 'htm' || pageType === 'md') {
+            url = 'pages/' + url + '.' + pageType
           } else {
-            url += ext
-          }
-
-          //songlist uses API endpoint now
-          if(process=='songlist') {
-            url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.songlist
-          }
-
-          //aliases uses API endpoint
-          if(process=='aliases') {
-            url = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.aliases
+            url = 'pages/' + url + '.md'
           }
         }
 

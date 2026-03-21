@@ -1,20 +1,8 @@
-// Environment detection for API URL
-// After consolidation, all API routes are under the same origin
-function getApiUrl() {
-  if (window.location.hostname === 'localhost' ||
-      window.location.hostname === '127.0.0.1') {
-    return ''  // Local development — same origin (wrangler dev serves both static + API)
-  }
-  return ''  // Relative path: same origin (works for both AWS CloudFront and CF Worker)
-}
-
 // Berry Fansite API Configuration
 export const API_CONFIG = {
-  // API base URL - automatically detects environment
-  BASE_URL: getApiUrl(),
-
-  // Worker API URL (same as BASE_URL after consolidation)
-  WORKER_URL: getApiUrl(),
+  // API base URL — empty string = same origin (relative path)
+  // Both AWS (CloudFront) and CF (Workers) serve frontend + API on the same origin
+  BASE_URL: '',
 
   // API endpoints
   ENDPOINTS: {
