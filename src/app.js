@@ -309,6 +309,8 @@ Columns:
 - streamTitle (VARCHAR): 直播標題
 - time (TIMESTAMP): 直播時間 (UTC)
 - categories (VARCHAR): 直播分類 (歌枠, 雑談, ASMR, ゲーム...)
+- setlistComplete (BOOLEAN): 該場歌單是否完整
+- segmentNo (INTEGER): 場次編號 (一場直播可能多段歌枠)
 - trackNo (INTEGER): 曲目順序 (1=第一首)
 - songID (INTEGER): 歌曲 ID
 - songName (VARCHAR): 歌名 ★主要搜尋欄位
@@ -317,6 +319,8 @@ Columns:
 - artistEn (VARCHAR): 歌手英文
 - genre (VARCHAR): 曲風
 - tieup (VARCHAR): 連動作品
+- setlistNote (VARCHAR): 歌單備註
+- songNote (VARCHAR): 歌曲備註
 
 DuckDB syntax rules:
 - Subquery MUST have alias: FROM (...) AS sub
