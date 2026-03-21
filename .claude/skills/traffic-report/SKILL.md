@@ -14,7 +14,29 @@ Generate a traffic analysis report for m-b.win using CloudFront access logs stor
 - `/traffic-report` — 從上次報告結束時間到現在
 - `/traffic-report 2026-03-20 2026-03-21` — 自定義時間區間
 
+## Time Rules
+
+### 顯示規則
+**所有對用戶顯示的時間一律使用台灣時間（UTC+8）**，格式為 `YYYY-MM-DD HH:MM:SS (台灣時間)`。
+包括：對話中的狀態訊息、報告內容、時間區間說明等。
+
+### 取得時間
+```bash
+date '+%Y-%m-%d %H:%M:%S'       # 台灣時間（系統時區 UTC+8）
+date -u '+%Y-%m-%d %H:%M:%S'    # UTC
+```
+
+### 儲存規則
+`cf-report-last.txt` 格式為 `YYYY-MM-DD HH:MM:SS UTC`（UTC 時間）。
+
 ## Execution Steps
+
+### Step 0: Verify Current Time
+
+在做任何事之前，先確認當前時間並顯示給用戶：
+```bash
+echo "目前時間：$(date '+%Y-%m-%d %H:%M:%S') (台灣時間) / $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+```
 
 ### Step 1: Determine Time Range
 
@@ -23,10 +45,12 @@ Read the last report timestamp from:
 C:\Users\katy\.claude\projects\E--website-berry-pro\cf-report-last.txt
 ```
 
-- If the file exists, use its content as the start time (format: `YYYY-MM-DD HH:MM:SS UTC`)
+- If the file exists, use its content as the start time (台灣時間)
 - If the file doesn't exist, start from the earliest available log
 - If user provided `$0` and `$1` arguments, use those as from-date and to-date instead
 - End time is always "now" (unless user specified `$1`)
+- 顯示時間區間給用戶確認後，再進行下一步
+- **比對日誌檔案時，將台灣時間轉為 UTC（-8 小時）來篩選檔名中的時間戳**
 
 ### Step 2: Download Logs from S3
 
@@ -64,7 +88,7 @@ Output the following sections in order. Use clear headers and tables.
 
 | Item | Value |
 |------|-------|
-| Time Range | {start} ~ {end} (UTC) / Taiwan time |
+| Time Range | {start_tw} ~ {end_tw} (台灣時間) |
 | Total Requests | N |
 | Unique IPs | N |
 | Total Bandwidth | X MB (response bytes) |
@@ -150,9 +174,10 @@ DFW=Dallas  IST=Istanbul  DEL=Delhi
 | Bot paths → 301 (HTTP redirect) | N | Bot used HTTP, redirected before function |
 | Bot paths → 200 (leaked) | N | Needs attention |
 
-#### 4.9 Hourly Traffic Pattern
+#### 4.9 Hourly Traffic Pattern (台灣時間)
 
 Show hourly request counts grouped by bot/real to identify attack windows.
+Hours should be displayed in Taiwan time (UTC+8).
 
 #### 4.10 Defense Recommendations (Free-First)
 
@@ -173,7 +198,7 @@ Write the end time of this report to:
 C:\Users\katy\.claude\projects\E--website-berry-pro\cf-report-last.txt
 ```
 
-Format: `YYYY-MM-DD HH:MM:SS UTC`
+Format: `YYYY-MM-DD HH:MM:SS UTC`（使用 `date -u`）
 
 ### Step 6: Cleanup
 
