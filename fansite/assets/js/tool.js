@@ -1527,7 +1527,7 @@ $(()=>{
   function dateWithYTLink(cell){
     let d = cell.getData()
     const dateValue = d.date || d.time  // Support both old and new field names
-    return `<a href="https://www.youtube.com/watch?v=${d.streamID}">${dayjs(dateValue).format('YYYY/MM/DD')}</a>`
+    return `<a href="${d.YTLink}">${dayjs(dateValue).format('YYYY/MM/DD')}</a>`
   }
 
 
