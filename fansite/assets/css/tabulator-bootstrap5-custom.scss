@@ -1,75 +1,36 @@
 /*!
  * Tabulator Bootstrap 5 theme aligned with Bootstrap 5.3 data-bs-theme variables.
  *
- * This file overrides the default theme variables before importing the official
- * Tabulator Bootstrap 5 theme so that the compiled CSS respects Bootstrap's
- * light/dark mode palette. After the import we add a few targeted tweaks that
- * restore the transparent table styling used by Tabulator 5.2.6 while keeping
- * the Tabulator 6.x structure.
+ * Uses @use to configure the official Tabulator 6.4 Bootstrap 5 theme with
+ * transparent defaults, then overrides compiled colors with CSS custom properties
+ * so light/dark mode stays in sync with Bootstrap 5.3.
  */
 
-@import "tabulator-tables/src/scss/themes/bootstrap/functions5";
-@import "tabulator-tables/src/scss/themes/bootstrap/variables5";
+@use "tabulator-tables/src/scss/themes/bootstrap/tabulator_bootstrap5" with (
+  $backgroundColor: transparent,
+  $headerBackgroundColor: transparent,
+  $headerForegroundColor: inherit,
+  $headerSeparatorColor: #dee2e6,
 
-// Recreate the 5.2.6 transparent baseline so the core SCSS compiles
-// without hard-coding light theme colors.
-$table-color: #212529;
-$table-bg: transparent;
-$table-striped-bg: rgba(0, 0, 0, 0.05);
-$table-striped-color: #212529;
-$table-hover-bg: rgba(0, 0, 0, 0.075);
-$table-hover-color: #212529;
-$table-active-bg: rgba(0, 0, 0, 0.1);
-$table-active-color: #212529;
-$table-border-color: #dee2e6;
-$table-accent-bg: rgba(0, 0, 0, 0.05);
+  $rowBackgroundColor: transparent,
+  $rowAltBackgroundColor: rgba(0, 0, 0, 0.05),
+  $rowHoverBackground: rgba(0, 0, 0, 0.075),
+  $rowBorderColor: #dee2e6,
+  $rowSelectedBackground: #9abcea,
+  $rowSelectedBackgroundHover: #769bcc,
 
-$body-bg: transparent;
-$body-color: #212529;
-$border-color: #dee2e6;
+  $footerBorderColor: #dee2e6,
+  $footerSeparatorColor: #dee2e6,
+  $footerActiveColor: #fff,
 
-// Theme variables consumed by tabulator_bootstrap5.scss
-$backgroundColor: transparent;
-$headerBackgroundColor: transparent;
-$headerForegroundColor: inherit;
-$headerSeparatorColor: #dee2e6;
+  $editBoxColor: #0d6efd,
+  $errorColor: #dc3545,
+  $sortArrowActive: #666,
+  $sortArrowInactive: #bbb
+);
 
-$rowBackgroundColor: transparent;
-$rowAltBackgroundColor: rgba(0, 0, 0, 0.05);
-$rowHoverBackground: rgba(0, 0, 0, 0.075);
-$rowBorderColor: #dee2e6;
-$rowSelectedBackground: #9abcea;
-$rowSelectedBackgroundHover: #769bcc;
-
-$footerBorderColor: #dee2e6;
-$footerSeparatorColor: #dee2e6;
-$footerActiveColor: #0d6efd;
-
-$pagination-color: #0d6efd;
-$pagination-bg: transparent;
-$pagination-border-color: #dee2e6;
-$pagination-hover-bg: rgba(0, 0, 0, 0.05);
-$pagination-hover-color: #0a58ca;
-$pagination-hover-border-color: #dee2e6;
-$pagination-active-bg: #0d6efd;
-$pagination-active-color: #fff;
-$pagination-active-border-color: #0d6efd;
-$pagination-disabled-bg: transparent;
-$pagination-disabled-color: #6c757d;
-$pagination-disabled-border-color: #dee2e6;
-$pagination-focus-bg: rgba(0, 0, 0, 0.05);
-$pagination-focus-color: #0a58ca;
-$pagination-focus-box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-$pagination-focus-outline: 0;
-
-$editBoxColor: #0d6efd;
-$errorColor: #dc3545;
-$sortArrowActive: #666;
-$sortArrowInactive: #bbb;
-
-@import "tabulator-tables/src/scss/themes/bootstrap/tabulator_bootstrap5";
-
-// Additional tweaks to replace the compiled colors with Bootstrap CSS variables
+// ── CSS custom property overrides ──────────────────────────────────────
+// Replace compiled hard-coded colors with Bootstrap CSS variables
 // so light/dark mode stays in sync with Bootstrap 5.3.
 .tabulator {
   border-color: var(--bs-border-color, #dee2e6);
@@ -278,12 +239,13 @@ $sortArrowInactive: #bbb;
     }
   }
 
-  .tabulator-paginator,
-  .tabulator-page {
+  // Pagination — use .tabulator-footer .tabulator-page to match base theme specificity
+  .tabulator-footer .tabulator-paginator,
+  .tabulator-footer .tabulator-page {
     color: var(--bs-pagination-color, var(--bs-link-color, #0d6efd));
   }
 
-  .tabulator-page {
+  .tabulator-footer .tabulator-page {
     background-color: var(--bs-pagination-bg, transparent);
     border: 1px solid var(--bs-pagination-border-color, #dee2e6);
 
@@ -299,7 +261,7 @@ $sortArrowInactive: #bbb;
       color: var(--bs-pagination-active-color, #fff);
     }
 
-    &.disabled {
+    &:disabled {
       background-color: var(--bs-pagination-disabled-bg, transparent);
       border-color: var(--bs-pagination-disabled-border-color, #dee2e6);
       color: var(--bs-pagination-disabled-color, var(--bs-secondary-color, #6c757d));
@@ -307,16 +269,207 @@ $sortArrowInactive: #bbb;
   }
 }
 
+// ── Neutralize 6.4.0's .table-dark hardcoded colors ────────────────────
+// The table uses class="table-dark table-striped table-bordered", so
+// .tabulator.table-dark rules from 6.4.0 override our .tabulator overrides.
+// Re-apply CSS variables at matching specificity.
+.tabulator.table-dark {
+  background-color: var(--bs-body-bg, transparent);
+
+  &:not(.thead-light) .tabulator-header {
+    border-color: var(--bs-border-color);
+    background-color: var(--bs-table-bg, transparent);
+    color: var(--bs-table-color, inherit);
+
+    .tabulator-col {
+      border-color: var(--bs-border-color);
+      background-color: var(--bs-table-bg, transparent);
+      color: var(--bs-table-color, inherit);
+    }
+  }
+
+  .tabulator-tableholder {
+    color: var(--bs-table-color, inherit);
+  }
+
+  .tabulator-cell {
+    color: var(--bs-table-color, inherit);
+    background-color: transparent;
+    border-color: var(--bs-border-color);
+  }
+
+  .tabulator-row {
+    border-color: var(--bs-border-color);
+    background-color: var(--bs-table-bg, transparent);
+    color: var(--bs-table-color, inherit);
+
+    @media (hover:hover) and (pointer:fine) {
+      &:hover {
+        background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075));
+
+        .tabulator-cell {
+          background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075));
+        }
+      }
+    }
+
+    &.tabulator-selected {
+      background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85);
+      color: var(--bs-white, #fff);
+    }
+  }
+
+  .tabulator-footer {
+    border-color: var(--bs-border-color) !important;
+    color: var(--bs-table-color, inherit) !important;
+
+    .tabulator-calcs-holder {
+      border-color: var(--bs-border-color) !important;
+      background: var(--bs-table-bg, transparent) !important;
+
+      .tabulator-row {
+        border-color: var(--bs-border-color) !important;
+        background-color: var(--bs-table-bg, transparent) !important;
+        color: var(--bs-table-color, inherit) !important;
+      }
+    }
+  }
+
+  input {
+    color: var(--bs-body-color) !important;
+    background-color: var(--bs-body-bg) !important;
+  }
+}
+
+// ── Neutralize .table-dark + .table-striped even-row overrides ─────────
+.tabulator.table-striped.table-dark .tabulator-row:nth-child(even) {
+  background-color: var(--bs-table-striped-bg) !important;
+
+  .tabulator-cell {
+    background-color: inherit;
+  }
+}
+
+.tabulator.table-striped.table-dark .tabulator-row.tabulator-row-even {
+  &.tabulator-selected {
+    background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
+  }
+
+  @media (hover:hover) and (pointer:fine) {
+    &.tabulator-selectable:hover {
+      background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075)) !important;
+      cursor: pointer;
+    }
+
+    &.tabulator-selected:hover {
+      background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95) !important;
+      cursor: pointer;
+    }
+  }
+}
+
+// ── Neutralize 6.4.0's html[data-bs-theme="dark"] hardcoded colors ─────
+html[data-bs-theme="dark"] .tabulator {
+  background-color: var(--bs-body-bg);
+  color: var(--bs-body-color);
+
+  &:not(.thead-light) .tabulator-header {
+    border-color: var(--bs-border-color);
+    background-color: var(--bs-table-bg, transparent);
+    color: var(--bs-table-color, inherit);
+
+    .tabulator-col {
+      border-color: var(--bs-border-color);
+      background-color: var(--bs-table-bg, transparent);
+      color: var(--bs-table-color, inherit);
+    }
+  }
+
+  .tabulator-tableholder {
+    color: var(--bs-table-color, inherit);
+  }
+
+  .tabulator-cell {
+    color: var(--bs-table-color, inherit);
+    background-color: transparent;
+    border-color: var(--bs-border-color);
+  }
+
+  .tabulator-row {
+    border-color: var(--bs-border-color);
+    background-color: var(--bs-table-bg, transparent);
+    color: var(--bs-table-color, inherit);
+
+    @media (hover:hover) and (pointer:fine) {
+      &:hover {
+        background-color: var(--bs-table-hover-bg);
+
+        .tabulator-cell {
+          background-color: var(--bs-table-hover-bg);
+        }
+      }
+    }
+
+    &.tabulator-selected {
+      background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85);
+      color: var(--bs-white, #fff);
+    }
+  }
+
+  .tabulator-footer {
+    border-color: var(--bs-border-color) !important;
+    color: var(--bs-table-color, inherit) !important;
+
+    .tabulator-calcs-holder {
+      border-color: var(--bs-border-color) !important;
+      background: var(--bs-table-bg, transparent) !important;
+
+      .tabulator-row {
+        border-color: var(--bs-border-color) !important;
+        background-color: var(--bs-table-bg, transparent) !important;
+        color: var(--bs-table-color, inherit) !important;
+      }
+    }
+  }
+
+  input {
+    color: var(--bs-body-color) !important;
+    background-color: var(--bs-body-bg) !important;
+  }
+}
+
+html[data-bs-theme="dark"] .tabulator.table-striped {
+  .tabulator-row:nth-child(even) {
+    background-color: var(--bs-table-striped-bg) !important;
+
+    .tabulator-cell {
+      background-color: inherit;
+    }
+  }
+
+  .tabulator-row.tabulator-row-even {
+    &.tabulator-selected {
+      background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
+    }
+
+    @media (hover:hover) and (pointer:fine) {
+      &.tabulator-selectable:hover {
+        background-color: var(--bs-table-hover-bg) !important;
+        cursor: pointer;
+      }
+
+      &.tabulator-selected:hover {
+        background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95) !important;
+        cursor: pointer;
+      }
+    }
+  }
+}
+
+// ── Popups, menus, and edit lists ──────────────────────────────────────
 .tabulator-menu,
 .tabulator-tooltip,
 .tabulator-popup-container,
-.tabulator-edit-select-list,
-.tabulator-edit-list {
-  background-color: var(--bs-body-bg, #fff);
-  color: var(--bs-body-color, #212529);
-  border: 1px solid var(--bs-border-color, #dee2e6);
-}
-
 .tabulator-edit-select-list,
 .tabulator-edit-list {
   background-color: var(--bs-body-bg, #fff);
