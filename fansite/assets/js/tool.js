@@ -3624,7 +3624,7 @@ function getYTlatest(){
       const v = d.data
       let html =`
       <div id='YTlatest' class='card'>
-        <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg" class="card-img-top"></a>
+        <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="/tb/${v.videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg'" class="card-img-top"></a>
         <div class="card-body">
           <h5 class="card-title">Latest Stream</h5>
           <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
