@@ -1182,6 +1182,7 @@ $(()=>{
 //--- json table ---
   //use a global variable to easy access the table and colDef
   var jsonTable, colDef
+  let _skipFilterClear = false
 
   // Mutation 後統一重抓表格資料 + 更新 localStorage
   async function reloadTable() {
@@ -1190,10 +1191,13 @@ $(()=>{
     if (!endpoint || !jsonTable) return
     try {
       const freshData = await apiRequest('GET', endpoint)
-      jsonTable.setData(freshData)
+      _skipFilterClear = true
+      jsonTable.replaceData(freshData)
+      _skipFilterClear = false
       setCache(currentProcess, freshData)
       console.log(`[Cache] 重新載入 ${currentProcess}，${freshData.length} 筆`)
     } catch (e) {
+      _skipFilterClear = false
       console.error('[Cache] 重新載入失敗:', e)
     }
   }
@@ -1205,7 +1209,17 @@ $(()=>{
     {title:t('本地時間', 'local time', '現地時間')+`(${dayjs().format('Z')})`, field:"time", mutator: (cell) => dayjs(cell).format('YYYY/MM/DD HH:mm'), accessor: (value) => {
       const date = dayjs(value);
       return date.isValid() ? date.toISOString() : value;
-    }, width:'150', formatter:dateWithYTLink},
+    }, width:'150', formatter:dateWithYTLink,
+      headerFilter: "input",
+      headerFilterPlaceholder: t('搜尋日期或影片 ID', 'Search date or video ID', '日付または動画IDで検索'),
+      headerFilterFunc: function(headerValue, rowValue, rowData) {
+        if (!headerValue) return true;
+        const searchTerm = headerValue.toLowerCase();
+        const dateMatch = rowValue?.toLowerCase().includes(searchTerm) || false;
+        const idMatch = rowData.streamID?.toLowerCase().includes(searchTerm) || false;
+        return dateMatch || idMatch;
+      }
+    },
     {title:t('段落', 'Seg', 'セグ'), field:"segmentNo", sorter:'number', width:60},
     {title:t('曲序', 'Track', 'トラック'), field:"trackNo", sorter:'number', width:80},
     {title:t('開始', 'Start', '開始'), field:"startTime", visible: false, sorter:'number', width:80, download:true,
@@ -2035,8 +2049,10 @@ $(()=>{
           console.log(`[Cache] ${tableType} 資料已更新，重新載入表格`)
           // 更新快取
           setCache(tableType, freshData)
-          // 更新表格
-          jsonTable.setData(freshData)
+          // 更新表格（replaceData 保留 filter/sort 狀態）
+          _skipFilterClear = true
+          jsonTable.replaceData(freshData)
+          _skipFilterClear = false
         } else {
           console.log(`[Cache] ${tableType} 資料無變化`)
         }
@@ -2056,10 +2072,9 @@ $(()=>{
       initAdvancedSearch();
 
       // Re-initialize header filters after data is processed for dynamic field data
-      if (p === 'streamlist' || p === 'setlist') {
-        // Clear existing header filter
+      // Skip clearing when replaceData() is used (preserves user's active filters)
+      if ((p === 'streamlist' || p === 'setlist') && !_skipFilterClear) {
         jsonTable.clearHeaderFilter();
-        // The header filters will be re-initialized automatically
       }
     });
 
@@ -2243,8 +2258,9 @@ $(()=>{
           await apiRequest('PUT', `${endpoint}/${id}`, updateData)
         }
 
-        // 更新快取（reloadTable 會重建所有 cell，之後 cell 參照失效）
-        await reloadTable()
+        // 更新快取（不重載表格，避免全部 row 重新渲染導致閃爍）
+        const currentProcess = getProcess()
+        setCache(currentProcess, jsonTable.getData())
 
       } catch (error) {
         console.error('Error syncing cell edit:', error)
@@ -2613,7 +2629,9 @@ $(()=>{
         console.log(`[Edit Mode] Reloading ${currentProcess} data from API after exiting edit mode`)
         apiRequest('GET', endpoint)
           .then(data => {
-            jsonTable.setData(data)
+            _skipFilterClear = true
+            jsonTable.replaceData(data)
+            _skipFilterClear = false
             console.log(`[Edit Mode] Successfully reloaded ${data.length} rows`)
           })
           .catch(error => {

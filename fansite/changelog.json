@@ -1,8 +1,8 @@
 {
-  "time": "2026-03-22T00:26:27+08:00",
+  "time": "2026-03-22T01:15:59+08:00",
   "msg": {
-    "zh": "歌單新增時間戳欄位，YouTube 連結可直接跳到歌曲開始位置",
-    "en": "Added timestamp columns to setlist, YouTube links now jump to song start",
-    "ja": "セットリストにタイムスタンプ欄を追加、YouTubeリンクで曲の開始位置にジャンプ可能に"
+    "zh": "歌單中，歌曲加入在影片的開始與結束時間，並使用按鈕進行顯示",
+    "en": "Added song start and end times in setlist, with a toggle button to show/hide",
+    "ja": "セットリストに曲の開始・終了時間を追加、ボタンで表示切替が可能に"
   }
 }
