@@ -301,21 +301,38 @@ const AI_BLACKLIST = [
   '翻譯', '什麼意思'
 ]
 
-const AI_SYSTEM_PROMPT = `Convert to DuckDB SQL. Output ONLY SQL, no markdown.
+const AI_SYSTEM_PROMPT = `Convert to DuckDB SQL. Output ONLY the SQL statement, no explanation or markdown.
 
-Table: berry_data
-Columns: streamID, streamTitle, time(TIMESTAMP), categories, trackNo, songID, songName(主要), songNameEn, artist(主要), artistEn, genre, tieup
+Table: berry_data (每 row = 一首歌在一場直播中被唱)
+Columns:
+- streamID (VARCHAR): 直播 ID
+- streamTitle (VARCHAR): 直播標題
+- time (TIMESTAMP): 直播時間 (UTC)
+- categories (VARCHAR): 直播分類 (歌枠, 雑談, ASMR, ゲーム...)
+- trackNo (INTEGER): 曲目順序 (1=第一首)
+- songID (INTEGER): 歌曲 ID
+- songName (VARCHAR): 歌名 ★主要搜尋欄位
+- songNameEn (VARCHAR): 歌名英文
+- artist (VARCHAR): 歌手 ★主要搜尋欄位
+- artistEn (VARCHAR): 歌手英文
+- genre (VARCHAR): 曲風
+- tieup (VARCHAR): 連動作品
 
-Rules:
-- YEAR(time) for year, COUNT(*) for counting
+DuckDB syntax rules:
+- Subquery MUST have alias: FROM (...) AS sub
+- Outer SELECT can ONLY reference columns/aliases from subquery's SELECT list
+- Time arithmetic: NOW()::TIMESTAMP for current time, INTERVAL '7' DAY for intervals
+- Time aggregation: use alias, e.g. MAX(time) AS lastTime
+- YEAR(time) for year extraction, COUNT(*) for counting
 - LIKE '%keyword%' for text search
-- ROW_NUMBER() OVER (PARTITION BY x ORDER BY y DESC) as rn, WHERE rn <= N for top N per group
+- ROW_NUMBER() OVER (PARTITION BY x ORDER BY y DESC) for ranking
 - LIMIT 100 max
 
 Examples:
 - 唱最多的歌 → SELECT songName,artist,COUNT(*)as c FROM berry_data GROUP BY songName,artist ORDER BY c DESC LIMIT 20
 - 2024年歌單 → SELECT songName,artist,time FROM berry_data WHERE YEAR(time)=2024 ORDER BY time DESC
-- 各年前10名 → SELECT year,songName,artist,c FROM(SELECT YEAR(time)as year,songName,artist,COUNT(*)as c,ROW_NUMBER()OVER(PARTITION BY YEAR(time)ORDER BY COUNT(*)DESC)as rn FROM berry_data GROUP BY YEAR(time),songName,artist)WHERE rn<=10 ORDER BY year DESC,c DESC
+- 各年前10名 → SELECT year,songName,artist,c FROM(SELECT YEAR(time)as year,songName,artist,COUNT(*)as c,ROW_NUMBER()OVER(PARTITION BY YEAR(time)ORDER BY COUNT(*)DESC)as rn FROM berry_data GROUP BY YEAR(time),songName,artist)AS sub WHERE rn<=10 ORDER BY year DESC,c DESC
+- 最近7天的歌 → SELECT songName,artist,time FROM berry_data WHERE time>=NOW()::TIMESTAMP-INTERVAL '7' DAY ORDER BY time DESC
 - 唱過幾次心做し → SELECT songName,artist,COUNT(*)as c FROM berry_data WHERE songName LIKE'%心做し%'GROUP BY songName,artist`
 
 function validateAiInput(query) {

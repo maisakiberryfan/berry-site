@@ -758,7 +758,8 @@ async function executeQuery(sql, predefinedColumns = null) {
           };
 
           // Auto-format timestamp columns (using mutator for proper timezone conversion)
-          if (field.name === 'time' || field.name.toLowerCase().includes('performance') ||
+          if (field.name === 'time' || field.name.toLowerCase().includes('time') ||
+              field.name.toLowerCase().includes('performance') ||
               field.name.toLowerCase().includes('date')) {
             column.title = `${field.name} (${dayjs().format('Z')})`;
             column.mutator = (value) => {
