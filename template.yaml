@@ -212,7 +212,18 @@ Resources:
         function handler(event) {
           var uri = event.request.uri;
           var uriLower = uri.toLowerCase();
-          if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) || uriLower.startsWith('/wp-') || uriLower === '/.env' || uriLower.startsWith('/.env.')) {
+          if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) ||
+              uriLower.startsWith('/wp-') || uriLower.startsWith('/wordpress/') ||
+              uriLower === '/.env' || uriLower.startsWith('/.env.') ||
+              uriLower.startsWith('/.aws') ||
+              uriLower.startsWith('/phpinfo') || uriLower.startsWith('/_profiler') ||
+              uriLower.startsWith('/themes/') || uriLower.startsWith('/modules/') ||
+              uriLower.startsWith('/plugins/') || uriLower.startsWith('/includes/') ||
+              uriLower.startsWith('/vendor/') || uriLower.startsWith('/cgi-bin/') || uriLower.startsWith('/cgi_bin/') ||
+              uriLower === '/xmlrpc.php' || uriLower.startsWith('//xmlrpc') ||
+              uriLower.startsWith('/admin') ||
+              uriLower.startsWith('/joomla') || uriLower.startsWith('/drupal') ||
+              uriLower.startsWith('/filemanager') || uriLower.startsWith('/tinyfilemanager')) {
             return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
           }
           // SPA routes -> rewrite to /index.html
