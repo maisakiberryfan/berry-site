@@ -2,6 +2,7 @@
 name: commit
 description: "Commit and push changes. With a message string, also updates changelog.json with translated versions for the homepage."
 argument-hint: '["changelog message"]'
+allowed-tools: Bash(git *), Bash(cd * && npm run build*), Read, Write, Edit, Glob, Grep
 ---
 
 # Commit & Push (with optional changelog)

@@ -2,6 +2,7 @@
 name: traffic-report
 description: "Generate CloudFront traffic analysis report. Use when user asks for traffic report, IP analysis, bot analysis, or access log review for m-b.win."
 argument-hint: "[from-date] [to-date]"
+allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
 # CloudFront Traffic Analysis Report

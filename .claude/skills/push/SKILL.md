@@ -1,6 +1,7 @@
 ---
 name: push
 description: "Push all local commits to remote. Use after /commit to deploy changes."
+allowed-tools: Bash(git push*)
 ---
 
 # Push to Remote
