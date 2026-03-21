@@ -545,7 +545,7 @@ $(()=>{
             `)
             getYTlatest().then(html => $("#yt-slot").html(html)).catch(()=>{})
             getDataUpdates().then(html => $("#info-slot").prepend(html)).catch(()=>{})
-            getGitCommitMsg().then(html => $("#info-slot").append(html)).catch(()=>{})
+            getChangelog().then(html => $("#info-slot").append(html)).catch(()=>{})
           }
 
           //if data is remote, tell the source
@@ -4073,18 +4073,21 @@ function getYTlatest(){
     })
   })
 
-// Get github latest commit (via Worker proxy)
-function getGitCommitMsg(){
+// Get changelog (static file)
+function getChangelog(){
   return new Promise((resolve, reject)=>{
     $.ajax({
-      url: API_CONFIG.WORKER_URL + '/api/github/latest-commit',
+      url: '/changelog.json',
+      dataType: 'json'
     })
     .done((d)=>{
+      if (!d.time || !d.msg) { resolve(''); return }
+      const msg = d.msg[currentLang] || d.msg.zh || ''
       let html = `
       <div>
-        <h6>Latest Commit</h6>
-        <p class="small mb-1">${dayjs(d.date).format('YYYY/MM/DD HH:mmZ')}</p>
-        <p class="small">${marked.parse(d.message || '')}</p>
+        <h6>${t({zh: '最近更新', en: 'Latest Update', ja: '最新アップデート'})}</h6>
+        <p class="small mb-1">${dayjs(d.time).format('YYYY/MM/DD HH:mmZ')}</p>
+        <p class="small">${marked.parse(msg)}</p>
       </div>
       `
       resolve(html)

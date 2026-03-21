@@ -276,45 +276,6 @@ api.post('/get-comments', async (c) => {
   }
 })
 
-// GitHub latest commit
-let commitCache = { data: null, expiry: 0 }
-
-api.get('/github/latest-commit', async (c) => {
-  const now = Date.now()
-  if (commitCache.data && now < commitCache.expiry) {
-    return c.json(commitCache.data)
-  }
-
-  try {
-    const githubToken = getSecret(c.env, 'GITHUB_TOKEN')
-    const repoName = getSecret(c.env, 'GITHUB_REPO') || 'maisakiberryfan/berry-site'
-
-    const res = await fetch(
-      `https://api.github.com/repos/${repoName}/commits?per_page=1&path=fansite/`,
-      {
-        headers: {
-          ...(githubToken ? { 'Authorization': `Bearer ${githubToken}` } : {}),
-          'User-Agent': 'berry-worker',
-          'Accept': 'application/vnd.github.v3+json'
-        }
-      }
-    )
-
-    if (!res.ok) return c.json({ error: 'GitHub API error' }, 502)
-
-    const data = await res.json()
-    const result = {
-      date: data[0]?.commit?.committer?.date,
-      message: data[0]?.commit?.message
-    }
-
-    commitCache = { data: result, expiry: now + 5 * 60 * 1000 }
-    return c.json(result)
-  } catch (error) {
-    return c.json({ error: 'Failed to fetch commit' }, 500)
-  }
-})
-
 // AI Text-to-SQL
 const AI_BUDGET_LIMIT = 0.1 // USD per day
 
