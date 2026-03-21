@@ -11,9 +11,9 @@
       "labelEn": "Berry's",
       "labelJa": "べりぃの",
       "items": [
-        { "label": "個人資料", "labelEn": "Profile", "labelJa": "プロフィール", "href": "/profile", "ext": ".htm" },
-        { "label": "歷史", "labelEn": "History", "labelJa": "沿革", "href": "/history", "ext": ".md" },
-        { "label": "服裝", "labelEn": "Clothes", "labelJa": "衣装", "href": "/clothes", "ext": ".htm" }
+        { "label": "個人資料", "labelEn": "Profile", "labelJa": "プロフィール", "href": "/profile", "type": "htm" },
+        { "label": "歷史", "labelEn": "History", "labelJa": "沿革", "href": "/history", "type": "md" },
+        { "label": "服裝", "labelEn": "Clothes", "labelJa": "衣装", "href": "/clothes", "type": "htm" }
       ]
     },
     {
@@ -21,12 +21,12 @@
       "labelEn": "List",
       "labelJa": "リスト",
       "items": [
-        { "label": "歌曲列表", "labelEn": "Song List", "labelJa": "楽曲リスト", "href": "/songlist", "ext": "" },
-        { "label": "直播列表", "labelEn": "Stream List", "labelJa": "配信リスト", "href": "/streamlist", "ext": ".json" },
-        { "label": "歌單", "labelEn": "Set List", "labelJa": "セットリスト", "href": "/setlist", "ext": ".json" },
-        { "label": "別名", "labelEn": "Aliases", "labelJa": "エイリアス", "href": "/aliases", "ext": "" },
+        { "label": "歌曲列表", "labelEn": "Song List", "labelJa": "楽曲リスト", "href": "/songlist", "type": "api" },
+        { "label": "直播列表", "labelEn": "Stream List", "labelJa": "配信リスト", "href": "/streamlist", "type": "api" },
+        { "label": "歌單", "labelEn": "Set List", "labelJa": "セットリスト", "href": "/setlist", "type": "api" },
+        { "label": "別名", "labelEn": "Aliases", "labelJa": "エイリアス", "href": "/aliases", "type": "api" },
         { "divider": true },
-        { "label": "分析", "labelEn": "Analytics", "labelJa": "分析", "href": "/analytics", "ext": ".htm" }
+        { "label": "分析", "labelEn": "Analytics", "labelJa": "分析", "href": "/analytics", "type": "htm" }
       ]
     },
     {
