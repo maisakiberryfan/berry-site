@@ -87,11 +87,13 @@ jobs:
             --delete \
             --cache-control "public, max-age=86400" \
             --exclude "*.html" \
-            --exclude "config.js"
+            --exclude "config.js" \
+            --exclude "changelog.json"
           aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
             --cache-control "no-cache, must-revalidate" \
             --include "*.html" \
-            --include "config.js"
+            --include "config.js" \
+            --include "changelog.json"
 
       # Invalidate CloudFront cache for updated files
       - name: Invalidate CloudFront
