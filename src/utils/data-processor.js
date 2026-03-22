@@ -10,6 +10,7 @@ import { getVideoComments as getVideoCommentsCore } from './youtube-comments.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
 import { iso8601ToMySQL } from './middleware.js'
 import { getSecret } from '../platform.js'
+import { sendSetlistComment } from './discord-notifier.js'
 
 /**
  * Data processor class for updating streamlist and setlist data
@@ -273,11 +274,21 @@ export class DataProcessor {
       // Get comments and find setlist
       const apiKey = getSecret(env, 'YOUTUBE_API_KEY') || getSecret(env, 'YOUTUBEAPIKEY')
       const comments = await this.getVideoComments(videoId, apiKey)
-      const setlistComment = this.findSetlistComment(comments)
+      const commentResult = this.findSetlistComment(comments)
 
-      if (!setlistComment) {
+      if (!commentResult) {
         logger.info('SETLIST', `ℹ️ 未發現歌單留言: ${stream.title}`, { 影片ID: stream.id })
         return null
+      }
+
+      const setlistComment = commentResult.text
+      const commentAuthor = commentResult.author
+
+      // 發送歌單留言到 Discord（使用獨立的歌單 webhook）
+      const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
+      if (setlistWebhookUrl) {
+        sendSetlistComment(setlistWebhookUrl, stream, setlistComment, commentAuthor)
+          .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
       }
 
       // Parse the setlist comment to extract song-artist pairs
@@ -369,7 +380,9 @@ export class DataProcessor {
           songID: finalSongID,
           note: note,
           songName: songName,
-          artist: artist
+          artist: artist,
+          startTime: matchInfo?.parsed?.startSec ?? null,
+          endTime: matchInfo?.parsed?.endSec ?? null
         })
       }
 
@@ -505,6 +518,8 @@ export class DataProcessor {
 
       // 移除時間戳: 0:04:46 ~ 0:09:30
       line = line.replace(/\d+:\d+:\d+\s*~\s*\d+:\d+:\d+\s*/g, '');
+      // 移除單一時間戳: 0:04:46 or 4:46
+      line = line.replace(/\d{1,2}:\d{2}(?::\d{2})?\s*/g, '');
 
       // 移除序號: 01|, 1.|, 1.空格, ①等
       line = line.replace(/^[\d①②③④⑤⑥⑦⑧⑨⑩]+[\.|｜|\s]/g, '');
@@ -517,6 +532,13 @@ export class DataProcessor {
 
       // 如果行為空或太短，跳過
       if (!line || line.length < 3) return;
+
+      // 過濾明確的噪音行（トーク、emoji分隔線、loading）
+      const t = line.trim();
+      if (/^(OP|ED|MC)?[  ]*トーク/i.test(t)) return;
+      if (/^(オープニング|エンディング)/i.test(t)) return;
+      if (/^(now\s*)?loading\.{0,3}$/i.test(t)) return;
+      if (/^[\p{Emoji}\p{S}\s]+$/u.test(t) && t.length >= 3) return;
 
       // 尋找分隔符並拆分歌名和歌手
       let songName = '', artist = '';
@@ -550,18 +572,48 @@ export class DataProcessor {
 
   /**
    * Find setlist comment from comments array
+   * 優先順序：1. @KL-gr1my 有時間戳的留言  2. 其他有 ≥5 個時間戳的留言  3. 關鍵字篩選
    * @param {Array} comments - Comments array
-   * @returns {string|null} Setlist comment
+   * @returns {{text: string, author: string}|null} Setlist comment with author info
    */
   findSetlistComment(comments) {
     const logger = getLogger()
+    const PREFERRED_AUTHOR = '@KL-gr1my'
+    const timestampRe = /\d{1,2}:\d{2}/g
 
     logger.info('SETLIST', '🔍 開始搜尋歌單留言', { 留言總數: comments.length })
 
-    // Use keywords from config
-    const setlistKeywords = CONFIG.setlistKeywords
+    // 優先：@KL-gr1my 有時間戳的留言
+    const klComments = comments.filter(c => c.authorDisplayName === PREFERRED_AUTHOR)
+    for (const c of klComments) {
+      const matches = c.text.match(timestampRe)
+      if (matches && matches.length >= 3) {
+        logger.info('SETLIST', '✅ 找到 KL 歌單留言', { 時間戳數: matches.length })
+        return { text: c.text, author: c.authorDisplayName || 'KL' }
+      }
+    }
 
-    // Find comments that contain setlist indicators
+    // 其次：任何有 ≥5 個時間戳的留言（按讚數排序）
+    const timestampComments = comments
+      .filter(c => {
+        const matches = c.text.match(timestampRe)
+        return matches && matches.length >= 5
+      })
+      .sort((a, b) => b.likeCount - a.likeCount)
+
+    if (timestampComments.length > 0) {
+      const best = timestampComments[0]
+      const matches = best.text.match(timestampRe)
+      logger.info('SETLIST', '✅ 找到時間戳歌單留言', {
+        author: best.authorDisplayName,
+        時間戳數: matches.length,
+        按讚數: best.likeCount
+      })
+      return { text: best.text, author: best.authorDisplayName || '匿名' }
+    }
+
+    // 最後：關鍵字篩選（相容舊邏輯）
+    const setlistKeywords = CONFIG.setlistKeywords
     const candidates = comments.filter(comment => {
       const text = comment.text.toLowerCase()
       return setlistKeywords.some(keyword => text.includes(keyword.toLowerCase())) &&
@@ -569,27 +621,21 @@ export class DataProcessor {
     })
 
     if (candidates.length === 0) {
-      logger.info('SETLIST', '❌ 未發現歌單候選留言', {
-        檢查總數: comments.length,
-        關鍵字: CONFIG.setlistKeywords
-      })
+      logger.info('SETLIST', '❌ 未發現歌單候選留言', { 檢查總數: comments.length })
       return null
     }
 
-    // Sort by like count and length, prefer longer comments with more likes
     candidates.sort((a, b) => {
       const scoreA = a.likeCount * CONFIG.commentFilter.likeWeight + a.text.length * CONFIG.commentFilter.lengthWeight
       const scoreB = b.likeCount * CONFIG.commentFilter.likeWeight + b.text.length * CONFIG.commentFilter.lengthWeight
       return scoreB - scoreA
     })
 
-    logger.info('SETLIST', '✅ 發現歌單留言', {
-      候選數量: candidates.length,
-      選中留言按讚數: candidates[0].likeCount,
-      選中留言長度: candidates[0].text.length,
-      留言預覽: candidates[0].text.substring(0, 100)
+    logger.info('SETLIST', '✅ 關鍵字篩選歌單留言', {
+      author: candidates[0].authorDisplayName,
+      按讚數: candidates[0].likeCount
     })
-    return candidates[0].text
+    return { text: candidates[0].text, author: candidates[0].authorDisplayName || '匿名' }
   }
 
 
@@ -767,10 +813,12 @@ export class DataProcessor {
       for (const entry of entries) {
         // UPSERT: insert or update on duplicate
         await db.execute(
-          `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note)
-           VALUES (?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE songID = VALUES(songID), note = VALUES(note)`,
-          [entry.streamID, entry.trackNo, entry.segmentNo || 1, entry.songID, entry.note || null]
+          `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note, startTime, endTime)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE songID = VALUES(songID), note = VALUES(note),
+             startTime = VALUES(startTime), endTime = VALUES(endTime)`,
+          [entry.streamID, entry.trackNo, entry.segmentNo || 1, entry.songID, entry.note || null,
+           entry.startTime || null, entry.endTime || null]
         )
       }
 

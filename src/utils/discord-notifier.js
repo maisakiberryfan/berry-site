@@ -272,6 +272,37 @@ function buildPollingParseEmbed(payload) {
 }
 
 /**
+ * 發送歌單留言到獨立的 Discord webhook
+ * 使用 code block 顯示歌單，不觸發影片預覽
+ * @param {string} webhookUrl - 歌單專用 webhook URL
+ * @param {Object} stream - stream 物件（含 id, title, time）
+ * @param {string} setlistComment - 原始歌單留言
+ * @param {string} author - 留言作者
+ */
+export async function sendSetlistComment(webhookUrl, stream, setlistComment, author) {
+  if (!webhookUrl) return
+
+  try {
+    // <URL> 避免 Discord 產生影片預覽
+    const url = `<https://www.youtube.com/watch?v=${stream.id}>`
+    // 用 zero-width space 避免 Discord 標記到同名用戶（@ 後插入 \u200B）
+    const safeAuthor = (author || '匿名').replace(/@/g, '@\u200B')
+    const header = `${stream.time || ''} ${stream.title || ''}\n${url}\n${safeAuthor}`
+    const content = `${header}\n\`\`\`\n${setlistComment}\n\`\`\``
+
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content.substring(0, 2000) })
+    })
+
+    console.log('Setlist comment sent to Discord')
+  } catch (error) {
+    console.error('Failed to send setlist comment to Discord:', error)
+  }
+}
+
+/**
  * 建立統計摘要欄位
  */
 function buildStatsField(result) {
