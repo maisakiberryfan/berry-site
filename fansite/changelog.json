@@ -1,8 +1,8 @@
 {
   "time": "2026-03-22T13:19:39+08:00",
   "msg": {
-    "zh": "歌單中，歌曲加入在影片的開始與結束時間，並使用按鈕進行顯示\nStreamlist 新增右鍵查看歌單功能",
-    "en": "Added song start and end times in setlist, with a toggle button to show/hide\nAdded right-click \"View Setlist\" option in Streamlist",
-    "ja": "セットリストに曲の開始・終了時間を追加、ボタンで表示切替が可能に\nStreamlistに右クリックでセットリスト表示機能を追加"
+    "zh": "- 歌單中，歌曲加入在影片的開始與結束時間，並使用按鈕進行顯示\n- Streamlist 新增右鍵查看歌單功能",
+    "en": "- Added song start and end times in setlist, with a toggle button to show/hide\n- Added right-click \"View Setlist\" option in Streamlist",
+    "ja": "- セットリストに曲の開始・終了時間を追加、ボタンで表示切替が可能に\n- Streamlistに右クリックでセットリスト表示機能を追加"
   }
 }

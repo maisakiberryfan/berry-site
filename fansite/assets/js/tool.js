@@ -1593,7 +1593,7 @@ $(()=>{
   function imageLink(cell){
     const data = cell.getData()
     const id = data.id || data.streamID  // Support both old and new field names
-    return `<img src='/tb/${id}.jpg' onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${id}/hqdefault.jpg'" width="160" height="120">`
+    return `<img src='/tb/${id}.jpg' onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${id}/mqdefault.jpg'" width="160" height="90">`
   }
 
   function canEdit(){

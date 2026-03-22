@@ -28,7 +28,7 @@ export async function saveThumbnail(streamID, env) {
   const bucket = getSecret(env, 'THUMBNAIL_BUCKET')
   if (!bucket) return false
 
-  const url = `https://i.ytimg.com/vi/${streamID}/hqdefault.jpg`
+  const url = `https://i.ytimg.com/vi/${streamID}/mqdefault.jpg`
   const res = await fetch(url)
   if (!res.ok) return false
 
