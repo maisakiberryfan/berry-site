@@ -1,10 +1,8 @@
 /**
  * @fileoverview Data fetching utilities for auto-update system
- * 使用統一日誌系統和 API Client
  */
 
 import { extractVideoId } from '../utils/url-helpers.js'
-import { getLogger } from '../utils/unified-logger.js'
 import { getNewVideosFromChannels, getVideoInfo as ytGetVideoInfo } from '../utils/youtube-api.js'
 
 /**
@@ -23,14 +21,10 @@ export class DataFetcher {
    * @returns {Promise<Array>} New videos
    */
   async fetchNewVideos() {
-    const logger = getLogger()
-
     try {
-      // Direct function call (no more Service Binding HTTP)
       const data = await getNewVideosFromChannels(this.env, this.db)
 
       if (!data.items || !Array.isArray(data.items)) {
-        logger?.info('STREAM', '無有效新影片資料')
         return []
       }
 
@@ -46,17 +40,14 @@ export class DataFetcher {
         return channelId && berryChannels.includes(channelId)
       })
 
-      logger?.info('STREAM', `發現 ${berryVideos.length} 部新影片`, {
-        total: data.items?.length || 0,
-        filtered: berryVideos.length
-      })
+      if (berryVideos.length > 0) {
+        console.log(`[STREAM] 發現 ${berryVideos.length} 部新影片 (total: ${data.items.length})`)
+      }
 
       return berryVideos
 
     } catch (error) {
-      logger?.error('STREAM', `取得新影片失敗: ${error.message}`, {
-        err: { message: error.message, stack: error.stack }
-      })
+      console.error(`[STREAM] 取得新影片失敗: ${error.message}`)
       throw new Error(`取得新影片失敗: ${error.message}`)
     }
   }
@@ -67,10 +58,7 @@ export class DataFetcher {
    * @returns {Promise<Object>} Video info
    */
   async getVideoInfo(videoId) {
-    const logger = getLogger()
-
     try {
-      // Direct function call (no more Service Binding HTTP)
       const data = await ytGetVideoInfo(videoId, this.env)
 
       if (!data.items || data.items.length === 0) {
@@ -80,10 +68,7 @@ export class DataFetcher {
       return data.items[0]
 
     } catch (error) {
-      logger?.error('STREAM', `取得影片資訊失敗: ${videoId}`, {
-        videoId,
-        err: { message: error.message }
-      })
+      console.error(`[STREAM] 取得影片資訊失敗: ${videoId} - ${error.message}`)
       throw new Error(`取得影片資訊失敗： ${error.message}`)
     }
   }
@@ -95,7 +80,6 @@ export class DataFetcher {
    * @returns {Promise<Response>} Fetch response
    */
   async fetchWithRetry(url, options = {}) {
-    const logger = getLogger()
     let lastError
 
     for (let attempt = 1; attempt <= this.retryCount; attempt++) {
@@ -112,11 +96,6 @@ export class DataFetcher {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
 
-        // 只在重試成功時記錄
-        if (attempt > 1) {
-          logger?.info('RETRY', `第 ${attempt} 次嘗試成功`, { url })
-        }
-
         return response
 
       } catch (error) {
@@ -124,10 +103,7 @@ export class DataFetcher {
 
         if (attempt < this.retryCount) {
           const delay = this.retryDelay * Math.pow(2, attempt - 1)
-          logger?.warn('RETRY', `第 ${attempt} 次失敗，${delay}ms 後重試`, {
-            url,
-            error: error.message
-          })
+          console.warn(`[RETRY] 第 ${attempt} 次失敗，${delay}ms 後重試: ${url}`)
           await this.sleep(delay)
         }
       }
@@ -178,15 +154,12 @@ export class DataFetcher {
   }
 
   /**
-   * Fetch pending streams (setlistComplete = false) from Hyperdrive API
+   * Fetch pending streams (setlistComplete = false) from database
    * @param {string} mode - 'recent' (last 7 days) or 'all'
    * @returns {Promise<Array>} Pending streams
    */
   async fetchPendingStreams(mode = 'recent') {
-    const logger = getLogger()
-
     try {
-      // Direct DB query — only fetch 歌枠 streams (matching /streamlist/pending API behavior)
       let sql = `SELECT streamID, title, time, categories, note
                  FROM streamlist
                  WHERE setlistComplete = false
@@ -200,10 +173,9 @@ export class DataFetcher {
 
       const pendingStreams = await this.db.query(sql)
 
-      logger?.info('STREAM', `發現 ${pendingStreams.length} 個待處理歌枠`, {
-        count: pendingStreams.length,
-        mode
-      })
+      if (pendingStreams.length > 0) {
+        console.log(`[STREAM] 發現 ${pendingStreams.length} 個待處理歌枠 (mode: ${mode})`)
+      }
 
       // Format to worker format
       const formattedStreams = pendingStreams.map(stream => ({
@@ -217,10 +189,7 @@ export class DataFetcher {
       return formattedStreams
 
     } catch (error) {
-      logger?.error('STREAM', `取得待處理項目失敗: ${error.message}`, {
-        mode,
-        err: { message: error.message }
-      })
+      console.error(`[STREAM] 取得待處理項目失敗: ${error.message}`)
       throw error
     }
   }
