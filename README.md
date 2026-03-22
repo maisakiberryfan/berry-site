@@ -135,21 +135,111 @@ rate(5 minutes)                           Lambda 保溫（避免 cold start）
 
 AWS EventBridge 為主要排程，CF Worker cron 已停用。
 
-## API 端點
+## Public API
 
-所有 API 路由加 `/api/` 前綴，詳見 `src/app.js` 及 `src/routes/`。
+以下端點開放給第三方使用，無需驗證。Base URL: `https://m-b.win`
 
-| 模組 | 說明 |
+### 端點一覽
+
+| 端點 | 說明 |
 |------|------|
-| `/api/songlist` | 歌曲 CRUD |
-| `/api/streamlist` | 直播 CRUD |
-| `/api/setlist` | 歌單 CRUD |
-| `/api/aliases` | 別名管理 |
-| `/api/yt` | YouTube 影片查詢 |
-| `/api/parse-setlist` | 歌單解析 |
-| `/api/text-to-sql` | AI SQL 查詢 |
-| `/health` | 健康檢查 |
-| `/webhook/youtube` | PubSubHubbub webhook |
+| `GET /api/songlist` | 全部歌曲 |
+| `GET /api/songlist/artists?q=xxx` | 藝人列表（可搜尋） |
+| `GET /api/streamlist` | 全部直播 |
+| `GET /api/setlist` | 全部歌單 |
+| `GET /api/setlist?streamID={id}` | 單場歌單 |
+| `GET /api/aliases/grouped` | 別名對照表（歌手名/曲名的別名映射） |
+| `GET /api/stats/last-updated` | 各表最後更新時間 |
+
+### 回應格式
+
+所有回應為 JSON，格式：
+
+```json
+{
+  "success": true,
+  "data": [ ... ]
+}
+```
+
+時間格式為 ISO 8601 UTC（如 `"2026-03-22T15:00:00.000Z"`）。
+
+### 回應範例
+
+**`GET /api/songlist`** — 歌曲資料
+
+```json
+{
+  "songID": 1001,
+  "songName": "心做し",
+  "songNameEn": "Kokoronashi",
+  "artist": "GUMI",
+  "artistEn": "GUMI",
+  "genre": "ボカロ",
+  "tieup": ""
+}
+```
+
+**`GET /api/streamlist`** — 直播資料
+
+```json
+{
+  "streamID": "dQw4w9WgXcQ",
+  "title": "【歌枠】リクエスト歌枠！",
+  "time": "2026-03-22T15:00:00.000Z",
+  "categories": ["歌枠"]
+}
+```
+
+**`GET /api/setlist?streamID=xxx`** — 歌單資料
+
+```json
+{
+  "streamID": "dQw4w9WgXcQ",
+  "segmentNo": 1,
+  "trackNo": 1,
+  "songID": 1001,
+  "songName": "心做し",
+  "artist": "GUMI",
+  "startTime": 120,
+  "endTime": 360
+}
+```
+
+`startTime` / `endTime` 為秒數（可為 null）。
+
+**`GET /api/aliases/grouped`** — 別名對照
+
+```json
+{
+  "artistAliases": {
+    "釘宮理恵": ["kugimiya rie", "くぎみや"]
+  },
+  "titleAliases": {
+    "心做し": ["こころなし", "kokoronashi"]
+  }
+}
+```
+
+### ETag 快取
+
+`/api/songlist`、`/api/streamlist`、`/api/setlist`（無 `streamID` 參數時）支援 ETag。
+
+```bash
+# 首次請求
+curl -i https://m-b.win/api/songlist
+# → 200 OK, ETag: "abc123"
+
+# 後續請求帶 If-None-Match
+curl -H "If-None-Match: \"abc123\"" https://m-b.win/api/songlist
+# → 304 Not Modified（資料無變更，節省傳輸）
+```
+
+### 注意事項
+
+- 請合理使用，避免高頻率請求
+- 寫入端點（POST/PUT/DELETE）有 rate limiting 保護
+- 資料來源為非官方整理，可能有錯誤或遺漏
 
 ## 文件
 
