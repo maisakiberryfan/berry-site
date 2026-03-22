@@ -3,6 +3,14 @@
  */
 
 export const CONFIG = {
+  // Berry channel IDs (single source of truth)
+  berryChannels: [
+    'UC7A7bGRVdIwo93nqnA3x-OQ', // 主頻道
+    'UCBOGwPeBtaPRU59j8jshdjQ',
+    'UC2cgr_UtYukapRUt404In-A',
+  ],
+  membershipPlaylistId: 'PLnWT3dUyDsU6hCaYuVsiwsSF8luEilys8',
+
   // API endpoints
   endpoints: {
     youtubeAPI: 'https://www.googleapis.com/youtube/v3/commentThreads'

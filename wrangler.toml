@@ -41,7 +41,7 @@ MODE = "test"
 LAMBDA_MATCHER_URL = "http://localhost:3000/match-setlist"
 
 # 需要使用 wrangler secret put 設定的秘密變數：
-# wrangler secret put YOUTUBEAPIKEY
+# wrangler secret put YOUTUBE_API_KEY
 # wrangler secret put DISCORD_WEBHOOK_URL
 # wrangler secret put ANTHROPIC_API_KEY
 # wrangler secret put PUBSUB_CALLBACK_URL

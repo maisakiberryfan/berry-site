@@ -240,7 +240,7 @@ api.post('/get-comments', async (c) => {
     const videoId = extractVideoId(youtubeUrl)
     if (!videoId) return c.json({ error: '無效的 YouTube URL' }, 400)
 
-    const apiKey = getSecret(c.env, 'YOUTUBE_API_KEY') || getSecret(c.env, 'YOUTUBEAPIKEY')
+    const apiKey = getSecret(c.env, 'YOUTUBE_API_KEY')
     const comments = await getVideoComments(videoId, apiKey)
 
     // Filter setlist candidates
@@ -459,8 +459,7 @@ app.post('/webhook/youtube', async (c) => {
   const channelId = channelIdMatch[1]
 
   // Validate target channel
-  const targetChannels = ['UC7A7bGRVdIwo93nqnA3x-OQ', 'UCBOGwPeBtaPRU59j8jshdjQ', 'UC2cgr_UtYukapRUt404In-A']
-  if (!targetChannels.includes(channelId)) {
+  if (!CONFIG.berryChannels.includes(channelId)) {
     return c.text('OK', 200)
   }
 
@@ -659,14 +658,14 @@ app.get('/trigger-setlist-notify', async (c) => {
     // Fetch YouTube comments for each stream and send
     const { DataProcessor } = await import('./utils/data-processor.js')
     const dp = new DataProcessor()
-    const apiKey = getSecret(c.env, 'YOUTUBE_API_KEY') || getSecret(c.env, 'YOUTUBEAPIKEY')
+    const apiKey = getSecret(c.env, 'YOUTUBE_API_KEY')
     let sentCount = 0
     const errors = []
     for (const [sid, data] of Object.entries(grouped)) {
       const stream = { id: sid, title: data.rows[0].streamTitle || '', time: data.time }
       try {
         // Try to get original YouTube comment
-        const comments = await dp.getVideoComments(sid, apiKey)
+        const comments = await getVideoComments(sid, apiKey)
         const commentResult = dp.findSetlistComment(comments)
         if (commentResult) {
           await sendSetlistComment(webhookUrl, stream, commentResult.text, commentResult.author)

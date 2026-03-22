@@ -2,8 +2,8 @@
  * @fileoverview Data fetching utilities for auto-update system
  */
 
-import { extractVideoId } from '../utils/url-helpers.js'
 import { getNewVideosFromChannels, getVideoInfo as ytGetVideoInfo } from '../utils/youtube-api.js'
+import { CONFIG } from '../config.js'
 
 /**
  * Data fetcher class for retrieving data from various sources
@@ -17,7 +17,7 @@ export class DataFetcher {
   }
 
   /**
-   * Fetch new videos from getytvideoinfo service
+   * Fetch new videos from YouTube API
    * @returns {Promise<Array>} New videos
    */
   async fetchNewVideos() {
@@ -28,16 +28,9 @@ export class DataFetcher {
         return []
       }
 
-      // Filter for Berry's channel videos only
-      const berryChannels = [
-        'UC7A7bGRVdIwo93nqnA3x-OQ', // Main channel
-        'UCBOGwPeBtaPRU59j8jshdjQ', // Sub channel 1
-        'UC2cgr_UtYukapRUt404In-A'  // Sub channel 2
-      ]
-
       const berryVideos = data.items.filter(video => {
         const channelId = video.snippet?.channelId
-        return channelId && berryChannels.includes(channelId)
+        return channelId && CONFIG.berryChannels.includes(channelId)
       })
 
       if (berryVideos.length > 0) {
@@ -144,13 +137,6 @@ export class DataFetcher {
     }
 
     return true
-  }
-
-  /**
-   * Check if URL is a valid YouTube URL
-   */
-  isValidYouTubeUrl(url) {
-    return extractVideoId(url) !== null
   }
 
   /**

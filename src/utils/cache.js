@@ -27,63 +27,6 @@ export async function generateETag(rows) {
 }
 
 /**
- * Get cached data from KV
- *
- * @param {KVNamespace} kv - KV namespace binding
- * @param {string} key - Cache key
- * @returns {Promise<Object|null>} Cached data with etag, or null if not found
- */
-export async function getCachedData(kv, key) {
-  try {
-    const cached = await kv.get(key, 'json')
-    return cached // { etag: "...", data: [...] }
-  } catch (error) {
-    console.error(`Cache read error for key ${key}:`, error)
-    return null
-  }
-}
-
-/**
- * Store data in KV cache
- *
- * @param {KVNamespace} kv - KV namespace binding
- * @param {string} key - Cache key
- * @param {string} etag - ETag value
- * @param {any} data - Data to cache
- * @param {number} ttl - Time to live in seconds (default: 86400 = 24 hours)
- */
-export async function setCachedData(kv, key, etag, data, ttl = 86400) {
-  try {
-    await kv.put(key, JSON.stringify({
-      etag,
-      data,
-      cachedAt: new Date().toISOString()
-    }), {
-      expirationTtl: ttl
-    })
-  } catch (error) {
-    console.error(`Cache write error for key ${key}:`, error)
-    // Don't throw - failing to cache shouldn't break the request
-  }
-}
-
-/**
- * Delete cached data
- *
- * @param {KVNamespace} kv - KV namespace binding
- * @param {string|string[]} keys - Cache key(s) to delete
- */
-export async function deleteCachedData(kv, keys) {
-  try {
-    const keyArray = Array.isArray(keys) ? keys : [keys]
-    await Promise.all(keyArray.map(key => kv.delete(key)))
-  } catch (error) {
-    console.error(`Cache delete error:`, error)
-    // Don't throw - failing to invalidate cache shouldn't break the request
-  }
-}
-
-/**
  * Check if client ETag matches cached ETag
  *
  * @param {string} clientETag - ETag from If-None-Match header

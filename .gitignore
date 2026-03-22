@@ -12,3 +12,4 @@ scripts/*.log
 scripts/*.sql
 scripts/*.parquet
 scripts/timestamps/
+CLAUDE.md

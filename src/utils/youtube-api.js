@@ -4,18 +4,9 @@
  */
 
 import { getSecret } from '../platform.js'
+import { CONFIG } from '../config.js'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
-
-// Default target channels (configurable via env)
-const DEFAULT_TARGET_CHANNELS = [
-  'UC7A7bGRVdIwo93nqnA3x-OQ',
-  'UCBOGwPeBtaPRU59j8jshdjQ',
-  'UC2cgr_UtYukapRUt404In-A',
-  'PLnWT3dUyDsU6hCaYuVsiwsSF8luEilys8'  // Membership playlist
-]
-
-const DEFAULT_MEMBERSHIP_PLAYLIST_ID = 'PLnWT3dUyDsU6hCaYuVsiwsSF8luEilys8'
 
 // Get configured channels from env or use defaults
 function getTargetChannels(env) {
@@ -23,11 +14,11 @@ function getTargetChannels(env) {
   if (channelsStr) {
     try { return JSON.parse(channelsStr) } catch { /* use defaults */ }
   }
-  return DEFAULT_TARGET_CHANNELS
+  return [...CONFIG.berryChannels, CONFIG.membershipPlaylistId]
 }
 
 function getMembershipPlaylistId(env) {
-  return getSecret(env, 'MEMBERSHIP_PLAYLIST_ID') || DEFAULT_MEMBERSHIP_PLAYLIST_ID
+  return getSecret(env, 'MEMBERSHIP_PLAYLIST_ID') || CONFIG.membershipPlaylistId
 }
 
 // Convert Channel ID to Playlist ID (UC -> UU)
@@ -65,7 +56,7 @@ export function preCategory(title) {
 
 // Make authenticated YouTube API request
 export async function makeYouTubeAPIRequest(url, env) {
-  const apiKey = getSecret(env, 'YOUTUBEAPIKEY') || getSecret(env, 'YOUTUBE_API_KEY')
+  const apiKey = getSecret(env, 'YOUTUBE_API_KEY')
 
   if (!apiKey) {
     throw new Error('YouTube API Key 未配置')
