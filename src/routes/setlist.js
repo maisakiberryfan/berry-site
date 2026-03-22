@@ -71,6 +71,9 @@ export async function createSetlistEntry(c) {
   const entries = isBatch ? body : [body];
 
   // Validate batch input
+  if (isBatch && entries.length > 200) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "Maximum 200 items per batch"), 400);
+  }
   if (isBatch && entries.length === 0) {
     return c.json(
       createErrorResponse(

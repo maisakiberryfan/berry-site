@@ -216,70 +216,80 @@ function buildGraph0() {
     makeNode('pubsub', 'PubSubHubbub\nYouTube webhook', 'trigger', { level: 0 }),
     makeNode('manual', '手動\n/trigger-*', 'trigger', { level: 0 }),
 
-    // Step 0: PubSub renewal
+    // Step 0: PubSub renewal (Cron only)
     makeNode('renew', 'renewPubSub\nSubscription()', 'process', { level: 1 }),
+
+    // PubSub path: single video info
+    makeNode('get_info', 'getVideoInfo()\n單一影片查詢', 'util', { level: 2 }),
 
     // Step 1: Fetch new videos (group: fetchNewVideos)
     makeNode('fetch_new', 'getNewVideos\nFromChannels()', 'util', { level: 2 }),
     makeNode('fetch_detail', 'getVideo\nDetails()', 'util', { level: 3 }),
 
+    // Categorize (shared by cron & pubsub)
+    makeNode('categorize', 'categorize\nStream()', 'util', { level: 4 }),
+
     // Step 2: Insert streams
-    makeNode('insert_s', 'batchCreate\nStreams()', 'process', { level: 4 }),
+    makeNode('insert_s', 'batchCreate\nStreams()', 'process', { level: 5 }),
 
-    // Step 3: Thumbnails
-    makeNode('save_tb', 'saveThumbnail()\n→ S3', 'process', { level: 5 }),
+    // Step 2.5: Thumbnails
+    makeNode('save_tb', 'saveThumbnail()\n→ S3', 'process', { level: 6 }),
 
-    // Step 4: Find pending
-    makeNode('find', 'fetchPending\nStreams()', 'process', { level: 6 }),
+    // Step 3: Find pending
+    makeNode('find', 'fetchPending\nStreams()', 'process', { level: 7 }),
 
-    // Step 5: Parse setlist (group: parseSetlistForStream)
-    makeNode('get_cmt', 'getVideo\nComments()', 'util', { level: 7 }),
-    makeNode('find_cmt', 'findSetlist\nComment()', 'util', { level: 8 }),
-    makeNode('fuzzy', 'fuzzyMatch\nSetlist()', 'util', { level: 9 }),
-    makeNode('lambda', 'Lambda matcher\nHTTP POST', 'lambda', { level: 10 }),
+    // Polling: time correction safety net
+    makeNode('time_fix', '時間修正\nscheduledStartTime', 'process', { level: 7 }),
 
-    // Step 6: Insert setlists
-    makeNode('insert_set', 'processAndInsert\nSetlists()', 'process', { level: 11 }),
+    // Polling: live status check
+    makeNode('live_det', 'getLiveDetails()\nisEnded?', 'process', { level: 8 }),
 
-    // Step 7: Detect debuts
-    makeNode('detect', 'detectDebut\nSongs()', 'process', { level: 12 }),
+    // Step 4: Parse setlist (group: parseSetlistForStream)
+    makeNode('get_songs', 'getSonglist\nData()', 'util', { level: 8 }),
+    makeNode('get_cmt', 'getVideo\nComments()', 'util', { level: 9 }),
+    makeNode('find_cmt', 'findSetlist\nComment()', 'util', { level: 10 }),
+    makeNode('fuzzy', 'fuzzyMatch\nSetlist()', 'util', { level: 11 }),
+    makeNode('lambda', 'Lambda matcher\nHTTP POST', 'lambda', { level: 12 }),
 
-    // Step 8: Notify
-    makeNode('notify', 'sendDiscord\nNotification()', 'cron', { level: 13 }),
+    // Step 5: Insert setlists & notify setlist comment
+    makeNode('setlist_cmt', 'sendSetlist\nComment()', 'cron', { level: 13 }),
+    makeNode('insert_set', 'processAndInsert\nSetlists()', 'process', { level: 13 }),
 
-    // Polling sub-flow
-    makeNode('live_det', 'getLiveDetails()\nisEnded?', 'process', { level: 6 }),
+    // Step 6: Detect debuts
+    makeNode('detect', 'detectDebut\nSongs()', 'process', { level: 14 }),
 
-    // Setlist comment to Discord
-    makeNode('setlist_cmt', 'sendSetlist\nComment()', 'cron', { level: 11 }),
+    // Step 7: Notify
+    makeNode('notify', 'sendDiscord\nNotification()', 'cron', { level: 15 }),
   ]);
 
   const edges = new vis.DataSet([
-    // runAutoUpdate main flow
+    // runAutoUpdate main flow (Cron path)
     makeEdge('cron_daily', 'renew'),
     makeEdge('renew', 'fetch_new'),
     makeEdge('fetch_new', 'fetch_detail'),
-    makeEdge('fetch_detail', 'insert_s'),
+    makeEdge('fetch_detail', 'categorize'),
+    makeEdge('categorize', 'insert_s'),
     makeEdge('insert_s', 'save_tb'),
     makeEdge('save_tb', 'find'),
-    makeEdge('find', 'get_cmt'),
+    makeEdge('find', 'get_songs'),
+    makeEdge('get_songs', 'get_cmt'),
     makeEdge('get_cmt', 'find_cmt'),
     makeEdge('find_cmt', 'fuzzy'),
     makeEdge('fuzzy', 'lambda'),
+    makeEdge('lambda', 'setlist_cmt', '解析完成'),
     makeEdge('lambda', 'insert_set', '回傳結果'),
     makeEdge('insert_set', 'detect'),
     makeEdge('detect', 'notify'),
 
-    // Setlist comment notification (parallel)
-    makeEdge('lambda', 'setlist_cmt', '', true),
+    // PubSub path: single video
+    makeEdge('pubsub', 'get_info', '單一影片'),
+    makeEdge('get_info', 'categorize'),
 
     // runPollingCheck flow
     makeEdge('cron_poll', 'find'),
-    makeEdge('find', 'live_det'),
-    makeEdge('live_det', 'get_cmt', '已結束'),
-
-    // PubSub → insert (skip fetch, single video)
-    makeEdge('pubsub', 'insert_s', '單一影片', true),
+    makeEdge('find', 'time_fix', 'Polling'),
+    makeEdge('time_fix', 'live_det'),
+    makeEdge('live_det', 'get_songs', '已結束'),
 
     // Manual trigger
     makeEdge('manual', 'fetch_new', '', true),
@@ -301,7 +311,7 @@ const cronGroups = [
   {
     title: 'parseSetlistForStream()',
     source: 'data-processor.js → youtube-comments.js → fuzzy-matcher.js',
-    nodeIds: ['get_cmt', 'find_cmt', 'fuzzy', 'lambda'],
+    nodeIds: ['get_songs', 'get_cmt', 'find_cmt', 'fuzzy', 'lambda'],
     bgColor: 'rgba(9, 132, 227, 0.1)',
     borderColor: 'rgba(9, 132, 227, 0.4)',
     titleColor: 'rgba(116, 185, 255, 0.9)',
@@ -368,13 +378,30 @@ function buildGraph1() {
     makeEdge('au', 'tb'),
     makeEdge('au', 'mw'),
     makeEdge('au', 'cfg'),
+    makeEdge('au', 'yt_api'),
+    makeEdge('au', 'db'),
+    makeEdge('au', 'plat'),
     makeEdge('df', 'yt_api'),
     makeEdge('df', 'cfg'),
     makeEdge('dp', 'yt_cmt'),
     makeEdge('dp', 'fm'),
     makeEdge('dp', 'mw'),
     makeEdge('dp', 'cfg'),
+    makeEdge('dp', 'url'),
+    makeEdge('dp', 'db'),
+    makeEdge('dp', 'plat'),
+    makeEdge('db', 'plat'),
+    makeEdge('mw', 'db'),
+    makeEdge('r_song', 'db'),
+    makeEdge('r_stream', 'db'),
+    makeEdge('r_set', 'db'),
+    makeEdge('fm', 'plat'),
     makeEdge('fm', 'lm', 'HTTP', true),
+    makeEdge('discord', 'plat'),
+    makeEdge('tb', 'plat'),
+    makeEdge('yt_api', 'plat'),
+    makeEdge('yt_api', 'cfg'),
+    makeEdge('yt_cmt', 'cfg'),
     makeEdge('tool', 'app', 'fetch /api/*', true),
     makeEdge('analytics', 'app', 'fetch /api/text-to-sql', true),
     makeEdge('sc', 'db', 'standalone', true),
@@ -390,12 +417,18 @@ function buildGraph2() {
     makeNode('setcontent', 'setContent(path)', 'process'),
     makeNode('pushstate', 'history.pushState()', 'process'),
     makeNode('home', '首頁 /', 'page'),
+    makeNode('profile', '個人介紹\n/profile', 'page'),
+    makeNode('history_p', '歷史\n/history', 'page'),
+    makeNode('clothes', '衣裝\n/clothes', 'page'),
     makeNode('stream', '直播列表\n/streamlist', 'page'),
     makeNode('setlist', '歌單\n/setlist', 'page'),
     makeNode('song', '歌曲\n/songlist', 'page'),
+    makeNode('alias', '別名管理\n/aliases', 'page'),
     makeNode('analytics_p', '分析\n/analytics', 'page'),
-    makeNode('api_calls', 'fetch /api/*', 'api'),
+    makeNode('cache', 'localStorage\n+ ETag 快取', 'process'),
+    makeNode('api_calls', 'fetch /api/*\n+ CRUD editing', 'api'),
     makeNode('backend', 'Hono API\n端點', 'core'),
+    makeNode('static', '靜態頁面\npages/*.htm|md', 'external'),
     makeNode('duckdb', 'DuckDB-WASM\n本地 Parquet', 'lambda'),
     makeNode('text_sql', '/api/text-to-sql\nAI 小幫手', 'api'),
   ]);
@@ -404,14 +437,23 @@ function buildGraph2() {
     makeEdge('user', 'setcontent', 'URL/點擊'),
     makeEdge('setcontent', 'pushstate'),
     makeEdge('setcontent', 'home'),
+    makeEdge('setcontent', 'profile'),
+    makeEdge('setcontent', 'history_p'),
+    makeEdge('setcontent', 'clothes'),
     makeEdge('setcontent', 'stream'),
     makeEdge('setcontent', 'setlist'),
     makeEdge('setcontent', 'song'),
+    makeEdge('setcontent', 'alias'),
     makeEdge('setcontent', 'analytics_p'),
+    makeEdge('profile', 'static'),
+    makeEdge('history_p', 'static', 'markdown'),
+    makeEdge('clothes', 'static'),
     makeEdge('home', 'api_calls', 'allSettled'),
     makeEdge('stream', 'api_calls'),
     makeEdge('setlist', 'api_calls'),
     makeEdge('song', 'api_calls'),
+    makeEdge('alias', 'api_calls'),
+    makeEdge('api_calls', 'cache', '讀/寫'),
     makeEdge('api_calls', 'backend', 'fetch'),
     makeEdge('analytics_p', 'duckdb', 'SQL'),
     makeEdge('analytics_p', 'text_sql', 'AI'),
@@ -465,7 +507,7 @@ function updateLegend(idx) {
   const legends = [
     [['trigger','觸發源'],['process','處理步驟'],['util','工具函數'],['cron','通知'],['lambda','Lambda / 外部']],
     [['entry','入口層'],['core','核心應用'],['route','路由模組'],['util','工具模組'],['cron','排程任務'],['lambda','Lambda'],['frontend','前端'],['script','CLI 腳本']],
-    [['trigger','使用者'],['process','路由控制'],['page','頁面'],['api','API 呼叫'],['core','後端'],['lambda','外部']],
+    [['trigger','使用者'],['process','路由/快取'],['page','頁面'],['api','API 呼叫'],['core','後端'],['external','靜態檔案'],['lambda','外部']],
   ];
 
   const el = document.getElementById('legend');

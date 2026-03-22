@@ -304,6 +304,10 @@ export async function bulkUpdateCategories(c) {
 
   const { streamIDs, categories } = body;
 
+  if (Array.isArray(streamIDs) && streamIDs.length > 100) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "Maximum 100 items per batch"), 400);
+  }
+
   if (!Array.isArray(streamIDs) || streamIDs.length === 0) {
     return c.json(
       createErrorResponse(

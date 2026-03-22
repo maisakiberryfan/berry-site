@@ -326,6 +326,9 @@ app.post('/batch', async (c) => {
     const body = await c.req.json()
     const { aliases } = body
 
+    if (Array.isArray(aliases) && aliases.length > 100) {
+      return c.json({ success: false, error: { message: 'Maximum 100 items per batch' } }, 400)
+    }
     if (!Array.isArray(aliases) || aliases.length === 0) {
       return c.json(
         {

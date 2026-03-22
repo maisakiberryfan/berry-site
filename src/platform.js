@@ -8,6 +8,16 @@
  * CF: env.HYPERDRIVE object | AWS: process.env.DB_* | wrangler dev: env.DB_*
  */
 export function getDbConfig(env) {
+  // wrangler dev: .dev.vars 的 DB_* 優先於 Hyperdrive（避免假 localConnectionString）
+  if (env?.DB_HOST) {
+    return {
+      host: env.DB_HOST,
+      port: parseInt(env.DB_PORT),
+      user: env.DB_USER,
+      password: env.DB_PASSWORD,
+      database: env.DB_NAME
+    }
+  }
   if (env?.HYPERDRIVE) {
     return {
       host: env.HYPERDRIVE.host,

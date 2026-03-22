@@ -70,12 +70,6 @@ export const CONFIG = {
       if (allowed.includes(origin)) return origin
       // Allow CF Pages preview deployments
       if (origin?.endsWith('.maisakiberry.pages.dev')) return origin
-      // Allow all m-b.win subdomains
-      if (origin?.endsWith('.m-b.win')) return origin
-      // Allow CF Workers dev/staging URL
-      if (origin?.endsWith('.workers.dev')) return origin
-      // Allow AWS CloudFront URL
-      if (origin?.endsWith('.cloudfront.net')) return origin
       return false
     },
     allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

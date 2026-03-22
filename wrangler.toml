@@ -21,6 +21,7 @@ LAMBDA_MATCHER_URL = "https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.co
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "3794cb90bec64a1f9e92bc3b4a60ea41"  # mbdb (production)
+localConnectionString = "postgresql://unused:unused@localhost:5432/unused"  # wrangler dev 用 .dev.vars DB_* 連線，此值僅避免啟動報錯
 
 # Cron triggers — 備用站不跑 cron，由 AWS (EventBridge) 負責
 # 正式啟用時取消註解
