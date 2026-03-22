@@ -10,7 +10,7 @@ import { getVideoComments as getVideoCommentsCore } from './youtube-comments.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
 import { iso8601ToMySQL } from './middleware.js'
 import { getSecret } from '../platform.js'
-import { sendSetlistComment } from './discord-notifier.js'
+// sendSetlistComment moved to callers (auto-update.js, app.js)
 
 /**
  * Data processor class for updating streamlist and setlist data
@@ -284,13 +284,6 @@ export class DataProcessor {
       const setlistComment = commentResult.text
       const commentAuthor = commentResult.author
 
-      // 發送歌單留言到 Discord（使用獨立的歌單 webhook）
-      const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
-      if (setlistWebhookUrl) {
-        sendSetlistComment(setlistWebhookUrl, stream, setlistComment, commentAuthor)
-          .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
-      }
-
       // Parse the setlist comment to extract song-artist pairs
       const parsedSongs = this.parseSetlistComment(setlistComment)
 
@@ -392,13 +385,13 @@ export class DataProcessor {
         已知歌曲數: setlistItems.filter(item => !item.note).length
       })
 
-      // Return setlist items for database insertion
+      // Return setlist items + comment info for caller to handle notifications
       logger.info('SETLIST', `✅ 成功解析 ${result.songIDs.length} 首歌曲: ${stream.title}`, {
         影片ID: stream.id,
         歌曲數量: result.songIDs.length,
         setlist項目數: setlistItems.length
       })
-      return setlistItems
+      return { items: setlistItems, setlistComment, commentAuthor }
 
     } catch (error) {
       logger.error('SETLIST', `❌ 解析歌單失敗: ${stream.title}`, {

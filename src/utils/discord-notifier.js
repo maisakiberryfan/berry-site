@@ -282,21 +282,38 @@ function buildPollingParseEmbed(payload) {
 export async function sendSetlistComment(webhookUrl, stream, setlistComment, author) {
   if (!webhookUrl) return
 
+  // 支援逗號分隔多個 webhook URL
+  const urls = typeof webhookUrl === 'string' ? webhookUrl.split(',').map(u => u.trim()).filter(Boolean) : [webhookUrl]
+  if (urls.length === 0) return
+
   try {
     // <URL> 避免 Discord 產生影片預覽
     const url = `<https://www.youtube.com/watch?v=${stream.id}>`
     // 用 zero-width space 避免 Discord 標記到同名用戶（@ 後插入 \u200B）
     const safeAuthor = (author || '匿名').replace(/@/g, '@\u200B')
-    const header = `${stream.time || ''} ${stream.title || ''}\n${url}\n${safeAuthor}`
+    // 格式化時間為 JST (UTC+9)
+    let timeStr = ''
+    if (stream.time) {
+      const d = new Date(stream.time)
+      timeStr = d.toLocaleString('en-US', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      }) + ' (JST)'
+    }
+    const header = `${timeStr} ${stream.title || ''}\n${url}\n${safeAuthor}`
     const content = `${header}\n\`\`\`\n${setlistComment}\n\`\`\``
+    const body = JSON.stringify({ content: content.substring(0, 2000) })
 
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: content.substring(0, 2000) })
-    })
+    await Promise.allSettled(urls.map(hookUrl =>
+      fetch(hookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body
+      })
+    ))
 
-    console.log('Setlist comment sent to Discord')
+    console.log(`Setlist comment sent to ${urls.length} Discord webhook(s)`)
   } catch (error) {
     console.error('Failed to send setlist comment to Discord:', error)
   }

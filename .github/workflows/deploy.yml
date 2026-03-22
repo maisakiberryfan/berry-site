@@ -68,6 +68,7 @@ jobs:
               AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
               DiscordSetlistWebhookUrl=${{ secrets.DISCORD_SETLIST_WEBHOOK_URL }} \
+              TriggerToken=${{ secrets.TRIGGER_TOKEN }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
               PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \
               GithubToken=${{ secrets.GH_PAT_TOKEN }}

@@ -11,6 +11,4 @@ scripts/node_modules/
 scripts/*.log
 scripts/*.sql
 scripts/*.parquet
-scripts/timestamps/comments-cache.json
-scripts/timestamps/analysis-result.json
-scripts/timestamps/manual-review.tsv
+scripts/timestamps/

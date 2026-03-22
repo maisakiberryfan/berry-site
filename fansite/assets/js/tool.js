@@ -956,6 +956,82 @@ $(()=>{
     return rowData.songDisplay || ''
   }
 
+  // --- View Setlist Modal ---
+  const viewSetlistModal = new bootstrap.Modal(document.getElementById('modalViewSetlist'))
+
+  function secondsToHMS(v) {
+    if (v == null) return ''
+    const h = Math.floor(v / 3600)
+    const m = Math.floor((v % 3600) / 60)
+    const s = v % 60
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  }
+
+  function formatSongDisplay(name, nameEn) {
+    if (nameEn) return `${name}(${nameEn})`
+    return name
+  }
+
+  function formatKLSetlist(setlistData) {
+    let lines = ['♬セトリ/Set List♬', '']
+    for (const row of setlistData) {
+      const trackNo = String(row.trackNo).padStart(2, '0')
+      const song = formatSongDisplay(row.songName, row.songNameEn)
+      const artist = formatSongDisplay(row.artist, row.artistEn)
+
+      let timePart = ''
+      if (row.startTime != null && row.endTime != null) {
+        timePart = `${secondsToHMS(row.startTime)} ~ ${secondsToHMS(row.endTime)} `
+      } else if (row.startTime != null) {
+        timePart = `${secondsToHMS(row.startTime)} `
+      }
+
+      lines.push(`${timePart}${trackNo}| ${song} | ${artist}`)
+    }
+    return lines.join('\n')
+  }
+
+  async function viewSetlist(streamData) {
+    // Set modal title
+    const dateStr = streamData.time || ''
+    const title = streamData.title || ''
+    $('#modalTitleViewSetlist').html(`🎵 ${dateStr} ${title}`)
+
+    // Show loading state
+    $('#viewSetlistKL').val(t('載入中...', 'Loading...', '読み込み中...'))
+    viewSetlistModal.show()
+
+    try {
+      const setlist = await apiRequest('GET', `${API_CONFIG.ENDPOINTS.setlist}?streamID=${streamData.streamID}`)
+
+      if (!setlist || setlist.length === 0) {
+        $('#viewSetlistKL').val(t('尚無歌單', 'No setlist available', 'セットリストがありません'))
+        return
+      }
+
+      $('#viewSetlistKL').val(formatKLSetlist(setlist))
+    } catch (err) {
+      $('#viewSetlistKL').val(`${t('載入失敗', 'Failed to load', '読み込み失敗')}: ${err.message}`)
+    }
+  }
+
+  // Copy KL format button
+  $('#btnCopyKL').on('click', async function() {
+    const text = $('#viewSetlistKL').val()
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      const $btn = $(this)
+      const original = $btn.html()
+      $btn.html(`<i class="bi bi-check-lg"></i> ${t('已複製', 'Copied', 'コピー済')}`)
+      setTimeout(() => $btn.html(original), 1500)
+    } catch (err) {
+      // Fallback
+      $('#viewSetlistKL').select()
+      document.execCommand('copy')
+    }
+  })
+
   async function openBatchEditor(streamData) {
     console.log('Opening batch editor for:', streamData)
     batchStreamData = streamData
@@ -2097,8 +2173,16 @@ $(()=>{
 
         e.preventDefault();
 
-        showContextMenu(e.pageX, e.pageY, [
-          {
+        const menuItems = []
+
+        // View setlist (always available for singing streams)
+        menuItems.push({
+          label: '🎵 ' + t('查看歌單', 'View Setlist', 'セットリスト表示'),
+          action: () => viewSetlist(data)
+        })
+        menuItems.push({ type: 'divider' })
+
+        menuItems.push({
             label: '📝 ' + t('補檔用 - 批次編輯歌單', 'Archive - Batch Edit Setlist', '補完用 - セットリスト一括編集'),
             action: () => openBatchEditor(data)
           },
@@ -2130,8 +2214,9 @@ $(()=>{
           {
             label: '🎥 ' + t('查看 YouTube 影片', 'View YouTube Video', 'YouTube動画を見る'),
             action: () => window.open(`https://youtube.com/watch?v=${data.streamID}`, '_blank')
-          }
-        ]);
+          })
+
+        showContextMenu(e.pageX, e.pageY, menuItems);
       });
     }
 
