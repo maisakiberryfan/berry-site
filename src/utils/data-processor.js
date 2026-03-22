@@ -230,13 +230,6 @@ export class DataProcessor {
       const setlistComment = commentResult.text
       const commentAuthor = commentResult.author
 
-      // Parse the setlist comment to extract song-artist pairs
-      const parsedSongs = this.parseSetlistComment(setlistComment)
-
-      if (Object.keys(parsedSongs).length === 0) {
-        return null
-      }
-
       // Get songlist data for comparison
       const songlistData = await this.getSonglistData(env)
 
@@ -364,79 +357,6 @@ export class DataProcessor {
       console.error(`[YOUTUBE] 取得留言失敗: ${videoId} - ${error.message}`)
       throw new Error(`取得留言失敗: ${error.message}`)
     }
-  }
-
-  /**
-   * Parse setlist comment to extract song-artist pairs
-   * Based on fansite debug.html cleanSetlistComment function (lines 920-977)
-   * @param {string} rawComment - Raw setlist comment text
-   * @returns {Object} Parsed songs in {songName: artist} format
-   */
-  parseSetlistComment(rawComment) {
-    if (!rawComment) return {};
-
-    const lines = rawComment.split('\n');
-    const cleanedSongs = {};
-
-    lines.forEach(line => {
-      // 跳過標題行
-      if (line.includes('♬セトリ') || line.includes('Set List') ||
-        line.includes('♬') || line.includes('setlist')) {
-        return;
-      }
-
-      // 移除時間戳: 0:04:46 ~ 0:09:30
-      line = line.replace(/\d+:\d+:\d+\s*~\s*\d+:\d+:\d+\s*/g, '');
-      // 移除單一時間戳: 0:04:46 or 4:46
-      line = line.replace(/\d{1,2}:\d{2}(?::\d{2})?\s*/g, '');
-
-      // 移除序號: 01|, 1.|, 1.空格, ①等
-      line = line.replace(/^[\d①②③④⑤⑥⑦⑧⑨⑩]+[\.|｜|\s]/g, '');
-
-      // 移除英文/羅馬音括號內容
-      line = line.replace(/\([^)]*\)/g, '');
-
-      // 清理空白字元
-      line = line.trim();
-
-      // 如果行為空或太短，跳過
-      if (!line || line.length < 3) return;
-
-      // 過濾明確的噪音行（トーク、emoji分隔線、loading）
-      const t = line.trim();
-      if (/^(OP|ED|MC)?[  ]*トーク/i.test(t)) return;
-      if (/^(オープニング|エンディング)/i.test(t)) return;
-      if (/^(now\s*)?loading\.{0,3}$/i.test(t)) return;
-      if (/^[\p{Emoji}\p{S}\s]+$/u.test(t) && t.length >= 3) return;
-
-      // 尋找分隔符並拆分歌名和歌手
-      let songName = '', artist = '';
-
-      // 常見分隔符
-      const separators = ['|', '｜', ' - ', '/', '  ', '\t'];
-
-      for (const sep of separators) {
-        if (line.includes(sep)) {
-          const parts = line.split(sep, 2);
-          songName = parts[0].trim();
-          artist = parts[1] ? parts[1].trim() : '';
-          break;
-        }
-      }
-
-      // 如果找不到分隔符，整行作為歌名
-      if (!songName) {
-        songName = line.trim();
-        artist = '';
-      }
-
-      // 只保留有歌名的項目
-      if (songName && songName.length > 0) {
-        cleanedSongs[songName] = artist;
-      }
-    });
-
-    return cleanedSongs;
   }
 
   /**
