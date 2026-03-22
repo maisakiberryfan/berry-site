@@ -89,6 +89,25 @@ function extractJpEn(text) {
   return { jp: base, en: paren }
 }
 
+function timeToSeconds(str) {
+  const parts = str.split(':').map(Number)
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  return null
+}
+
+function isNoiseLine(text) {
+  const t = text.trim()
+  // Talk/MC/opening/ending segments
+  if (/^(OP|ED|MC)?[  ]*トーク/i.test(t)) return true
+  if (/^(オープニング|エンディング)/i.test(t)) return true
+  // Loading markers
+  if (/^(now\s*)?loading\.{0,3}$/i.test(t)) return true
+  // Emoji-only lines
+  if (/^[\p{Emoji}\p{S}\s]+$/u.test(t) && t.length >= 3) return true
+  return false
+}
+
 function parseSetlistLine(line) {
   if (!line || line.length < 3) return null
 
@@ -99,11 +118,32 @@ function parseSetlistLine(line) {
     return null
   }
 
-  cleaned = cleaned.replace(/\d+:\d+:\d+\s*~\s*\d+:\d+:\d+\s*/g, '')
+  // 提取時間戳（先提取再去除）
+  let startSec = null, endSec = null
+  const rangeRe = /(\d{1,2}:\d{2}(?::\d{2})?)\s*[~～–\-]\s*(\d{1,2}:\d{2}(?::\d{2})?)/
+  const singleRe = /(\d{1,2}:\d{2}(?::\d{2})?)/
+
+  const rangeMatch = cleaned.match(rangeRe)
+  if (rangeMatch) {
+    startSec = timeToSeconds(rangeMatch[1])
+    endSec = timeToSeconds(rangeMatch[2])
+    cleaned = cleaned.replace(rangeRe, '')
+  } else {
+    const singleMatch = cleaned.match(singleRe)
+    if (singleMatch) {
+      startSec = timeToSeconds(singleMatch[1])
+      cleaned = cleaned.replace(singleRe, '')
+    }
+  }
+
+  cleaned = cleaned.trim()
   cleaned = cleaned.replace(/^[\d①②③④⑤⑥⑦⑧⑨⑩]+[.|｜|\s]/g, '')
   cleaned = cleaned.trim()
 
   if (!cleaned || cleaned.length < 3) return null
+
+  // Filter noise lines (talk segments, emoji dividers, loading, 感言)
+  if (isNoiseLine(cleaned)) return null
 
   let songPart = ''
   let artistPart = ''
@@ -133,7 +173,9 @@ function parseSetlistLine(line) {
     titleEN: song.en,
     artistJP: artist.jp,
     artistEN: artist.en,
-    raw: line
+    raw: line,
+    startSec,
+    endSec
   }
 }
 

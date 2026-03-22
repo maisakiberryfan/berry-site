@@ -67,6 +67,7 @@ jobs:
               YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
               AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
+              DiscordSetlistWebhookUrl=${{ secrets.DISCORD_SETLIST_WEBHOOK_URL }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
               PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \
               GithubToken=${{ secrets.GH_PAT_TOKEN }}

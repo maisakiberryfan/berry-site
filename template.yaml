@@ -36,6 +36,9 @@ Parameters:
   DiscordWebhookUrl:
     Type: String
     Default: ''
+  DiscordSetlistWebhookUrl:
+    Type: String
+    Default: ''
   LambdaMatcherUrl:
     Type: String
     Default: 'https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.com/Prod/match-setlist'
@@ -66,6 +69,7 @@ Resources:
           YOUTUBEAPIKEY: !Ref YoutubeApiKey
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
+          DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
           LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
           GITHUB_TOKEN: !Ref GithubToken
