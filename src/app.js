@@ -11,7 +11,7 @@ import { Database } from './utils/database.js'
 import { getSecret } from './platform.js'
 import { extractVideoId } from './utils/url-helpers.js'
 import { initLogger, getLogger } from './utils/unified-logger.js'
-import { sendDiscordNotification } from './utils/discord-notifier.js'
+import { sendDiscordNotification, sendSetlistComment } from './utils/discord-notifier.js'
 import { getVideoComments } from './utils/youtube-comments.js'
 import { errorHandler, mysqlToISO8601 } from './utils/middleware.js'
 import {
@@ -532,8 +532,17 @@ app.route('/api', api)
 
 // ─── Infrastructure Routes (no /api/ prefix) ───
 
+// Token validation for trigger endpoints
+function validateTriggerToken(c) {
+  const token = c.req.query('token') || c.req.header('X-Trigger-Token')
+  const expected = getSecret(c.env, 'TRIGGER_TOKEN')
+  if (!expected) return true  // 未設定時跳過驗證（向下相容）
+  return token === expected
+}
+
 // Manual trigger
 app.post('/trigger-update', async (c) => {
+  if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
   const workerLogger = initLogger(c.env)
   workerLogger.startRequest()
 
@@ -554,6 +563,7 @@ app.post('/trigger-update', async (c) => {
 
 // Manual setlist parse
 app.get('/trigger-setlist-parse', async (c) => {
+  if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
   const streamID = c.req.query('streamID')
   if (!streamID) return c.json({ error: 'Missing streamID' }, 400)
 
@@ -585,21 +595,28 @@ app.get('/trigger-setlist-parse', async (c) => {
       category: categories
     }
 
-    const result = await dataProcessor.parseSetlistForStream(formattedStream, c.env)
+    const parseResult = await dataProcessor.parseSetlistForStream(formattedStream, c.env)
 
-    if (result && result.length > 0) {
-      await dataProcessor.batchCreateSetlist(result, c.env)
+    if (parseResult && parseResult.items && parseResult.items.length > 0) {
+      await dataProcessor.batchCreateSetlist(parseResult.items, c.env)
       await dataProcessor.updateStreamSetlistComplete(streamID, true, c.env)
+
+      // 發送歌單留言到 Discord
+      const setlistWebhookUrl = getSecret(c.env, 'DISCORD_SETLIST_WEBHOOK_URL')
+      if (setlistWebhookUrl) {
+        sendSetlistComment(setlistWebhookUrl, formattedStream, parseResult.setlistComment, parseResult.commentAuthor)
+          .catch(() => {})
+      }
 
       await sendDiscordNotification(c.env, {
         type: 'manual-parse',
         success: true,
         streamID,
         title: stream.title,
-        songCount: result.length
+        songCount: parseResult.items.length
       })
 
-      return c.json({ success: true, streamID, songCount: result.length, items: result })
+      return c.json({ success: true, streamID, songCount: parseResult.items.length, items: parseResult.items })
     }
 
     return c.json({ success: false, message: '未找到歌單留言' })
@@ -609,6 +626,111 @@ app.get('/trigger-setlist-parse', async (c) => {
     await workerLogger.endRequest()
   }
 })
+
+// Send setlist notification independently (without re-parsing)
+app.get('/trigger-setlist-notify', async (c) => {
+  if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
+  initLogger(c.env)
+
+  const streamID = c.req.query('streamID')
+  const startDate = c.req.query('startDate')
+  const endDate = c.req.query('endDate')
+
+  if (!streamID && !startDate) {
+    return c.json({ error: 'Missing streamID or startDate' }, 400)
+  }
+
+  const webhookUrl = getSecret(c.env, 'DISCORD_SETLIST_WEBHOOK_URL')
+  if (!webhookUrl) {
+    return c.json({ error: 'DISCORD_SETLIST_WEBHOOK_URL not configured' }, 500)
+  }
+
+  try {
+    const db = c.get('db')
+    let setlist
+
+    if (streamID) {
+      setlist = await db.query(
+        'SELECT * FROM setlist WHERE streamID = ? ORDER BY segmentNo ASC, trackNo ASC',
+        [streamID]
+      )
+    } else {
+      const end = endDate || startDate
+      setlist = await db.query(
+        'SELECT * FROM setlist WHERE time >= ? AND time < DATE_ADD(?, INTERVAL 1 DAY) ORDER BY time ASC, segmentNo ASC, trackNo ASC',
+        [startDate, end]
+      )
+    }
+
+    if (!setlist || setlist.length === 0) {
+      return c.json({ success: false, message: 'No setlist found' })
+    }
+
+    // Group by streamID
+    const grouped = {}
+    for (const row of setlist) {
+      if (!grouped[row.streamID]) grouped[row.streamID] = { rows: [], time: row.time }
+      grouped[row.streamID].rows.push(row)
+    }
+
+    // Fetch YouTube comments for each stream and send
+    const { DataProcessor } = await import('./utils/data-processor.js')
+    const dp = new DataProcessor()
+    const apiKey = getSecret(c.env, 'YOUTUBE_API_KEY') || getSecret(c.env, 'YOUTUBEAPIKEY')
+    let sentCount = 0
+    const errors = []
+    for (const [sid, data] of Object.entries(grouped)) {
+      const stream = { id: sid, title: data.rows[0].streamTitle || '', time: data.time }
+      try {
+        // Try to get original YouTube comment
+        const comments = await dp.getVideoComments(sid, apiKey)
+        const commentResult = dp.findSetlistComment(comments)
+        if (commentResult) {
+          await sendSetlistComment(webhookUrl, stream, commentResult.text, commentResult.author)
+        } else {
+          // Fallback: use backend KL format
+          const klText = formatKLSetlistBackend(data.rows)
+          await sendSetlistComment(webhookUrl, stream, klText, 'berry-bot (auto)')
+        }
+        sentCount++
+      } catch (err) {
+        console.error(`[trigger-setlist-notify] Error for ${sid}:`, err)
+        errors.push({ streamID: sid, error: err.message })
+      }
+    }
+
+    return c.json({ success: true, sentCount, ...(errors.length > 0 && { errors }) })
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+
+// Backend KL format generator
+function formatKLSetlistBackend(rows) {
+  const lines = ['♬セトリ/Set List♬', '']
+  for (const row of rows) {
+    const trackNo = String(row.trackNo).padStart(2, '0')
+    const song = row.songNameEn ? `${row.songName}(${row.songNameEn})` : row.songName
+    const artist = row.artistEn ? `${row.artist}(${row.artistEn})` : row.artist
+
+    let timePart = ''
+    if (row.startTime != null && row.endTime != null) {
+      timePart = `${secsToHMS(row.startTime)} ~ ${secsToHMS(row.endTime)} `
+    } else if (row.startTime != null) {
+      timePart = `${secsToHMS(row.startTime)} `
+    }
+
+    lines.push(`${timePart}${trackNo}| ${song} | ${artist}`)
+  }
+  return lines.join('\n')
+}
+
+function secsToHMS(v) {
+  const h = Math.floor(v / 3600)
+  const m = Math.floor((v % 3600) / 60)
+  const s = v % 60
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
 
 // Health check
 app.get('/health', async (c) => {

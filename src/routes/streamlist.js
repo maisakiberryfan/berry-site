@@ -18,7 +18,7 @@ export async function getStreamlist(c) {
 
     // Always fetch from database
     const streams = await db.query(`
-      SELECT streamID, title, time, categories, note
+      SELECT streamID, title, time, categories, note, setlistComplete
       FROM streamlist
       ORDER BY time DESC
     `);

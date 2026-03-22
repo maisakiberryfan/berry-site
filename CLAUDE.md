@@ -116,8 +116,11 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 |------|------|
 | `/health` | 健康檢查 + DB 連線測試 |
 | `/webhook/youtube` | PubSubHubbub webhook（GET 驗證 / POST 通知） |
-| `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`) |
-| `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true` 跳過歌枠檢查） |
+| `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`）需 token |
+| `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true`）需 token |
+| `/trigger-setlist-notify?streamID=xx` | 發送歌單到 Discord（GET, 可用 `startDate`/`endDate` 批次）需 token |
+
+所有 `/trigger-*` 端點需帶 `?token=xxx` 或 `X-Trigger-Token` header，由 `TRIGGER_TOKEN` 環境變數驗證。
 
 ### Cron Triggers
 

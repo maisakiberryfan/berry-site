@@ -7,7 +7,7 @@ import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
 import { extractVideoId } from '../utils/url-helpers.js'
 import { initLogger, getLogger } from '../utils/unified-logger.js'
-import { sendDiscordNotification } from '../utils/discord-notifier.js'
+import { sendDiscordNotification, sendSetlistComment } from '../utils/discord-notifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
@@ -131,6 +131,16 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       newVideos = await dataFetcher.fetchNewVideos()
     }
 
+    // fetchNewVideos 回傳原始 YouTube API 物件，需補上分類
+    // （PubSub 路徑在 L80 已處理，但 fallback 和 Cron 路徑沒有）
+    for (const video of newVideos) {
+      if (!video.categories) {
+        const title = video.snippet?.title || ''
+        const channelId = video.snippet?.channelId
+        video.categories = dataProcessor.categorizeStream(title, channelId)
+      }
+    }
+
     if (!newVideos || newVideos.length === 0) {
       logger.info('STREAM', '無新影片，繼續檢查待處理項目')
     } else {
@@ -185,16 +195,23 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         try {
           logger.info('SETLIST', `開始解析: ${stream.title}`, { videoId: stream.id })
 
-          const setlistResult = await dataProcessor.parseSetlistForStream(stream, env)
+          const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
 
-          if (setlistResult && setlistResult.length > 0) {
-            setlistResults.push(setlistResult)
+          if (parseResult && parseResult.items && parseResult.items.length > 0) {
+            setlistResults.push(parseResult.items)
             result.setlistItems.push({
               videoId: stream.id,
               date: formatDateForDisplay(stream.time),
               title: stream.title,
-              songCount: setlistResult.length
+              songCount: parseResult.items.length
             })
+
+            // 發送歌單留言到 Discord
+            const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
+            if (setlistWebhookUrl) {
+              sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
+                .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
+            }
 
             // 解析成功後標記為完成
             try {
@@ -203,9 +220,9 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
               logger.warn('SETLIST', `更新 setlistComplete 失敗: ${stream.id}`, { err: { message: updateError.message } })
             }
 
-            logger.info('SETLIST', `解析成功: ${setlistResult.length} 首歌`, {
+            logger.info('SETLIST', `解析成功: ${parseResult.items.length} 首歌`, {
               videoId: stream.id,
-              songs: setlistResult.length
+              songs: parseResult.items.length
             })
           } else {
             result.failedItems.push({
@@ -395,11 +412,11 @@ export async function runPollingCheck(env) {
         result.endedStreams++
 
         // 解析歌單
-        const setlistResult = await dataProcessor.parseSetlistForStream(stream, env)
+        const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
 
-        if (setlistResult && setlistResult.length > 0) {
+        if (parseResult && parseResult.items && parseResult.items.length > 0) {
           // 寫入資料庫
-          const formattedEntries = setlistResult.map(item => ({
+          const formattedEntries = parseResult.items.map(item => ({
             streamID: stream.id,
             trackNo: item.trackNo,
             segmentNo: item.segmentNo || 1,
@@ -412,13 +429,20 @@ export async function runPollingCheck(env) {
 
           result.parsedSetlists++
 
-          logger.info('POLLING', `歌單解析成功: ${setlistResult.length} 首歌`, {
+          logger.info('POLLING', `歌單解析成功: ${parseResult.items.length} 首歌`, {
             videoId: stream.id,
-            songCount: setlistResult.length
+            songCount: parseResult.items.length
           })
 
+          // 發送歌單留言到 Discord
+          const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
+          if (setlistWebhookUrl) {
+            sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
+              .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
+          }
+
           // 發送 Discord 通知
-          const debutSongs = setlistResult
+          const debutSongs = parseResult.items
             .filter(item => item.note && item.note.includes('初回'))
             .map(item => ({
               trackNo: item.trackNo,
@@ -431,7 +455,7 @@ export async function runPollingCheck(env) {
             success: true,
             streamID: stream.id,
             title: stream.title,
-            songCount: setlistResult.length,
+            songCount: parseResult.items.length,
             debutSongs: debutSongs.length > 0 ? debutSongs : undefined
           })
         } else {

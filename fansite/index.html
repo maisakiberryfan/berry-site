@@ -613,6 +613,27 @@
 		</div>
 	</div>
 
+	<!-- View Setlist Modal -->
+	<div class="modal fade" id="modalViewSetlist" tabindex="-1" aria-labelledby="modalTitleViewSetlist" aria-hidden="true">
+		<div class="modal-dialog modal-lg modal-dialog-scrollable">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h1 class="modal-title fs-5" id="modalTitleViewSetlist">🎵 <span data-lang="zh">歌單</span><span data-lang="en" class="d-none">Setlist</span><span data-lang="ja" class="d-none">セットリスト</span></h1>
+					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+				</div>
+				<div class="modal-body">
+					<textarea class="form-control" id="viewSetlistKL" rows="15" readonly style="font-size: 0.8rem; font-family: monospace;"></textarea>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-secondary" id="btnCopyKL">
+						<i class="bi bi-clipboard"></i> <span data-lang="zh">複製</span><span data-lang="en" class="d-none">Copy</span><span data-lang="ja" class="d-none">コピー</span>
+					</button>
+					<button type="button" class="btn btn-secondary" data-bs-dismiss="modal"><span data-lang="zh">關閉</span><span data-lang="en" class="d-none">Close</span><span data-lang="ja" class="d-none">閉じる</span></button>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<!-- Connection Error Alert (fixed position at top) -->
 	<div id="connectionErrorAlert" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; min-width: 400px; max-width: 600px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
 		<h5 class="alert-heading">

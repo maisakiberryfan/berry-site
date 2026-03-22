@@ -18,7 +18,7 @@ export async function getVideoComments(videoId, apiKey) {
     const data = await response.json()
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'YouTube API 錯誤')
+      throw new Error(data?.error?.message || 'YouTube API 錯誤')
     }
 
     return data.items?.map(item => ({
