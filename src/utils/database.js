@@ -41,8 +41,8 @@ export class Database {
       dateStrings: true,
       // Connection timeout
       connectTimeout: 10000,
-      // TLS encryption for data in transit (self-signed cert on ConoHa VPS)
-      ssl: { rejectUnauthorized: false },
+      // TLS encryption for direct connections (skip for Hyperdrive — it handles TLS itself)
+      ...(!this.dbConfig._viaHyperdrive && { ssl: { rejectUnauthorized: false } }),
     });
 
     return cachedConnection;
