@@ -1,12 +1,10 @@
 /**
  * @fileoverview Auto-update logic for streamlist and setlist (v2 - Database driven)
- * 使用統一日誌系統
  */
 
 import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
 import { extractVideoId } from '../utils/url-helpers.js'
-import { initLogger, getLogger } from '../utils/unified-logger.js'
 import { sendDiscordNotification, sendSetlistComment } from '../utils/discord-notifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
@@ -24,22 +22,14 @@ import { saveThumbnail } from '../utils/thumbnail.js'
  */
 export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerType = 'CRON') {
   const startTime = Date.now()
-
-  // 初始化 logger（如果尚未初始化）
-  let logger = getLogger()
-  if (!logger) {
-    logger = initLogger(env)
-  }
-  logger.startRequest()
-
-  logger.info('CRON', `開始自動更新`, { mode, trigger: triggerType })
+  console.log(`[CRON] 開始自動更新 (mode: ${mode}, trigger: ${triggerType})`)
 
   // 在每日 Cron 時嘗試續訂 PubSubHubbub（每 4 天一次）
   if (triggerType === 'CRON') {
     try {
       await renewPubSubSubscription(env)
     } catch (subError) {
-      logger.warn('PUBSUB', '訂閱續訂檢查失敗（非致命）', { err: { message: subError.message } })
+      console.warn(`[PUBSUB] 訂閱續訂檢查失敗（非致命）: ${subError.message}`)
     }
   }
 
@@ -69,7 +59,6 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
 
     if (pubsubVideoId) {
       // PubSub 模式：直接用 videoId 查詢單一影片
-      logger.info('STREAM', `PubSub 直接查詢: ${pubsubVideoId}`)
       try {
         let video = await dataFetcher.getVideoInfo(pubsubVideoId)
         if (video) {
@@ -86,44 +75,28 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
             const isLambda = typeof process !== 'undefined' && !globalThis.caches
             if ((broadcastStatus === 'upcoming' || broadcastStatus === 'live') && !hasScheduledTime) {
               if (isLambda) {
-                logger.info('STREAM', `Lambda 環境：跳過 2 分鐘等待，交由 Polling 安全網修正`, {
-                  videoId: pubsubVideoId,
-                  liveBroadcastContent: broadcastStatus
-                })
+                console.log(`[STREAM] Lambda: 跳過等待 scheduledStartTime, 交由 Polling 修正 (${pubsubVideoId})`)
               } else {
-                logger.info('STREAM', `直播項目缺少 scheduledStartTime，2 分鐘後重試`, {
-                  videoId: pubsubVideoId,
-                  liveBroadcastContent: broadcastStatus,
-                  currentTime: video.time
-                })
+                console.log(`[STREAM] 缺少 scheduledStartTime, 2 分鐘後重試 (${pubsubVideoId})`)
                 await new Promise(resolve => setTimeout(resolve, 120_000))
                 try {
                   const retryVideo = await dataFetcher.getVideoInfo(pubsubVideoId)
                   if (retryVideo?.liveStreamingDetails?.scheduledStartTime) {
                     video = { ...retryVideo, categories: video.categories }
-                    logger.info('STREAM', `重試成功，取得 scheduledStartTime`, {
-                      videoId: pubsubVideoId,
-                      scheduledStartTime: retryVideo.liveStreamingDetails.scheduledStartTime
-                    })
                   } else {
-                    logger.warn('STREAM', `重試仍無法取得 scheduledStartTime，使用 publishedAt`, {
-                      videoId: pubsubVideoId,
-                      fallbackTime: video.time
-                    })
+                    console.warn(`[STREAM] 重試仍無 scheduledStartTime, 使用 publishedAt (${pubsubVideoId})`)
                   }
                 } catch (retryError) {
-                  logger.warn('STREAM', `重試查詢失敗: ${retryError.message}`, { videoId: pubsubVideoId })
+                  console.warn(`[STREAM] 重試查詢失敗: ${retryError.message}`)
                 }
               }
             }
 
             newVideos = [video]
-          } else {
-            logger.info('STREAM', `非目標頻道，跳過: ${channelId}`)
           }
         }
       } catch (error) {
-        logger.warn('STREAM', `PubSub 影片查詢失敗: ${error.message}，改用 /newvideos`)
+        console.warn(`[STREAM] PubSub 影片查詢失敗: ${error.message}, 改用 /newvideos`)
         newVideos = await dataFetcher.fetchNewVideos()
       }
     } else {
@@ -132,7 +105,6 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     }
 
     // fetchNewVideos 回傳原始 YouTube API 物件，需補上分類
-    // （PubSub 路徑在 L80 已處理，但 fallback 和 Cron 路徑沒有）
     for (const video of newVideos) {
       if (!video.categories) {
         const title = video.snippet?.title || ''
@@ -141,13 +113,11 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       }
     }
 
-    if (!newVideos || newVideos.length === 0) {
-      logger.info('STREAM', '無新影片，繼續檢查待處理項目')
-    } else {
-      logger.info('STREAM', `發現 ${newVideos.length} 部新影片`)
+    if (newVideos && newVideos.length > 0) {
+      console.log(`[STREAM] 發現 ${newVideos.length} 部新影片`)
     }
 
-    // Step 2: Write new streams to Hyperdrive database
+    // Step 2: Write new streams to database
     if (newVideos && newVideos.length > 0) {
       try {
         const writeResult = await dataProcessor.batchCreateStreams(newVideos, env)
@@ -162,11 +132,9 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
           }))
         }
 
-        logger.info('STREAM', `寫入結果: ${writeResult.insertedCount} 新增 / ${newVideos.length} 總計`)
+        console.log(`[STREAM] 寫入結果: ${writeResult.insertedCount} 新增 / ${newVideos.length} 總計`)
       } catch (error) {
-        logger.error('STREAM', `寫入失敗: ${error.message}`, {
-          err: { message: error.message }
-        })
+        console.error(`[STREAM] 寫入失敗: ${error.message}`)
         result.errors.push(`Streamlist 寫入失敗: ${error.message}`)
       }
 
@@ -175,7 +143,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         try {
           await saveThumbnail(video.id, env)
         } catch (e) {
-          logger.warn('THUMBNAIL', `縮圖下載失敗: ${video.id}`, { err: { message: e.message } })
+          console.warn(`[THUMBNAIL] 縮圖下載失敗: ${video.id} - ${e.message}`)
         }
       }
     }
@@ -183,17 +151,15 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     // Step 3: Query pending streams from database
     const singingStreams = await dataFetcher.fetchPendingStreams(mode)
 
-    if (singingStreams.length === 0) {
-      logger.info('SETLIST', '沒有歌枠需要解析')
-    } else {
-      logger.info('SETLIST', `發現 ${singingStreams.length} 個待解析歌枠`)
+    if (singingStreams.length > 0) {
+      console.log(`[SETLIST] 發現 ${singingStreams.length} 個待解析歌枠`)
 
       // Step 4: Parse setlists for singing streams using Lambda fuzzy matching
       const setlistResults = []
 
       for (const stream of singingStreams) {
         try {
-          logger.info('SETLIST', `開始解析: ${stream.title}`, { videoId: stream.id })
+          console.log(`[SETLIST] 開始解析: ${stream.title} (${stream.id})`)
 
           const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
 
@@ -210,20 +176,17 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
             const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
             if (setlistWebhookUrl) {
               sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
-                .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
+                .catch(err => console.error(`[DISCORD] 歌單留言通知失敗: ${err.message}`))
             }
 
             // 解析成功後標記為完成
             try {
               await dataProcessor.updateStreamSetlistComplete(stream.id, true, env)
             } catch (updateError) {
-              logger.warn('SETLIST', `更新 setlistComplete 失敗: ${stream.id}`, { err: { message: updateError.message } })
+              console.warn(`[SETLIST] 更新 setlistComplete 失敗: ${stream.id} - ${updateError.message}`)
             }
 
-            logger.info('SETLIST', `解析成功: ${parseResult.items.length} 首歌`, {
-              videoId: stream.id,
-              songs: parseResult.items.length
-            })
+            console.log(`[SETLIST] 解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
           } else {
             result.failedItems.push({
               videoId: stream.id,
@@ -233,10 +196,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
             })
           }
         } catch (error) {
-          logger.error('SETLIST', `解析失敗: ${stream.title}`, {
-            videoId: stream.id,
-            err: { message: error.message }
-          })
+          console.error(`[SETLIST] 解析失敗: ${stream.title} - ${error.message}`)
           result.errors.push(`歌單解析失敗：${stream.title}: ${error.message}`)
           result.failedItems.push({
             videoId: stream.id,
@@ -256,10 +216,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         // 檢測初回歌曲
         result.debutSongs = await detectDebutSongs(setlistResults, result.setlistItems, db)
 
-        logger.info('SETLIST', `更新完成: ${result.newSetlists} 個項目`, {
-          inserted: result.newSetlists,
-          debuts: result.debutSongs?.length || 0
-        })
+        console.log(`[SETLIST] 更新完成: ${result.newSetlists} 項 (debuts: ${result.debutSongs?.length || 0})`)
       }
     }
 
@@ -273,25 +230,14 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     }
 
   } catch (error) {
-    logger.error('CRON', `自動更新失敗: ${error.message}`, {
-      err: { message: error.message, stack: error.stack }
-    })
+    console.error(`[CRON] 自動更新失敗: ${error.message}`)
     result.errors.push(error.message)
     throw error
 
   } finally {
     result.executionTime = Date.now() - startTime
-
-    const status = result.errors?.length > 0 ? 'WARN' : 'INFO'
-    logger.log(status, 'CRON', `自動更新完成`, {
-      duration: result.executionTime,
-      streams: result.newStreams,
-      setlists: result.newSetlists,
-      errors: result.errors?.length || 0
-    })
-
-    // 結束請求，觸發上傳
-    await logger.endRequest()
+    const status = result.errors?.length > 0 ? 'WARN' : 'OK'
+    console.log(`[CRON] 自動更新完成 (${status}) ${result.executionTime}ms | streams: ${result.newStreams} | setlists: ${result.newSetlists} | errors: ${result.errors?.length || 0}`)
   }
 
   return result
@@ -305,15 +251,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
  */
 export async function runPollingCheck(env) {
   const startTime = Date.now()
-
-  // 初始化 logger
-  let logger = getLogger()
-  if (!logger) {
-    logger = initLogger(env)
-  }
-  logger.startRequest()
-
-  logger.info('POLLING', '開始 Polling 檢查直播結束')
+  console.log('[POLLING] 開始 Polling 檢查直播結束')
 
   const db = new Database(env)
   const dataFetcher = new DataFetcher(env, db)
@@ -333,21 +271,16 @@ export async function runPollingCheck(env) {
     const pendingStreams = await dataFetcher.fetchPendingStreams('all')
 
     if (pendingStreams.length === 0) {
-      logger.info('POLLING', '沒有待處理的歌枠')
       return result
     }
 
     // Step 1.5: 修正 pending stream 的時間（安全網）
-    // 若資料庫的 time 與 YTID 的 scheduledStartTime 不同，更新資料庫
     for (const stream of pendingStreams) {
       try {
         const videoInfo = await dataFetcher.getVideoInfo(stream.id)
         const scheduledStartTime = videoInfo?.liveStreamingDetails?.scheduledStartTime
         if (scheduledStartTime && scheduledStartTime !== stream.time) {
-          logger.info('POLLING', `修正直播時間: ${stream.id}`, {
-            舊時間: stream.time,
-            新時間: scheduledStartTime
-          })
+          console.log(`[POLLING] 修正直播時間: ${stream.id} (${stream.time} -> ${scheduledStartTime})`)
           await db.execute(
             'UPDATE streamlist SET time = ? WHERE streamID = ?',
             [iso8601ToMySQL(scheduledStartTime), stream.id]
@@ -355,7 +288,7 @@ export async function runPollingCheck(env) {
           stream.time = scheduledStartTime
         }
       } catch (error) {
-        logger.warn('POLLING', `時間修正查詢失敗: ${stream.id}`, { err: { message: error.message } })
+        console.warn(`[POLLING] 時間修正查詢失敗: ${stream.id} - ${error.message}`)
       }
     }
 
@@ -370,44 +303,30 @@ export async function runPollingCheck(env) {
     })
 
     if (streamsInWindow.length === 0) {
-      logger.info('POLLING', '沒有在 Polling 窗口內的直播', {
-        pending: pendingStreams.length
-      })
       return result
     }
 
-    logger.info('POLLING', `${streamsInWindow.length} 個直播在 Polling 窗口內`, {
-      total: pendingStreams.length,
-      inWindow: streamsInWindow.length
-    })
+    console.log(`[POLLING] ${streamsInWindow.length} 個直播在 Polling 窗口內 (pending: ${pendingStreams.length})`)
 
     result.checkedStreams = streamsInWindow.length
 
-    // Step 3: 對每個直播查詢 YTID /live-details
+    // Step 3: 對每個直播查詢 live-details
     for (const stream of streamsInWindow) {
       try {
-        // Direct function call (no more Service Binding)
         const liveDetails = await getLiveDetails(stream.id, env)
 
         if (!liveDetails) {
-          logger.warn('POLLING', `查詢 live-details 失敗: ${stream.id}`)
+          console.warn(`[POLLING] 查詢 live-details 失敗: ${stream.id}`)
           continue
         }
 
         // Step 4: 檢查 actualEndTime 是否存在
         if (!liveDetails.isEnded) {
-          logger.info('POLLING', `直播尚未結束: ${stream.title}`, {
-            videoId: stream.id,
-            isLive: liveDetails.isLive
-          })
           continue
         }
 
         // 直播已結束，執行歌單解析
-        logger.info('POLLING', `直播已結束，開始解析歌單: ${stream.title}`, {
-          videoId: stream.id,
-          actualEndTime: liveDetails.actualEndTime
-        })
+        console.log(`[POLLING] 直播已結束，開始解析: ${stream.title} (${stream.id})`)
 
         result.endedStreams++
 
@@ -429,16 +348,13 @@ export async function runPollingCheck(env) {
 
           result.parsedSetlists++
 
-          logger.info('POLLING', `歌單解析成功: ${parseResult.items.length} 首歌`, {
-            videoId: stream.id,
-            songCount: parseResult.items.length
-          })
+          console.log(`[POLLING] 歌單解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
 
           // 發送歌單留言到 Discord
           const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
           if (setlistWebhookUrl) {
             sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
-              .catch(err => logger.error('DISCORD', '歌單留言通知失敗', { err: { message: err.message } }))
+              .catch(err => console.error(`[DISCORD] 歌單留言通知失敗: ${err.message}`))
           }
 
           // 發送 Discord 通知
@@ -459,41 +375,24 @@ export async function runPollingCheck(env) {
             debutSongs: debutSongs.length > 0 ? debutSongs : undefined
           })
         } else {
-          logger.warn('POLLING', `未找到歌單留言: ${stream.title}`, {
-            videoId: stream.id
-          })
-          // 不標記為完成，下次 Cron 會重試
+          console.warn(`[POLLING] 未找到歌單留言: ${stream.title} (${stream.id})`)
         }
 
       } catch (error) {
-        logger.error('POLLING', `處理失敗: ${stream.title}`, {
-          videoId: stream.id,
-          err: { message: error.message }
-        })
+        console.error(`[POLLING] 處理失敗: ${stream.title} - ${error.message}`)
         result.errors.push(`${stream.id}: ${error.message}`)
       }
     }
 
   } catch (error) {
-    logger.error('POLLING', `Polling 檢查失敗: ${error.message}`, {
-      err: { message: error.message, stack: error.stack }
-    })
+    console.error(`[POLLING] Polling 檢查失敗: ${error.message}`)
     result.errors.push(error.message)
     throw error
 
   } finally {
     result.executionTime = Date.now() - startTime
-
-    const status = result.errors.length > 0 ? 'WARN' : 'INFO'
-    logger.log(status, 'POLLING', 'Polling 檢查完成', {
-      duration: result.executionTime,
-      checked: result.checkedStreams,
-      ended: result.endedStreams,
-      parsed: result.parsedSetlists,
-      errors: result.errors.length
-    })
-
-    await logger.endRequest()
+    const status = result.errors.length > 0 ? 'WARN' : 'OK'
+    console.log(`[POLLING] 完成 (${status}) ${result.executionTime}ms | checked: ${result.checkedStreams} | ended: ${result.endedStreams} | parsed: ${result.parsedSetlists} | errors: ${result.errors.length}`)
   }
 
   return result
@@ -557,18 +456,15 @@ function getSimplifiedErrorReason(errorMessage) {
  * @returns {Promise<boolean>} Success status
  */
 export async function renewPubSubSubscription(env) {
-  const logger = getLogger() || initLogger(env)
-
   // 檢查是否需要續訂（每 4 天一次）
   const today = new Date()
   const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24))
 
   if (dayOfYear % 4 !== 0) {
-    logger.info('PUBSUB', '今日無需續訂', { dayOfYear, nextRenewal: 4 - (dayOfYear % 4) })
     return true
   }
 
-  logger.info('PUBSUB', '開始 PubSubHubbub 訂閱續訂')
+  console.log('[PUBSUB] 開始 PubSubHubbub 訂閱續訂')
 
   const CHANNELS = [
     { id: 'UC7A7bGRVdIwo93nqnA3x-OQ', name: '主頻道' },
@@ -600,28 +496,15 @@ export async function renewPubSubSubscription(env) {
       })
 
       if (response.status === 202 || response.status === 204) {
-        logger.info('PUBSUB', '訂閱續訂請求成功', {
-          status: response.status,
-          channelId: channel.id,
-          channelName: channel.name
-        })
+        console.log(`[PUBSUB] 訂閱續訂成功: ${channel.name} (${response.status})`)
       } else {
         const errorText = await response.text()
-        logger.error('PUBSUB', '訂閱續訂失敗', {
-          status: response.status,
-          channelId: channel.id,
-          channelName: channel.name,
-          error: errorText
-        })
+        console.error(`[PUBSUB] 訂閱續訂失敗: ${channel.name} (${response.status}) ${errorText}`)
         allSuccess = false
       }
 
     } catch (error) {
-      logger.error('PUBSUB', '訂閱續訂錯誤', {
-        channelId: channel.id,
-        channelName: channel.name,
-        err: { message: error.message }
-      })
+      console.error(`[PUBSUB] 訂閱續訂錯誤: ${channel.name} - ${error.message}`)
       allSuccess = false
     }
   }
@@ -649,7 +532,6 @@ async function detectDebutSongs(setlistResults, streamMetadata, db) {
     const debutItems = setlistArray.filter(item => item.note && item.note.includes('初回'))
     if (debutItems.length === 0) continue
 
-    // Direct DB query (no more Hyperdrive HTTP call)
     const debutSongsInVideo = []
     for (const item of debutItems) {
       try {

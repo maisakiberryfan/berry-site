@@ -4,7 +4,6 @@
 
 import { CONFIG } from '../config.js'
 import { extractVideoId } from './url-helpers.js'
-import { getLogger } from './unified-logger.js'
 import { Database } from './database.js'
 import { getVideoComments as getVideoCommentsCore } from './youtube-comments.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
@@ -30,8 +29,6 @@ export class DataProcessor {
    * @returns {string} Latest date string
    */
   getLatestStreamDate(streamlist) {
-    const logger = getLogger()
-
     if (!streamlist || streamlist.length === 0) {
       return '2020-01-01' // Default old date if empty
     }
@@ -39,15 +36,9 @@ export class DataProcessor {
     const dates = streamlist
       .map(item => item.time)
       .filter(date => date)
-      // 🧪 TEST MODE: 增強日誌 - 修復前的字符串排序
-      // .sort() // ❌ 字符串排序會導致日期比較錯誤
-      .sort((a, b) => new Date(a) - new Date(b)) // ✅ 正確的日期排序
+      .sort((a, b) => new Date(a) - new Date(b))
 
-    const latestDate = dates[dates.length - 1] || '2020-01-01'
-
-    logger.info('STREAM', '📅 最新直播日期', { 最新日期: latestDate, 總日期數: dates.length })
-
-    return latestDate
+    return dates[dates.length - 1] || '2020-01-01'
   }
 
   /**
@@ -67,35 +58,29 @@ export class DataProcessor {
    */
   convertVideoToStreamItem(video) {
     const snippet = video.snippet
-    
+
     if (!snippet) {
-      const logger = getLogger()
-      logger.warn('VIDEO', '⚠️ 影片缺少片段資料', { 影片資料: video })
+      console.warn('[VIDEO] 影片缺少片段資料')
       return null
     }
-    
+
     // Handle different video ID formats from different sources
     const videoId = video.id?.videoId || snippet.videoId || video.videoId || video.id
     const title = snippet.title
     const videoTime = video.time
-    
+
     if (!videoId || !title || !videoTime) {
-      const logger = getLogger()
-      logger.warn('VIDEO', '⚠️ 影片缺少必要欄位', {
-        videoId: videoId || 'missing',
-        title: title || 'missing',
-        videoTime: videoTime || 'missing'
-      })
+      console.warn(`[VIDEO] 影片缺少必要欄位: id=${videoId || 'missing'}, title=${title || 'missing'}`)
       return null
     }
-    
+
     // Determine category based on title and channel
     const channelId = snippet.channelId
     const category = this.categorizeStream(title, channelId)
-    
+
     // Format date
     const date = this.formatDate(videoTime)
-    
+
     return {
       id: videoId,
       title: title,
@@ -159,15 +144,6 @@ export class DataProcessor {
    * @returns {Array} Singing streams needing setlists
    */
   findSingingStreamsNeedingSetlists(streamlist, currentSetlist, mode = 'all', options = {}) {
-    const logger = getLogger()
-
-    logger.info('SETLIST', '🎵 開始尋找需要解析歌單的歌唱直播', {
-      歌單項目數: currentSetlist?.length || 0,
-      直播項目數: streamlist?.length || 0,
-      比對模式: mode,
-      模式選項: options
-    })
-
     // Apply mode filtering to streamlist
     let filteredStreamlist = streamlist
     switch (mode) {
@@ -181,18 +157,11 @@ export class DataProcessor {
           const streamDate = stream.time?.split('T')[0] || stream.time
           return streamDate >= cutoffISOString
         })
-
-        logger.info('SETLIST', `📅 最近${days}天模式`, {
-          篩選日期基準: cutoffISOString,
-          原始數量: streamlist.length,
-          篩選後數量: filteredStreamlist.length
-        })
         break
       }
 
       case 'all':
       default:
-        logger.info('SETLIST', '🔄 全部比對模式', { 處理數量: streamlist.length })
         break
     }
 
@@ -204,21 +173,8 @@ export class DataProcessor {
       }).filter(Boolean)
     )
 
-    logger.info('SETLIST', '🎵 歌單篩選基準', {
-      既有歌單數量: currentSetlist.length,
-      既有影片ID數: existingSetlistIds.size
-    })
-
-    // 🧪 TEST MODE: 詳細的歌唱直播築選過程
-    const filterStats = {
-      非歌唱直播: 0,
-      已有歌單: 0,
-      無效ID: 0,
-      處理範例: []
-    }
-
     // Filter for singing streams without setlists
-    const singingStreams = filteredStreamlist.filter((stream, index) => {
+    const singingStreams = filteredStreamlist.filter((stream) => {
       // 檢查是否為歌唱直播（僅支援陣列格式，不向後相容字串）
       if (!Array.isArray(stream.category)) {
         throw new Error(`Invalid category format for stream ${stream.id}: expected array, got ${typeof stream.category}`)
@@ -227,10 +183,6 @@ export class DataProcessor {
       const isSingingStream = stream.category.some(cat => cat.includes('歌枠'))
 
       if (!isSingingStream) {
-        filterStats.非歌唱直播++
-        if (filterStats.處理範例.length < 3) {
-          filterStats.處理範例.push(`${stream.title}:非歌唱直播`)
-        }
         return false
       }
 
@@ -248,8 +200,7 @@ export class DataProcessor {
 
       return true
     })
-    
-    logger.info('SETLIST', '🔍 歌唱直播篩選結果', filterStats)
+
     return singingStreams
   }
 
@@ -260,11 +211,7 @@ export class DataProcessor {
    * @returns {Promise<Array|null>} Array of individual song objects in flat format
    */
   async parseSetlistForStream(stream, env) {
-    const logger = getLogger()
-
     try {
-      logger.info('SETLIST', `🤖 開始解析歌單: ${stream.title}`, { 影片ID: stream.id })
-
       const streamUrl = `https://www.youtube.com/watch?v=${stream.id}`
       const videoId = extractVideoId(streamUrl)
       if (!videoId) {
@@ -277,7 +224,6 @@ export class DataProcessor {
       const commentResult = this.findSetlistComment(comments)
 
       if (!commentResult) {
-        logger.info('SETLIST', `ℹ️ 未發現歌單留言: ${stream.title}`, { 影片ID: stream.id })
         return null
       }
 
@@ -288,34 +234,18 @@ export class DataProcessor {
       const parsedSongs = this.parseSetlistComment(setlistComment)
 
       if (Object.keys(parsedSongs).length === 0) {
-        logger.info('SETLIST', `ℹ️ 留言解析無結果: ${stream.title}`, { 影片ID: stream.id })
         return null
       }
-
-      logger.info('SETLIST', `📝 解析留言完成`, { 歌曲數: Object.keys(parsedSongs).length })
 
       // Get songlist data for comparison
       const songlistData = await this.getSonglistData(env)
 
       // Use Fuzzy Matching for setlist parsing
-      logger.info('SETLIST', '🔍 使用 Fuzzy Matching 進行歌單比對')
       const result = await fuzzyMatchSetlist(setlistComment, songlistData, env)
 
       if (!result || !result.songIDs || result.songIDs.length === 0) {
-        logger.info('SETLIST', `ℹ️ 未解析到歌曲: ${stream.title}`, {
-          影片ID: stream.id,
-          標題: stream.title,
-          匹配結果: result
-        })
         return null
       }
-
-      // Log fuzzy matching debug info
-      logger.info('SETLIST', '✅ Fuzzy Matching 完成', {
-        總曲數: result.debug.parsedCount,
-        命中數: result.debug.matchedCount,
-        初回數: result.debug.newCount
-      })
 
       // Process songID array and handle "*" entries
       const setlistItems = []
@@ -332,7 +262,6 @@ export class DataProcessor {
         if (songID === "*") {
           if (matchInfo && matchInfo.parsed) {
             const parsed = matchInfo.parsed
-            // Extract all 4 fields (JP and EN versions)
             songName = parsed.titleJP || parsed.titleEN || ''
             const songNameEn = parsed.titleEN || ''
             artist = parsed.artistJP || parsed.artistEN || ''
@@ -342,30 +271,20 @@ export class DataProcessor {
               try {
                 finalSongID = await this.createNewSong(songName, songNameEn, artist, artistEn, env)
                 note = "初回(待確認)"
-
-                logger.info('SONGLIST', '✅ 初回歌曲新增完成', {
-                  歌名: songName,
-                  歌名En: songNameEn,
-                  歌手: artist,
-                  歌手En: artistEn,
-                  新songID: finalSongID
-                })
+                console.log(`[SONGLIST] 初回歌曲新增: ${songName} / ${artist} (songID=${finalSongID})`)
               } catch (error) {
-                logger.error('SONGLIST', `❌ 初回歌曲新增失敗: ${songName}`, { err: { message: error.message } })
+                console.error(`[SONGLIST] 初回歌曲新增失敗: ${songName} - ${error.message}`)
                 throw error
               }
             } else {
-              logger.warn('SONGLIST', '⚠️ 無效的歌曲資料', { 匹配索引: i })
               continue
             }
           } else {
-            logger.warn('SONGLIST', '⚠️ songID 索引超出匹配範圍', { 索引: i })
             continue
           }
         }
 
         // Create setlist entry for database format
-        // 初回歌曲包含 songName/artist 供 Discord 通知使用
         setlistItems.push({
           streamID: videoId,
           trackNo: i + 1,
@@ -379,25 +298,11 @@ export class DataProcessor {
         })
       }
 
-      logger.info('SETLIST', '✅ setlist 項目建立完成', {
-        總項目數: setlistItems.length,
-        初回歌曲數: setlistItems.filter(item => item.note === "初回(待確認)").length,
-        已知歌曲數: setlistItems.filter(item => !item.note).length
-      })
-
       // Return setlist items + comment info for caller to handle notifications
-      logger.info('SETLIST', `✅ 成功解析 ${result.songIDs.length} 首歌曲: ${stream.title}`, {
-        影片ID: stream.id,
-        歌曲數量: result.songIDs.length,
-        setlist項目數: setlistItems.length
-      })
       return { items: setlistItems, setlistComment, commentAuthor }
 
     } catch (error) {
-      logger.error('SETLIST', `❌ 解析歌單失敗: ${stream.title}`, {
-        影片ID: stream.id,
-        err: { message: error.message, stack: error.stack }
-      })
+      console.error(`[SETLIST] 解析歌單失敗: ${stream.title} - ${error.message}`)
       throw error
     }
   }
@@ -409,30 +314,15 @@ export class DataProcessor {
    * @returns {Promise<Object>} Insert result
    */
   async processAndInsertSetlists(newSetlistArrays, env) {
-    const logger = getLogger()
-
     // Flatten all new setlist entries into a single array
     const newEntries = newSetlistArrays.flat()
 
     if (newEntries.length === 0) {
-      logger.info('SETLIST', 'ℹ️ 無新歌單項目需要插入')
       return { success: true, insertedCount: 0 }
     }
 
-    logger.info('SETLIST', '🎵 開始處理和插入歌單資料', {
-      新歌單群組數: newSetlistArrays.length,
-      總項目數: newEntries.length
-    })
-
     try {
-      // Batch insert all setlist entries to database
       const result = await this.batchCreateSetlist(newEntries, env)
-
-      logger.info('SETLIST', '✅ 歌單資料插入完成', {
-        插入項目數: newEntries.length,
-        項目範例: newEntries.slice(0, 3)
-      })
-
       return {
         success: true,
         insertedCount: newEntries.length,
@@ -440,10 +330,7 @@ export class DataProcessor {
       }
 
     } catch (error) {
-      logger.error('SETLIST', '❌ 歌單資料插入失敗', {
-        項目數: newEntries.length,
-        err: { message: error.message, stack: error.stack }
-      })
+      console.error(`[SETLIST] 歌單資料插入失敗: ${error.message}`)
       throw new Error(`歌單資料插入失敗: ${error.message}`)
     }
   }
@@ -463,29 +350,18 @@ export class DataProcessor {
 
 
   /**
-   * Get video comments from YouTube API (wrapper with debug logging)
+   * Get video comments from YouTube API
    * @param {string} videoId - Video ID
    * @param {string} apiKey - YouTube API key
    * @returns {Promise<Array>} Comments
    */
   async getVideoComments(videoId, apiKey) {
-    const logger = getLogger()
     try {
-      logger.info('YOUTUBE', `📝 開始取得影片留言: ${videoId}`)
-
-      // Use unified getVideoComments function
       const comments = await getVideoCommentsCore(videoId, apiKey)
-
-      logger.info('YOUTUBE', `✅ 取得留言完成: ${comments.length} 則`, {
-        留言數量: comments.length
-      })
       return comments
 
     } catch (error) {
-      logger.error('YOUTUBE', '❌ 取得留言失敗', {
-        影片ID: videoId,
-        err: { message: error.message, stack: error.stack }
-      })
+      console.error(`[YOUTUBE] 取得留言失敗: ${videoId} - ${error.message}`)
       throw new Error(`取得留言失敗: ${error.message}`)
     }
   }
@@ -570,18 +446,14 @@ export class DataProcessor {
    * @returns {{text: string, author: string}|null} Setlist comment with author info
    */
   findSetlistComment(comments) {
-    const logger = getLogger()
     const PREFERRED_AUTHOR = '@KL-gr1my'
     const timestampRe = /\d{1,2}:\d{2}/g
-
-    logger.info('SETLIST', '🔍 開始搜尋歌單留言', { 留言總數: comments.length })
 
     // 優先：@KL-gr1my 有時間戳的留言
     const klComments = comments.filter(c => c.authorDisplayName === PREFERRED_AUTHOR)
     for (const c of klComments) {
       const matches = c.text.match(timestampRe)
       if (matches && matches.length >= 3) {
-        logger.info('SETLIST', '✅ 找到 KL 歌單留言', { 時間戳數: matches.length })
         return { text: c.text, author: c.authorDisplayName || 'KL' }
       }
     }
@@ -596,12 +468,6 @@ export class DataProcessor {
 
     if (timestampComments.length > 0) {
       const best = timestampComments[0]
-      const matches = best.text.match(timestampRe)
-      logger.info('SETLIST', '✅ 找到時間戳歌單留言', {
-        author: best.authorDisplayName,
-        時間戳數: matches.length,
-        按讚數: best.likeCount
-      })
       return { text: best.text, author: best.authorDisplayName || '匿名' }
     }
 
@@ -614,7 +480,6 @@ export class DataProcessor {
     })
 
     if (candidates.length === 0) {
-      logger.info('SETLIST', '❌ 未發現歌單候選留言', { 檢查總數: comments.length })
       return null
     }
 
@@ -624,22 +489,16 @@ export class DataProcessor {
       return scoreB - scoreA
     })
 
-    logger.info('SETLIST', '✅ 關鍵字篩選歌單留言', {
-      author: candidates[0].authorDisplayName,
-      按讚數: candidates[0].likeCount
-    })
     return { text: candidates[0].text, author: candidates[0].authorDisplayName || '匿名' }
   }
 
 
   /**
-   * Get songlist data for comparison from Hyperdrive API
+   * Get songlist data for comparison from database
    * @param {Object} env - Environment variables
    * @returns {Promise<Object>} Optimized songlist data in {songID: "歌名|歌手"} format
    */
   async getSonglistData(env) {
-    const logger = getLogger()
-
     try {
       const db = new Database(env)
       const rows = await db.query(
@@ -655,19 +514,16 @@ export class DataProcessor {
         songlistData[row.songID] = parts.join('|')
       }
 
-      logger?.info('SONGLIST', `載入 ${Object.keys(songlistData).length} 首歌曲`)
       return songlistData
 
     } catch (error) {
-      logger?.error('SONGLIST', `載入失敗: ${error.message}`, {
-        err: { message: error.message }
-      })
+      console.error(`[SONGLIST] 載入失敗: ${error.message}`)
       throw new Error(`載入歌曲資料庫失敗: ${error.message}`)
     }
   }
 
   /**
-   * Create new song in songlist via Hyperdrive API
+   * Create new song in songlist
    * @param {string} songName - Song name (Japanese)
    * @param {string} songNameEn - Song name (English)
    * @param {string} artist - Artist name (Japanese)
@@ -676,40 +532,29 @@ export class DataProcessor {
    * @returns {Promise<number>} New songID
    */
   async createNewSong(songName, songNameEn, artist, artistEn, env) {
-    const logger = getLogger()
-
     try {
-      logger?.info('SONGLIST', `新增歌曲: ${songName}`, { songNameEn, artist, artistEn })
-
       const db = new Database(env)
       const result = await db.execute(
         'INSERT INTO songlist (songName, songNameEn, artist, artistEn, songNote) VALUES (?, ?, ?, ?, ?)',
         [songName, songNameEn || null, artist, artistEn || null, '資訊待確認']
       )
 
-      const newSongID = result.meta.last_row_id
-      logger?.info('SONGLIST', `新增成功 songID=${newSongID}`, { songName, artist })
-      return newSongID
+      return result.meta.last_row_id
 
     } catch (error) {
-      logger?.error('SONGLIST', `新增失敗: ${songName}`, {
-        err: { message: error.message }
-      })
+      console.error(`[SONGLIST] 新增失敗: ${songName} - ${error.message}`)
       throw new Error(`新增歌曲失敗: ${error.message}`)
     }
   }
 
   /**
-   * Batch create streamlist entries via Hyperdrive API
+   * Batch create streamlist entries
    * @param {Array} streams - Stream items
    * @param {Object} env - Environment variables
    * @returns {Promise<Object>} API response
    */
   async batchCreateStreams(streams, env) {
-    const logger = getLogger()
-
     if (!streams || streams.length === 0) {
-      logger?.info('STREAM', '無新直播項目需要插入')
       return { success: true, insertedCount: 0 }
     }
 
@@ -738,35 +583,28 @@ export class DataProcessor {
         } catch (error) {
           // Duplicate entry - skip
           if (error.message.includes('Duplicate') || error.message.includes('1062')) {
-            logger?.info('STREAM', `已存在，跳過: ${streamID}`)
             continue
           }
           throw error
         }
       }
 
-      logger?.info('STREAM', `批次新增成功: ${insertedCount} 項`)
       return { success: true, insertedCount }
 
     } catch (error) {
-      logger?.error('STREAM', `批次新增失敗: ${error.message}`, {
-        count: streams.length,
-        err: { message: error.message }
-      })
+      console.error(`[STREAM] 批次新增失敗: ${error.message}`)
       throw new Error(`批次新增 streamlist 失敗: ${error.message}`)
     }
   }
 
   /**
-   * Update stream setlistComplete status via Hyperdrive API
+   * Update stream setlistComplete status
    * @param {string} streamID - Stream ID
    * @param {boolean} complete - Completion status
    * @param {Object} env - Environment variables
    * @returns {Promise<Object>} API response
    */
   async updateStreamSetlistComplete(streamID, complete, env) {
-    const logger = getLogger()
-
     try {
       const db = new Database(env)
       await db.execute(
@@ -774,32 +612,21 @@ export class DataProcessor {
         [complete, streamID]
       )
 
-      logger?.info('STREAM', `setlistComplete 更新成功: ${streamID}`, {
-        streamID,
-        setlistComplete: complete
-      })
-
       return { success: true }
 
     } catch (error) {
-      logger?.error('STREAM', `setlistComplete 更新失敗: ${streamID}`, {
-        streamID,
-        setlistComplete: complete,
-        err: { message: error.message }
-      })
+      console.error(`[STREAM] setlistComplete 更新失敗: ${streamID} - ${error.message}`)
       throw new Error(`更新 setlistComplete 失敗: ${error.message}`)
     }
   }
 
   /**
-   * Batch create setlist entries via Hyperdrive API
+   * Batch create setlist entries
    * @param {Array} entries - Setlist entries
    * @param {Object} env - Environment variables
    * @returns {Promise<Object>} API response
    */
   async batchCreateSetlist(entries, env) {
-    const logger = getLogger()
-
     try {
       const db = new Database(env)
 
@@ -815,17 +642,10 @@ export class DataProcessor {
         )
       }
 
-      logger?.info('SETLIST', `批次新增成功`, {
-        count: entries.length
-      })
-
       return { success: true, insertedCount: entries.length }
 
     } catch (error) {
-      logger?.error('SETLIST', `批次新增失敗`, {
-        count: entries.length,
-        err: { message: error.message }
-      })
+      console.error(`[SETLIST] 批次新增失敗: ${error.message}`)
       throw new Error(`批次新增 setlist 失敗: ${error.message}`)
     }
   }

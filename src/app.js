@@ -10,7 +10,6 @@ import { CONFIG } from './config.js'
 import { Database } from './utils/database.js'
 import { getSecret } from './platform.js'
 import { extractVideoId } from './utils/url-helpers.js'
-import { initLogger, getLogger } from './utils/unified-logger.js'
 import { sendDiscordNotification, sendSetlistComment } from './utils/discord-notifier.js'
 import { getVideoComments } from './utils/youtube-comments.js'
 import { errorHandler, mysqlToISO8601 } from './utils/middleware.js'
@@ -197,9 +196,6 @@ api.get('/yt/live-details', async (c) => {
 
 // Parse setlist
 api.post('/parse-setlist', async (c) => {
-  const workerLogger = initLogger(c.env)
-  workerLogger.startRequest()
-
   try {
     const { youtubeUrl } = await c.req.json()
     if (!youtubeUrl) return c.json({ error: 'YouTube URL 為必填項目' }, 400)
@@ -232,8 +228,6 @@ api.post('/parse-setlist', async (c) => {
   } catch (error) {
     console.error('Parse setlist error:', error)
     return c.json({ error: '歌單解析失敗', details: error.message }, 500)
-  } finally {
-    await workerLogger.endRequest()
   }
 })
 
@@ -543,8 +537,6 @@ function validateTriggerToken(c) {
 // Manual trigger
 app.post('/trigger-update', async (c) => {
   if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
-  const workerLogger = initLogger(c.env)
-  workerLogger.startRequest()
 
   try {
     const body = await c.req.json().catch(() => ({}))
@@ -556,8 +548,6 @@ app.post('/trigger-update', async (c) => {
     return c.json({ success: true, result })
   } catch (error) {
     return c.json({ error: error.message }, 500)
-  } finally {
-    await workerLogger.endRequest()
   }
 })
 
@@ -566,9 +556,6 @@ app.get('/trigger-setlist-parse', async (c) => {
   if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
   const streamID = c.req.query('streamID')
   if (!streamID) return c.json({ error: 'Missing streamID' }, 400)
-
-  const workerLogger = initLogger(c.env)
-  workerLogger.startRequest()
 
   try {
     const { DataProcessor } = await import('./utils/data-processor.js')
@@ -622,16 +609,12 @@ app.get('/trigger-setlist-parse', async (c) => {
     return c.json({ success: false, message: '未找到歌單留言' })
   } catch (error) {
     return c.json({ error: error.message }, 500)
-  } finally {
-    await workerLogger.endRequest()
   }
 })
 
 // Send setlist notification independently (without re-parsing)
 app.get('/trigger-setlist-notify', async (c) => {
   if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
-  initLogger(c.env)
-
   const streamID = c.req.query('streamID')
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
@@ -762,9 +745,6 @@ export async function handleCronTrigger(event, env) {
   const now = new Date()
   const utcHour = now.getUTCHours()
 
-  const workerLogger = initLogger(env)
-  workerLogger.startRequest()
-
   try {
     const { runAutoUpdate, runPollingCheck } = await import('./cron-jobs/auto-update.js')
 
@@ -784,8 +764,6 @@ export async function handleCronTrigger(event, env) {
       result: { errors: [error.message] },
       success: false
     }).catch(() => {})
-  } finally {
-    await workerLogger.endRequest()
   }
 }
 
