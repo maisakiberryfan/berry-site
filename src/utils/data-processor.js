@@ -5,22 +5,17 @@
 import { CONFIG } from '../config.js'
 import { extractVideoId } from './url-helpers.js'
 import { Database } from './database.js'
-import { getVideoComments as getVideoCommentsCore } from './youtube-comments.js'
+import { getVideoComments } from './youtube-comments.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
 import { iso8601ToMySQL } from './middleware.js'
 import { getSecret } from '../platform.js'
-// sendSetlistComment moved to callers (auto-update.js, app.js)
 
 /**
  * Data processor class for updating streamlist and setlist data
  */
 export class DataProcessor {
   constructor() {
-    this.berryChannels = [
-      'UC7A7bGRVdIwo93nqnA3x-OQ', // Berry's main channel
-      'UCBOGwPeBtaPRU59j8jshdjQ', // Sub channel 1
-      'UC2cgr_UtYukapRUt404In-A'  // Sub channel 2
-    ]
+    this.berryChannels = CONFIG.berryChannels
   }
 
   /**
@@ -101,8 +96,8 @@ export class DataProcessor {
     let chat = ['chat', 'talk', '雑談']
     let lowerTitle = title.toLowerCase()
 
-    // 檢查子頻道
-    const subChannels = ['UCBOGwPeBtaPRU59j8jshdjQ', 'UC2cgr_UtYukapRUt404In-A']
+    // 檢查子頻道（主頻道以外）
+    const subChannels = this.berryChannels.slice(1)
     if (channelId && subChannels.includes(channelId)) {
       categories.push('Subchannel')
     }
@@ -219,8 +214,8 @@ export class DataProcessor {
       }
 
       // Get comments and find setlist
-      const apiKey = getSecret(env, 'YOUTUBE_API_KEY') || getSecret(env, 'YOUTUBEAPIKEY')
-      const comments = await this.getVideoComments(videoId, apiKey)
+      const apiKey = getSecret(env, 'YOUTUBE_API_KEY')
+      const comments = await getVideoComments(videoId, apiKey)
       const commentResult = this.findSetlistComment(comments)
 
       if (!commentResult) {
@@ -341,23 +336,6 @@ export class DataProcessor {
     return `${year}/${month}/${day}`
   }
 
-
-  /**
-   * Get video comments from YouTube API
-   * @param {string} videoId - Video ID
-   * @param {string} apiKey - YouTube API key
-   * @returns {Promise<Array>} Comments
-   */
-  async getVideoComments(videoId, apiKey) {
-    try {
-      const comments = await getVideoCommentsCore(videoId, apiKey)
-      return comments
-
-    } catch (error) {
-      console.error(`[YOUTUBE] 取得留言失敗: ${videoId} - ${error.message}`)
-      throw new Error(`取得留言失敗: ${error.message}`)
-    }
-  }
 
   /**
    * Find setlist comment from comments array

@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>Berry Site 架構關係圖</title>
+<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f0f23; color: #e0e0e0; }
+
+  .tabs {
+    display: flex;
+    background: #1a1a2e;
+    border-bottom: 2px solid #6c5ce7;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+  }
+  .tab {
+    padding: 12px 24px;
+    cursor: pointer;
+    color: #74b9ff;
+    font-size: 14px;
+    border: none;
+    background: none;
+    transition: all 0.2s;
+  }
+  .tab:hover { background: #16213e; color: #a29bfe; }
+  .tab.active { background: #16213e; color: #fff; border-bottom: 3px solid #a29bfe; }
+
+  .tab-content { display: none; position: absolute; top: 50px; bottom: 0; left: 0; right: 0; }
+  .tab-content.active { display: block; }
+
+  .graph-container { width: 100%; height: 100%; }
+
+  .legend {
+    position: fixed;
+    bottom: 15px;
+    left: 15px;
+    background: rgba(22,33,62,0.95);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 100;
+    border: 1px solid #333;
+  }
+  .legend-item { display: flex; align-items: center; margin: 4px 0; }
+  .legend-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  .info {
+    position: fixed;
+    top: 60px;
+    right: 15px;
+    background: rgba(22,33,62,0.95);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    z-index: 100;
+    border: 1px solid #333;
+    color: #999;
+  }
+</style>
+</head>
+<body>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab(0)">排程流程</button>
+  <button class="tab" onclick="switchTab(1)">模組依賴</button>
+  <button class="tab" onclick="switchTab(2)">前端 SPA</button>
+</div>
+
+<div id="tab0" class="tab-content active"><div id="graph0" class="graph-container"></div></div>
+<div id="tab1" class="tab-content"><div id="graph1" class="graph-container"></div></div>
+<div id="tab2" class="tab-content"><div id="graph2" class="graph-container"></div></div>
+
+<div class="info">滾輪縮放 · 拖拽移動 · 點擊節點高亮關聯</div>
+
+<div class="legend" id="legend"></div>
+
+<script>
+const networks = [];
+let currentTab = 0;
+
+const COLORS = {
+  entry:    { bg: '#6c5ce7', border: '#341f97', font: '#fff' },
+  core:     { bg: '#0984e3', border: '#0652DD', font: '#fff' },
+  route:    { bg: '#00b894', border: '#00a876', font: '#fff' },
+  util:     { bg: '#fdcb6e', border: '#e17055', font: '#333' },
+  cron:     { bg: '#e17055', border: '#d63031', font: '#fff' },
+  lambda:   { bg: '#a29bfe', border: '#6c5ce7', font: '#333' },
+  frontend: { bg: '#55efc4', border: '#00b894', font: '#333' },
+  script:   { bg: '#dfe6e9', border: '#b2bec3', font: '#333' },
+  trigger:  { bg: '#fd79a8', border: '#e84393', font: '#fff' },
+  process:  { bg: '#0984e3', border: '#0652DD', font: '#fff' },
+  page:     { bg: '#81ecec', border: '#00cec9', font: '#333' },
+  api:      { bg: '#74b9ff', border: '#0984e3', font: '#333' },
+  db:       { bg: '#636e72', border: '#2d3436', font: '#fff' },
+  external: { bg: '#fab1a0', border: '#e17055', font: '#333' },
+};
+
+function makeNode(id, label, group, extra = {}) {
+  const c = COLORS[group] || COLORS.util;
+  return {
+    id, label,
+    shape: extra.shape || 'box',
+    color: { background: c.bg, border: c.border, highlight: { background: c.bg, border: '#fff' } },
+    font: { color: c.font, size: extra.fontSize || 13, face: 'Segoe UI' },
+    margin: extra.margin || 10,
+    shadow: true,
+    level: extra.level,
+  };
+}
+
+function makeEdge(from, to, label = '', dashes = false) {
+  return {
+    from, to, label,
+    arrows: 'to',
+    color: { color: '#555', highlight: '#74b9ff', opacity: 0.7 },
+    font: { color: '#888', size: 10, strokeWidth: 0 },
+    dashes,
+    smooth: { type: 'cubicBezier', roundness: 0.3 },
+  };
+}
+
+const defaultOptions = {
+  physics: {
+    solver: 'forceAtlas2Based',
+    forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.008, springLength: 160, springConstant: 0.04 },
+    stabilization: { iterations: 200 },
+  },
+  interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+  layout: { improvedLayout: true },
+};
+
+// Draw group boxes around related nodes
+function drawGroupBoxes(network, ctx, groups) {
+  groups.forEach(group => {
+    const positions = network.getPositions(group.nodeIds);
+    const posArray = Object.values(positions);
+    if (posArray.length === 0) return;
+
+    // Get bounding box of all nodes in group
+    const nodeSize = 35; // approximate half-size of node
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    posArray.forEach(p => {
+      minX = Math.min(minX, p.x - nodeSize * 2);
+      maxX = Math.max(maxX, p.x + nodeSize * 2);
+      minY = Math.min(minY, p.y - nodeSize);
+      maxY = Math.max(maxY, p.y + nodeSize);
+    });
+
+    const pad = 25;
+    const titleHeight = 22;
+    const x = minX - pad;
+    const y = minY - pad - titleHeight;
+    const w = maxX - minX + pad * 2;
+    const h = maxY - minY + pad * 2 + titleHeight;
+
+    // Draw background
+    ctx.save();
+    ctx.fillStyle = group.bgColor || 'rgba(9, 132, 227, 0.08)';
+    ctx.strokeStyle = group.borderColor || 'rgba(9, 132, 227, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+
+    // Rounded rect
+    const r = 10;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Title
+    ctx.setLineDash([]);
+    ctx.fillStyle = group.titleColor || 'rgba(116, 185, 255, 0.9)';
+    ctx.font = 'bold 14px Segoe UI';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(group.title, x + 12, y + 6);
+
+    // Source file label
+    if (group.source) {
+      ctx.fillStyle = 'rgba(150, 150, 150, 0.6)';
+      ctx.font = '11px Segoe UI';
+      ctx.textAlign = 'right';
+      ctx.fillText(group.source, x + w - 12, y + 7);
+    }
+
+    ctx.restore();
+  });
+}
+
+// ===== TAB 0: Cron Flow (with group boxes) =====
+function buildGraph0() {
+  const nodes = new vis.DataSet([
+    // Triggers
+    makeNode('cron_daily', 'EventBridge\n每日 15:00 TST', 'trigger', { level: 0 }),
+    makeNode('cron_poll', 'EventBridge\n22:00~03:00\n每 10 分鐘', 'trigger', { level: 0 }),
+    makeNode('pubsub', 'PubSubHubbub\nYouTube webhook', 'trigger', { level: 0 }),
+    makeNode('manual', '手動\n/trigger-*', 'trigger', { level: 0 }),
+
+    // Step 0: PubSub renewal
+    makeNode('renew', 'renewPubSub\nSubscription()', 'process', { level: 1 }),
+
+    // Step 1: Fetch new videos (group: fetchNewVideos)
+    makeNode('fetch_new', 'getNewVideos\nFromChannels()', 'util', { level: 2 }),
+    makeNode('fetch_detail', 'getVideo\nDetails()', 'util', { level: 3 }),
+
+    // Step 2: Insert streams
+    makeNode('insert_s', 'batchCreate\nStreams()', 'process', { level: 4 }),
+
+    // Step 3: Thumbnails
+    makeNode('save_tb', 'saveThumbnail()\n→ S3', 'process', { level: 5 }),
+
+    // Step 4: Find pending
+    makeNode('find', 'fetchPending\nStreams()', 'process', { level: 6 }),
+
+    // Step 5: Parse setlist (group: parseSetlistForStream)
+    makeNode('get_cmt', 'getVideo\nComments()', 'util', { level: 7 }),
+    makeNode('find_cmt', 'findSetlist\nComment()', 'util', { level: 8 }),
+    makeNode('fuzzy', 'fuzzyMatch\nSetlist()', 'util', { level: 9 }),
+    makeNode('lambda', 'Lambda matcher\nHTTP POST', 'lambda', { level: 10 }),
+
+    // Step 6: Insert setlists
+    makeNode('insert_set', 'processAndInsert\nSetlists()', 'process', { level: 11 }),
+
+    // Step 7: Detect debuts
+    makeNode('detect', 'detectDebut\nSongs()', 'process', { level: 12 }),
+
+    // Step 8: Notify
+    makeNode('notify', 'sendDiscord\nNotification()', 'cron', { level: 13 }),
+
+    // Polling sub-flow
+    makeNode('live_det', 'getLiveDetails()\nisEnded?', 'process', { level: 6 }),
+
+    // Setlist comment to Discord
+    makeNode('setlist_cmt', 'sendSetlist\nComment()', 'cron', { level: 11 }),
+  ]);
+
+  const edges = new vis.DataSet([
+    // runAutoUpdate main flow
+    makeEdge('cron_daily', 'renew'),
+    makeEdge('renew', 'fetch_new'),
+    makeEdge('fetch_new', 'fetch_detail'),
+    makeEdge('fetch_detail', 'insert_s'),
+    makeEdge('insert_s', 'save_tb'),
+    makeEdge('save_tb', 'find'),
+    makeEdge('find', 'get_cmt'),
+    makeEdge('get_cmt', 'find_cmt'),
+    makeEdge('find_cmt', 'fuzzy'),
+    makeEdge('fuzzy', 'lambda'),
+    makeEdge('lambda', 'insert_set', '回傳結果'),
+    makeEdge('insert_set', 'detect'),
+    makeEdge('detect', 'notify'),
+
+    // Setlist comment notification (parallel)
+    makeEdge('lambda', 'setlist_cmt', '', true),
+
+    // runPollingCheck flow
+    makeEdge('cron_poll', 'find'),
+    makeEdge('find', 'live_det'),
+    makeEdge('live_det', 'get_cmt', '已結束'),
+
+    // PubSub → insert (skip fetch, single video)
+    makeEdge('pubsub', 'insert_s', '單一影片', true),
+
+    // Manual trigger
+    makeEdge('manual', 'fetch_new', '', true),
+  ]);
+
+  return { nodes, edges };
+}
+
+// Group box definitions for cron flow
+const cronGroups = [
+  {
+    title: 'fetchNewVideos()',
+    source: 'data-fetcher.js → youtube-api.js',
+    nodeIds: ['fetch_new', 'fetch_detail'],
+    bgColor: 'rgba(253, 203, 110, 0.1)',
+    borderColor: 'rgba(253, 203, 110, 0.4)',
+    titleColor: 'rgba(253, 203, 110, 0.9)',
+  },
+  {
+    title: 'parseSetlistForStream()',
+    source: 'data-processor.js → youtube-comments.js → fuzzy-matcher.js',
+    nodeIds: ['get_cmt', 'find_cmt', 'fuzzy', 'lambda'],
+    bgColor: 'rgba(9, 132, 227, 0.1)',
+    borderColor: 'rgba(9, 132, 227, 0.4)',
+    titleColor: 'rgba(116, 185, 255, 0.9)',
+  },
+];
+
+// ===== TAB 1: Module Dependencies =====
+function buildGraph1() {
+  const nodes = new vis.DataSet([
+    makeNode('ew', 'entry-worker.js\nCF Workers', 'entry'),
+    makeNode('el', 'entry-lambda.js\nAWS Lambda', 'entry'),
+    makeNode('app', 'src/app.js\nHono App\n40+ 路由', 'core'),
+    makeNode('plat', 'src/platform.js\n平台抽象', 'core'),
+    makeNode('cfg', 'src/config.js\nCONFIG', 'core'),
+    makeNode('r_song', 'routes/songlist.js', 'route'),
+    makeNode('r_stream', 'routes/streamlist.js', 'route'),
+    makeNode('r_set', 'routes/setlist.js', 'route'),
+    makeNode('r_alias', 'routes/aliases.js', 'route'),
+    makeNode('db', 'utils/database.js', 'util'),
+    makeNode('mw', 'utils/middleware.js', 'util'),
+    makeNode('cache', 'utils/cache.js', 'util'),
+    makeNode('url', 'utils/url-helpers.js', 'util'),
+    makeNode('yt_api', 'utils/youtube-api.js', 'util'),
+    makeNode('yt_cmt', 'utils/youtube-comments.js', 'util'),
+    makeNode('discord', 'utils/discord-notifier.js', 'util'),
+    makeNode('dp', 'utils/data-processor.js', 'util'),
+    makeNode('fm', 'utils/fuzzy-matcher.js', 'util'),
+    makeNode('tb', 'utils/thumbnail.js', 'util'),
+    makeNode('au', 'cron-jobs/auto-update.js', 'cron'),
+    makeNode('df', 'cron-jobs/data-fetcher.js', 'cron'),
+    makeNode('lm', 'lambda/setlist-matcher', 'lambda'),
+    makeNode('tool', 'fansite/js/tool.js', 'frontend'),
+    makeNode('analytics', 'fansite/js/analytics.js', 'frontend'),
+    makeNode('sc', 'scripts/timestamps/', 'script'),
+  ]);
+
+  const edges = new vis.DataSet([
+    makeEdge('ew', 'app', 'import'),
+    makeEdge('el', 'app', 'import'),
+    makeEdge('app', 'r_song', 'mount'),
+    makeEdge('app', 'r_stream', 'mount'),
+    makeEdge('app', 'r_set', 'mount'),
+    makeEdge('app', 'r_alias', 'mount'),
+    makeEdge('app', 'db', 'inject'),
+    makeEdge('app', 'plat'),
+    makeEdge('app', 'cfg'),
+    makeEdge('app', 'mw'),
+    makeEdge('app', 'discord'),
+    makeEdge('app', 'yt_cmt'),
+    makeEdge('app', 'yt_api'),
+    makeEdge('app', 'dp'),
+    makeEdge('app', 'url'),
+    makeEdge('app', 'au'),
+    makeEdge('r_song', 'mw'),
+    makeEdge('r_song', 'cache'),
+    makeEdge('r_stream', 'mw'),
+    makeEdge('r_stream', 'cache'),
+    makeEdge('r_set', 'mw'),
+    makeEdge('r_set', 'cache'),
+    makeEdge('r_alias', 'db'),
+    makeEdge('au', 'df'),
+    makeEdge('au', 'dp'),
+    makeEdge('au', 'discord'),
+    makeEdge('au', 'tb'),
+    makeEdge('au', 'mw'),
+    makeEdge('au', 'cfg'),
+    makeEdge('df', 'yt_api'),
+    makeEdge('df', 'cfg'),
+    makeEdge('dp', 'yt_cmt'),
+    makeEdge('dp', 'fm'),
+    makeEdge('dp', 'mw'),
+    makeEdge('dp', 'cfg'),
+    makeEdge('fm', 'lm', 'HTTP', true),
+    makeEdge('tool', 'app', 'fetch /api/*', true),
+    makeEdge('analytics', 'app', 'fetch /api/text-to-sql', true),
+    makeEdge('sc', 'db', 'standalone', true),
+  ]);
+
+  return { nodes, edges };
+}
+
+// ===== TAB 2: Frontend SPA =====
+function buildGraph2() {
+  const nodes = new vis.DataSet([
+    makeNode('user', '使用者', 'trigger', { shape: 'circle' }),
+    makeNode('setcontent', 'setContent(path)', 'process'),
+    makeNode('pushstate', 'history.pushState()', 'process'),
+    makeNode('home', '首頁 /', 'page'),
+    makeNode('stream', '直播列表\n/streamlist', 'page'),
+    makeNode('setlist', '歌單\n/setlist', 'page'),
+    makeNode('song', '歌曲\n/songlist', 'page'),
+    makeNode('analytics_p', '分析\n/analytics', 'page'),
+    makeNode('api_calls', 'fetch /api/*', 'api'),
+    makeNode('backend', 'Hono API\n端點', 'core'),
+    makeNode('duckdb', 'DuckDB-WASM\n本地 Parquet', 'lambda'),
+    makeNode('text_sql', '/api/text-to-sql\nAI 小幫手', 'api'),
+  ]);
+
+  const edges = new vis.DataSet([
+    makeEdge('user', 'setcontent', 'URL/點擊'),
+    makeEdge('setcontent', 'pushstate'),
+    makeEdge('setcontent', 'home'),
+    makeEdge('setcontent', 'stream'),
+    makeEdge('setcontent', 'setlist'),
+    makeEdge('setcontent', 'song'),
+    makeEdge('setcontent', 'analytics_p'),
+    makeEdge('home', 'api_calls', 'allSettled'),
+    makeEdge('stream', 'api_calls'),
+    makeEdge('setlist', 'api_calls'),
+    makeEdge('song', 'api_calls'),
+    makeEdge('api_calls', 'backend', 'fetch'),
+    makeEdge('analytics_p', 'duckdb', 'SQL'),
+    makeEdge('analytics_p', 'text_sql', 'AI'),
+  ]);
+
+  return { nodes, edges };
+}
+
+// ===== Tab Switching =====
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.querySelectorAll('.tab-content').forEach((t, i) => t.classList.toggle('active', i === idx));
+  currentTab = idx;
+
+  if (!networks[idx]) {
+    const builders = [buildGraph0, buildGraph1, buildGraph2];
+    const data = builders[idx]();
+    const container = document.getElementById('graph' + idx);
+    const opts = JSON.parse(JSON.stringify(defaultOptions));
+
+    if (idx === 0) {
+      opts.layout = { hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 160, nodeSpacing: 90 } };
+      opts.physics = false;
+    }
+    if (idx === 2) {
+      opts.layout = { hierarchical: { direction: 'TB', sortMethod: 'directed', levelSeparation: 120, nodeSpacing: 100 } };
+      opts.physics = false;
+    }
+
+    const network = new vis.Network(container, data, opts);
+    networks[idx] = network;
+
+    // Add group boxes for cron flow tab
+    if (idx === 0) {
+      network.on('afterDrawing', function(ctx) {
+        drawGroupBoxes(network, ctx, cronGroups);
+      });
+      // Redraw to show boxes after stabilization
+      network.once('stabilized', function() {
+        network.redraw();
+      });
+    }
+  } else {
+    networks[idx].fit();
+  }
+
+  updateLegend(idx);
+}
+
+function updateLegend(idx) {
+  const legends = [
+    [['trigger','觸發源'],['process','處理步驟'],['util','工具函數'],['cron','通知'],['lambda','Lambda / 外部']],
+    [['entry','入口層'],['core','核心應用'],['route','路由模組'],['util','工具模組'],['cron','排程任務'],['lambda','Lambda'],['frontend','前端'],['script','CLI 腳本']],
+    [['trigger','使用者'],['process','路由控制'],['page','頁面'],['api','API 呼叫'],['core','後端'],['lambda','外部']],
+  ];
+
+  const el = document.getElementById('legend');
+  el.innerHTML = legends[idx].map(([group, label]) => {
+    const c = COLORS[group];
+    return `<div class="legend-item"><div class="legend-dot" style="background:${c.bg};border:1px solid ${c.border}"></div>${label}</div>`;
+  }).join('');
+
+  // Add group box legend for cron flow
+  if (idx === 0) {
+    el.innerHTML += `<div class="legend-item" style="margin-top:6px;border-top:1px solid #444;padding-top:6px"><div class="legend-dot" style="background:rgba(9,132,227,0.15);border:2px dashed rgba(9,132,227,0.5)"></div>群組框 = 函數內部流程</div>`;
+  }
+}
+
+// Init
+switchTab(0);
+</script>
+
+</body>
+</html>

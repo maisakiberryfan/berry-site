@@ -15,13 +15,14 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
   │
   ├─ 主站 (m-b.win) ─→ CloudFront TPE
   │                      ├─ 靜態檔案 → S3
+  │                      ├─ /tb/* → ThumbnailBucket (S3)
   │                      └─ /api/* → Lambda (ap-northeast-1)
   │                                    └─ MariaDB (ConoHa 大阪)
   │
-  └─ 備用站 (*.workers.dev) ─→ CF Worker
-                                 ├─ 靜態檔案 → Workers Static Assets
-                                 └─ /api/* → Hono
-                                              └─ Hyperdrive → MariaDB
+  └─ 備用站 (www.m-b.win) ─→ CF Worker
+                                ├─ 靜態檔案 → Workers Static Assets
+                                └─ /api/* → Hono
+                                             └─ Hyperdrive → MariaDB
 ```
 
 ### AWS（主站）
@@ -29,9 +30,9 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 | 服務 | 用途 |
 |------|------|
 | CloudFront | CDN + SPA fallback + API 路由（TPE edge） |
-| S3 | 靜態檔案 hosting |
+| S3 | 靜態檔案 + 縮圖 hosting |
 | Lambda (Node.js 24, arm64) | Hono API + Cron |
-| EventBridge | Cron triggers + Lambda 保溫 |
+| EventBridge | Cron triggers + Lambda 保溫（每 5 分鐘） |
 | ACM | SSL 憑證（us-east-1） |
 
 ### Cloudflare（備用站）
@@ -52,7 +53,7 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 ## 技術棧
 
 - **後端**：Hono 4.9.7（雙入口：`entry-worker.js` / `entry-lambda.js`）
-- **前端**：jQuery 3.7.1 + Bootstrap 5.3.3 + Tabulator 6.3.1 + DuckDB-WASM
+- **前端**：jQuery 3.7.1 + Bootstrap 5.3.8 + Tabulator 6.4.0 + DuckDB-WASM
 - **建置**：esbuild
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
 
@@ -84,6 +85,8 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `YOUTUBE_API_KEY` | YouTube Data API v3 |
 | `ANTHROPIC_API_KEY` | Claude API（text-to-sql） |
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
+| `DISCORD_SETLIST_WEBHOOK_URL` | Discord 歌單留言通知 |
+| `TRIGGER_TOKEN` | /trigger-* 端點驗證 |
 | `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
 | `GH_PAT_TOKEN` | GitHub PAT（commit 查詢） |
@@ -95,7 +98,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `CLOUDFLARE_ACCOUNT_ID` | CF Account ID |
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
-- `YOUTUBEAPIKEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, `DISCORD_SETLIST_WEBHOOK_URL`, `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
 
 ## 本地開發
 
@@ -125,22 +128,29 @@ cd fansite && npm run build:js
 ## Cron Triggers
 
 ```
-UTC 07:00     = 台灣 15:00  每日備援 runAutoUpdate
-UTC 14:00~19:00 = 台灣 22:00~03:00  每 30 分鐘 runPollingCheck
+UTC 07:00           = 台灣 15:00         每日備援 runAutoUpdate
+UTC 14:00~19:00     = 台灣 22:00~03:00   每 10 分鐘 runPollingCheck
+rate(5 minutes)                           Lambda 保溫（避免 cold start）
 ```
 
 AWS EventBridge 為主要排程，CF Worker cron 已停用。
 
 ## API 端點
 
-| 路由 | 說明 |
+所有 API 路由加 `/api/` 前綴，詳見 `src/app.js` 及 `src/routes/`。
+
+| 模組 | 說明 |
 |------|------|
-| `GET/POST /api/songlist` | 歌曲列表 |
-| `GET/POST /api/streamlist` | 直播列表 |
-| `GET/POST /api/setlist` | 歌單 |
-| `GET/POST /api/aliases` | 別名管理 |
-| `POST /api/parse-setlist` | 歌單解析 |
-| `POST /api/get-comments` | YouTube 留言 |
-| `POST /api/text-to-sql` | AI SQL 查詢 |
-| `GET /api/github/latest-commit` | GitHub commit |
-| `GET /health` | 健康檢查 |
+| `/api/songlist` | 歌曲 CRUD |
+| `/api/streamlist` | 直播 CRUD |
+| `/api/setlist` | 歌單 CRUD |
+| `/api/aliases` | 別名管理 |
+| `/api/yt` | YouTube 影片查詢 |
+| `/api/parse-setlist` | 歌單解析 |
+| `/api/text-to-sql` | AI SQL 查詢 |
+| `/health` | 健康檢查 |
+| `/webhook/youtube` | PubSubHubbub webhook |
+
+## 文件
+
+- `docs/architecture-diagram.html` — 互動式架構圖（排程流程、模組依賴、前端 SPA）

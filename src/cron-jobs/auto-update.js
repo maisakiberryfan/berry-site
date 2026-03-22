@@ -4,13 +4,13 @@
 
 import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
-import { extractVideoId } from '../utils/url-helpers.js'
 import { sendDiscordNotification, sendSetlistComment } from '../utils/discord-notifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
 import { iso8601ToMySQL } from '../utils/middleware.js'
 import { saveThumbnail } from '../utils/thumbnail.js'
+import { CONFIG } from '../config.js'
 
 /**
  * Main auto-update function
@@ -410,30 +410,6 @@ function formatDateForDisplay(isoDateString) {
 }
 
 /**
- * Generate mock setlist for testing mode
- */
-function generateMockSetlist(stream) {
-  return [
-    {
-      date: stream.time,
-      trackNo: 1,
-      song: '測試歌曲A',
-      singer: '測試歌手1',
-      note: '假資料',
-      YTLink: `https://www.youtube.com/watch?v=${stream.id}`
-    },
-    {
-      date: stream.time,
-      trackNo: 2,
-      song: '測試歌曲B',
-      singer: '測試歌手2',
-      note: '假資料',
-      YTLink: `https://www.youtube.com/watch?v=${stream.id}`
-    }
-  ]
-}
-
-/**
  * Get simplified error reason for display
  */
 function getSimplifiedErrorReason(errorMessage) {
@@ -466,18 +442,13 @@ export async function renewPubSubSubscription(env) {
 
   console.log('[PUBSUB] 開始 PubSubHubbub 訂閱續訂')
 
-  const CHANNELS = [
-    { id: 'UC7A7bGRVdIwo93nqnA3x-OQ', name: '主頻道' },
-    { id: 'UCBOGwPeBtaPRU59j8jshdjQ', name: '副頻道1' },
-    { id: 'UC2cgr_UtYukapRUt404In-A', name: '副頻道2' }
-  ]
   const CALLBACK_URL = getSecret(env, 'PUBSUB_CALLBACK_URL') || 'https://m-b.win/webhook/youtube'
   const HUB_URL = 'https://pubsubhubbub.appspot.com/subscribe'
 
   let allSuccess = true
 
-  for (const channel of CHANNELS) {
-    const TOPIC_URL = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channel.id}`
+  for (const channelId of CONFIG.berryChannels) {
+    const TOPIC_URL = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`
 
     try {
       const formData = new URLSearchParams()
@@ -496,15 +467,15 @@ export async function renewPubSubSubscription(env) {
       })
 
       if (response.status === 202 || response.status === 204) {
-        console.log(`[PUBSUB] 訂閱續訂成功: ${channel.name} (${response.status})`)
+        console.log(`[PUBSUB] 訂閱續訂成功: ${channelId} (${response.status})`)
       } else {
         const errorText = await response.text()
-        console.error(`[PUBSUB] 訂閱續訂失敗: ${channel.name} (${response.status}) ${errorText}`)
+        console.error(`[PUBSUB] 訂閱續訂失敗: ${channelId} (${response.status}) ${errorText}`)
         allSuccess = false
       }
 
     } catch (error) {
-      console.error(`[PUBSUB] 訂閱續訂錯誤: ${channel.name} - ${error.message}`)
+      console.error(`[PUBSUB] 訂閱續訂錯誤: ${channelId} - ${error.message}`)
       allSuccess = false
     }
   }

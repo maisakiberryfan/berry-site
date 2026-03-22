@@ -70,7 +70,7 @@ Resources:
           DB_USER: !Ref DbUser
           DB_PASSWORD: !Ref DbPassword
           DB_NAME: !Ref DbName
-          YOUTUBEAPIKEY: !Ref YoutubeApiKey
+          YOUTUBE_API_KEY: !Ref YoutubeApiKey
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
           DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
