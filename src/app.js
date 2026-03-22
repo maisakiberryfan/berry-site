@@ -49,6 +49,66 @@ app.options('*', (c) => c.text('', 204))
 
 app.use('*', errorHandler)
 
+// Security response headers
+app.use('*', async (c, next) => {
+  await next()
+  c.header('X-Content-Type-Options', 'nosniff')
+  c.header('X-Frame-Options', 'DENY')
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
+})
+
+// Rate limiting (in-memory, resets on cold start)
+const rateLimits = new Map()
+const RATE_WINDOW = 60_000 // 1 minute
+
+function getRateKey(ip, tier) {
+  return `${ip}:${tier}`
+}
+
+function checkRateLimit(ip, tier, maxRequests) {
+  const key = getRateKey(ip, tier)
+  const now = Date.now()
+  let entry = rateLimits.get(key)
+
+  if (!entry || now - entry.start > RATE_WINDOW) {
+    entry = { start: now, count: 0 }
+    rateLimits.set(key, entry)
+  }
+
+  entry.count++
+  return entry.count <= maxRequests
+}
+
+// Rate limit: write endpoints 30/min, expensive endpoints 5/min
+app.use('/api/*', async (c, next) => {
+  // Cleanup stale entries on each request (lightweight, map is small)
+  const cleanupNow = Date.now()
+  for (const [key, entry] of rateLimits) {
+    if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
+  }
+
+  const method = c.req.method
+  const path = c.req.path
+
+  // Skip rate limiting for read-only methods
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
+
+  const ip = c.req.header('cf-connecting-ip')
+    || c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown'
+
+  // Expensive endpoints: stricter limit
+  const isExpensive = path.includes('/parse-setlist') || path.includes('/text-to-sql')
+  const limit = isExpensive ? 5 : 30
+  const tier = isExpensive ? 'expensive' : 'write'
+
+  if (!checkRateLimit(ip, tier, limit)) {
+    return c.json({ error: 'Too many requests' }, 429)
+  }
+
+  return next()
+})
+
 // Database middleware - inject db into context
 app.use('*', async (c, next) => {
   c.set('db', new Database(c.env))
@@ -529,7 +589,7 @@ app.route('/api', api)
 function validateTriggerToken(c) {
   const token = c.req.query('token') || c.req.header('X-Trigger-Token')
   const expected = getSecret(c.env, 'TRIGGER_TOKEN')
-  if (!expected) return true  // 未設定時跳過驗證（向下相容）
+  if (!expected) return false  // 未設定時拒絕（fail closed）
   return token === expected
 }
 
