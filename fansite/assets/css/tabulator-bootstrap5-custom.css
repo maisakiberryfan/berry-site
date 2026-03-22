@@ -1911,15 +1911,15 @@ body.tabulator-print-fullscreen-hide > *:not(.tabulator-print-fullscreen) {
   background-color: inherit;
 }
 
-.tabulator.table-striped.table-dark .tabulator-row.tabulator-row-even.tabulator-selected {
+.tabulator.table-striped.table-dark .tabulator-row.tabulator-selected {
   background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
 }
 @media (hover: hover) and (pointer: fine) {
-  .tabulator.table-striped.table-dark .tabulator-row.tabulator-row-even.tabulator-selectable:hover {
+  .tabulator.table-striped.table-dark .tabulator-row.tabulator-selectable:hover {
     background-color: var(--bs-table-hover-bg, rgba(0, 0, 0, 0.075)) !important;
     cursor: pointer;
   }
-  .tabulator.table-striped.table-dark .tabulator-row.tabulator-row-even.tabulator-selected:hover {
+  .tabulator.table-striped.table-dark .tabulator-row.tabulator-selected:hover {
     background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95) !important;
     cursor: pointer;
   }
@@ -1994,15 +1994,15 @@ html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row:nth-child(even)
 html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row:nth-child(even) .tabulator-cell {
   background-color: inherit;
 }
-html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-row-even.tabulator-selected {
+html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-selected {
   background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
 }
 @media (hover: hover) and (pointer: fine) {
-  html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-row-even.tabulator-selectable:hover {
+  html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-selectable:hover {
     background-color: var(--bs-table-hover-bg) !important;
     cursor: pointer;
   }
-  html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-row-even.tabulator-selected:hover {
+  html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row.tabulator-selected:hover {
     background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.95) !important;
     cursor: pointer;
   }

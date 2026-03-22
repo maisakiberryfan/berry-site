@@ -358,7 +358,7 @@
   }
 }
 
-.tabulator.table-striped.table-dark .tabulator-row.tabulator-row-even {
+.tabulator.table-striped.table-dark .tabulator-row {
   &.tabulator-selected {
     background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
   }
@@ -463,7 +463,7 @@ html[data-bs-theme="dark"] .tabulator.table-striped {
     }
   }
 
-  .tabulator-row.tabulator-row-even {
+  .tabulator-row {
     &.tabulator-selected {
       background-color: rgba(var(--bs-primary-rgb, 13, 110, 253), 0.85) !important;
     }
