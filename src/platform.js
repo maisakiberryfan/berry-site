@@ -24,7 +24,8 @@ export function getDbConfig(env) {
       port: env.HYPERDRIVE.port,
       user: env.HYPERDRIVE.user,
       password: env.HYPERDRIVE.password,
-      database: env.HYPERDRIVE.database
+      database: env.HYPERDRIVE.database,
+      _viaHyperdrive: true
     }
   }
   // AWS Lambda (process.env) 或 wrangler dev (env bindings from .dev.vars)
