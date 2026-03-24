@@ -274,16 +274,16 @@ api.post('/parse-setlist', async (c) => {
     const dataProcessor = new DataProcessor()
     const setlistResult = await dataProcessor.parseSetlistForStream(stream, c.env)
 
-    if (!setlistResult || setlistResult.length === 0) {
+    if (!setlistResult || !setlistResult.items || setlistResult.items.length === 0) {
       return c.json({ error: '未找到歌單', videoId }, 404)
     }
 
     return c.json({
       success: true,
       videoId,
-      songCount: setlistResult.length,
-      songIDs: setlistResult.map(item => item.songID),
-      setlistItems: setlistResult
+      songCount: setlistResult.items.length,
+      songIDs: setlistResult.items.map(item => item.songID),
+      setlistItems: setlistResult.items
     })
   } catch (error) {
     console.error('Parse setlist error:', error)
