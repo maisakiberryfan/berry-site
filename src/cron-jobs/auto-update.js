@@ -340,7 +340,9 @@ export async function runPollingCheck(env) {
             trackNo: item.trackNo,
             segmentNo: item.segmentNo || 1,
             songID: item.songID,
-            note: item.note || null
+            note: item.note || null,
+            startTime: item.startTime || null,
+            endTime: item.endTime || null
           }))
 
           await dataProcessor.batchCreateSetlist(formattedEntries, env)
