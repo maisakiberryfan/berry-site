@@ -5,6 +5,7 @@
 import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
 import { sendDiscordNotification, sendSetlistComment } from '../utils/discord-notifier.js'
+import { verifyRecentSetlists, sendWikiDiffNotification } from '../utils/wiki-verifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
@@ -227,6 +228,19 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         result,
         success: true
       })
+    }
+
+    // Step 7: Wiki 歌單二次校正（驗證近期已解析的歌枠）
+    try {
+      const wikiResult = await verifyRecentSetlists(env)
+      if (wikiResult.mismatches > 0) {
+        await sendWikiDiffNotification(env, wikiResult.details)
+      }
+      if (wikiResult.verified > 0 || wikiResult.mismatches > 0) {
+        console.log(`[WIKI] verified=${wikiResult.verified}, mismatches=${wikiResult.mismatches}, skipped=${wikiResult.skipped}`)
+      }
+    } catch (wikiError) {
+      console.error(`[WIKI] 驗證失敗（非致命）: ${wikiError.message}`)
     }
 
   } catch (error) {
