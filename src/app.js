@@ -747,6 +747,31 @@ app.get('/trigger-setlist-notify', async (c) => {
   }
 })
 
+// Manual wiki verification
+// ?lookbackDays=30  回溯天數（預設 30）
+// ?date=2026/03/18  指定日期（JST）
+// ?streamID=xxx     指定 streamID
+app.get('/trigger-wiki-verify', async (c) => {
+  if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
+
+  const lookbackDays = parseInt(c.req.query('lookbackDays') || '30', 10)
+  const date = c.req.query('date')
+  const streamID = c.req.query('streamID')
+
+  try {
+    const { verifyRecentSetlists, sendWikiDiffNotification } = await import('./utils/wiki-verifier.js')
+    const result = await verifyRecentSetlists(c.env, { lookbackDays, date, streamID })
+
+    if (result.mismatches > 0) {
+      await sendWikiDiffNotification(c.env, result.details)
+    }
+
+    return c.json({ success: true, ...result })
+  } catch (error) {
+    return c.json({ error: error.message }, 500)
+  }
+})
+
 // Backend KL format generator
 function formatKLSetlistBackend(rows) {
   const lines = ['♬セトリ/Set List♬', '']
