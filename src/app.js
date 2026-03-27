@@ -729,12 +729,10 @@ app.get('/trigger-setlist-notify', async (c) => {
         const commentResult = dp.findSetlistComment(comments)
         if (commentResult) {
           await sendSetlistComment(webhookUrl, stream, commentResult.text, commentResult.author)
+          sentCount++
         } else {
-          // Fallback: use backend KL format
-          const klText = formatKLSetlistBackend(data.rows)
-          await sendSetlistComment(webhookUrl, stream, klText, 'berry-bot (auto)')
+          errors.push({ streamID: sid, error: 'No setlist comment found on YouTube' })
         }
-        sentCount++
       } catch (err) {
         console.error(`[trigger-setlist-notify] Error for ${sid}:`, err)
         errors.push({ streamID: sid, error: err.message })
