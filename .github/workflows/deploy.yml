@@ -80,14 +80,6 @@ jobs:
           echo "bucket=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`FansiteBucketName`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
           echo "cf_dist=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
 
-      # One-time cleanup: remove dev files accidentally synced to S3
-      # TODO: Remove this step after first successful deploy
-      - name: Clean up dev files from S3
-        run: |
-          aws s3 rm s3://${{ steps.stack.outputs.bucket }}/node_modules/ --recursive
-          aws s3 rm s3://${{ steps.stack.outputs.bucket }}/package.json
-          aws s3 rm s3://${{ steps.stack.outputs.bucket }}/package-lock.json
-
       # Sync fansite static files to S3
       - name: Sync fansite to S3
         run: |
@@ -108,7 +100,8 @@ jobs:
             --exclude "*" \
             --include "*.html" \
             --include "config.js" \
-            --include "changelog.json"
+            --include "changelog.json" \
+            --exclude "node_modules/*"
 
       # Invalidate CloudFront cache for updated files
       - name: Invalidate CloudFront
