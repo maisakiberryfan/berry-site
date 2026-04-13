@@ -223,8 +223,7 @@ Resources:
           var uriLower = uri.toLowerCase();
           if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) ||
               uriLower.startsWith('/wp-') || uriLower.startsWith('/wordpress/') ||
-              uriLower === '/.env' || uriLower.startsWith('/.env.') ||
-              uriLower.startsWith('/.aws') ||
+              uriLower.startsWith('/.') ||
               uriLower.startsWith('/phpinfo') || uriLower.startsWith('/_profiler') ||
               uriLower.startsWith('/themes/') || uriLower.startsWith('/modules/') ||
               uriLower.startsWith('/plugins/') || uriLower.startsWith('/includes/') ||
@@ -232,7 +231,15 @@ Resources:
               uriLower === '/xmlrpc.php' || uriLower.startsWith('//xmlrpc') ||
               uriLower.startsWith('/admin') ||
               uriLower.startsWith('/joomla') || uriLower.startsWith('/drupal') ||
-              uriLower.startsWith('/filemanager') || uriLower.startsWith('/tinyfilemanager')) {
+              uriLower.startsWith('/filemanager') || uriLower.startsWith('/tinyfilemanager') ||
+              uriLower.startsWith('/@') ||
+              uriLower.startsWith('/graphql') ||
+              uriLower.startsWith('/login') || uriLower.startsWith('/register') ||
+              uriLower.startsWith('/user/') ||
+              uriLower.startsWith('/sftp') ||
+              uriLower.startsWith('/stripe') || uriLower.startsWith('/sendgrid') ||
+              uriLower.startsWith('/npm-debug') ||
+              uriLower.endsWith('.log')) {
             return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
           }
           // SPA routes -> rewrite to /index.html
