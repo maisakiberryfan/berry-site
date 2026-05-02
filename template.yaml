@@ -221,6 +221,16 @@ Resources:
         function handler(event) {
           var uri = event.request.uri;
           var uriLower = uri.toLowerCase();
+          // User-Agent blocklist for non-robots.txt-compliant bots (Bytespider, SEO scrapers)
+          var uaHeader = event.request.headers['user-agent'];
+          var ua = (uaHeader && uaHeader.value || '').toLowerCase();
+          if (ua.indexOf('bytespider') >= 0 ||
+              ua.indexOf('ahrefsbot') >= 0 ||
+              ua.indexOf('semrushbot') >= 0 ||
+              ua.indexOf('mj12bot') >= 0 ||
+              ua.indexOf('dotbot') >= 0) {
+            return { statusCode: 403, statusDescription: 'Forbidden', body: { encoding: 'text', data: '' } };
+          }
           if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) ||
               uriLower.startsWith('/wp-') || uriLower.startsWith('/wordpress/') ||
               uriLower.startsWith('/.') ||
@@ -239,7 +249,14 @@ Resources:
               uriLower.startsWith('/sftp') ||
               uriLower.startsWith('/stripe') || uriLower.startsWith('/sendgrid') ||
               uriLower.startsWith('/npm-debug') ||
-              uriLower.endsWith('.log')) {
+              uriLower.endsWith('.log') ||
+              // /api/* bot probes (not legit API paths — see src/app.js)
+              uriLower === '/api/.env' || uriLower === '/api/env' ||
+              uriLower === '/api/config' || uriLower === '/api/settings' ||
+              uriLower === '/api/credentials' ||
+              uriLower === '/api/swagger' || uriLower === '/api/swagger.json' ||
+              uriLower === '/api/graphql' || uriLower === '/api/gql' ||
+              uriLower.startsWith('/api/v1/') || uriLower.startsWith('/api/v2/')) {
             return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
           }
           // SPA routes -> rewrite to /index.html
@@ -332,6 +349,9 @@ Resources:
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # CachingDisabled
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # AllViewerExceptHostHeader
             AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt BotBlockerFunction.FunctionARN
           # Infrastructure routes (no /api/ prefix)
           - PathPattern: /health
             TargetOriginId: ApiOrigin
