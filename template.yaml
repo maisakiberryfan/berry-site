@@ -36,9 +36,10 @@ Parameters:
   DiscordWebhookUrl:
     Type: String
     Default: ''
-  DiscordSetlistWebhookUrl:
-    Type: String
-    Default: ''
+  # MIGRATED to yt-setlist-discord (2026-05-02): DiscordSetlistWebhookUrl removed
+  # DiscordSetlistWebhookUrl:
+  #   Type: String
+  #   Default: ''
   TriggerToken:
     Type: String
     NoEcho: true
@@ -73,7 +74,8 @@ Resources:
           YOUTUBE_API_KEY: !Ref YoutubeApiKey
           ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
-          DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
+          # MIGRATED to yt-setlist-discord (2026-05-02): DISCORD_SETLIST_WEBHOOK_URL removed
+          # DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
           TRIGGER_TOKEN: !Ref TriggerToken
           LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl

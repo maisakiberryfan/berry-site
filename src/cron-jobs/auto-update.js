@@ -4,7 +4,8 @@
 
 import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
-import { sendDiscordNotification, sendSetlistComment } from '../utils/discord-notifier.js'
+import { sendDiscordNotification } from '../utils/discord-notifier.js'
+// MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
 import { verifyRecentSetlists, sendWikiDiffNotification } from '../utils/wiki-verifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
@@ -173,12 +174,14 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
               songCount: parseResult.items.length
             })
 
+            /* MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
             // 發送歌單留言到 Discord
             const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
             if (setlistWebhookUrl) {
               sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
                 .catch(err => console.error(`[DISCORD] 歌單留言通知失敗: ${err.message}`))
             }
+            */
 
             // 解析成功後標記為完成
             try {
@@ -366,12 +369,14 @@ export async function runPollingCheck(env) {
 
           console.log(`[POLLING] 歌單解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
 
+          /* MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
           // 發送歌單留言到 Discord
           const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
           if (setlistWebhookUrl) {
             sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
               .catch(err => console.error(`[DISCORD] 歌單留言通知失敗: ${err.message}`))
           }
+          */
 
           // 發送 Discord 通知
           const debutSongs = parseResult.items

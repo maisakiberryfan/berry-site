@@ -85,7 +85,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `YOUTUBE_API_KEY` | YouTube Data API v3 |
 | `ANTHROPIC_API_KEY` | Claude API（text-to-sql） |
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
-| `DISCORD_SETLIST_WEBHOOK_URL` | Discord 歌單留言通知 |
+| ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ | ~~Discord 歌單留言通知~~ ⚠️ **MIGRATED to yt-setlist-discord (2026-05-02)** |
 | `TRIGGER_TOKEN` | /trigger-* 端點驗證 |
 | `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
@@ -98,7 +98,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `CLOUDFLARE_ACCOUNT_ID` | CF Account ID |
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
-- `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, `DISCORD_SETLIST_WEBHOOK_URL`, `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
 
 ## 本地開發
 

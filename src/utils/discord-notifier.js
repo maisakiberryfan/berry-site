@@ -279,6 +279,11 @@ function buildPollingParseEmbed(payload) {
  * @param {string} setlistComment - 原始歌單留言
  * @param {string} author - 留言作者
  */
+/* ============================================================
+ * MIGRATED to yt-setlist-discord stack (2026-05-02)
+ * sendSetlistComment — 把抓到的歌單留言原文 POST 到 Discord
+ * 已由 yt-setlist-discord 接管（cron 每 10 分鐘 polling）
+ * ============================================================
 export async function sendSetlistComment(webhookUrl, stream, setlistComment, author) {
   if (!webhookUrl) return
 
@@ -318,6 +323,7 @@ export async function sendSetlistComment(webhookUrl, stream, setlistComment, aut
     console.error('Failed to send setlist comment to Discord:', error)
   }
 }
+============================================================ */
 
 /**
  * 建立統計摘要欄位
