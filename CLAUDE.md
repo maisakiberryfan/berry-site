@@ -106,7 +106,6 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/api/yt/newvideos` | 多頻道新影片查詢 |
 | `/api/yt/live-details?id={videoId}` | 直播狀態（isLive, isEnded） |
 | `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher） |
-| `/api/get-comments` | YouTube 留言抓取 |
 | `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
 | `/api/stats/last-updated` | 各表最後更新時間 |
 
@@ -118,7 +117,6 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/webhook/youtube` | PubSubHubbub webhook（GET 驗證 / POST 通知） |
 | `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`）需 token |
 | `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true`）需 token |
-| `/trigger-setlist-notify?streamID=xx` | 發送歌單到 Discord（GET, 可用 `startDate`/`endDate` 批次）需 token |
 
 所有 `/trigger-*` 端點需帶 `?token=xxx` 或 `X-Trigger-Token` header，由 `TRIGGER_TOKEN` 環境變數驗證。
 

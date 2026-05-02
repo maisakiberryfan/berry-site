@@ -67,7 +67,7 @@ jobs:
               YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
               AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
-              DiscordSetlistWebhookUrl=${{ secrets.DISCORD_SETLIST_WEBHOOK_URL }} \
+              # MIGRATED to yt-setlist-discord (2026-05-02): DiscordSetlistWebhookUrl removed
               TriggerToken=${{ secrets.TRIGGER_TOKEN }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
               PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \

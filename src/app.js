@@ -10,7 +10,8 @@ import { CONFIG } from './config.js'
 import { Database } from './utils/database.js'
 import { getSecret } from './platform.js'
 import { extractVideoId } from './utils/url-helpers.js'
-import { sendDiscordNotification, sendSetlistComment } from './utils/discord-notifier.js'
+import { sendDiscordNotification } from './utils/discord-notifier.js'
+// MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
 import { getVideoComments } from './utils/youtube-comments.js'
 import { errorHandler, mysqlToISO8601 } from './utils/middleware.js'
 import {
@@ -291,6 +292,11 @@ api.post('/parse-setlist', async (c) => {
   }
 })
 
+/* ============================================================
+ * MIGRATED to yt-setlist-discord stack (2026-05-02)
+ * /api/get-comments — 手動抓 YouTube 留言（給 Discord pipeline 用）
+ * 已由 yt-setlist-discord 接管
+ * ============================================================
 // Get comments
 api.post('/get-comments', async (c) => {
   try {
@@ -329,6 +335,7 @@ api.post('/get-comments', async (c) => {
     return c.json({ error: '取得留言失敗', details: error.message }, 500)
   }
 })
+============================================================ */
 
 // AI Text-to-SQL
 const AI_BUDGET_LIMIT = 0.1 // USD per day
@@ -647,12 +654,14 @@ app.get('/trigger-setlist-parse', async (c) => {
       await dataProcessor.batchCreateSetlist(parseResult.items, c.env)
       await dataProcessor.updateStreamSetlistComplete(streamID, true, c.env)
 
+      /* MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
       // 發送歌單留言到 Discord
       const setlistWebhookUrl = getSecret(c.env, 'DISCORD_SETLIST_WEBHOOK_URL')
       if (setlistWebhookUrl) {
         sendSetlistComment(setlistWebhookUrl, formattedStream, parseResult.setlistComment, parseResult.commentAuthor)
           .catch(() => {})
       }
+      */
 
       await sendDiscordNotification(c.env, {
         type: 'manual-parse',
@@ -671,6 +680,11 @@ app.get('/trigger-setlist-parse', async (c) => {
   }
 })
 
+/* ============================================================
+ * MIGRATED to yt-setlist-discord stack (2026-05-02)
+ * /trigger-setlist-notify — 手動把 setlist 抓 YouTube 留言貼到 Discord
+ * 已由 yt-setlist-discord 接管
+ * ============================================================
 // Send setlist notification independently (without re-parsing)
 app.get('/trigger-setlist-notify', async (c) => {
   if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
@@ -744,6 +758,7 @@ app.get('/trigger-setlist-notify', async (c) => {
     return c.json({ error: error.message }, 500)
   }
 })
+============================================================ */
 
 // Manual wiki verification
 // ?lookbackDays=30  回溯天數（預設 30）
