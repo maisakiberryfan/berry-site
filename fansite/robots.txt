@@ -1,0 +1,21 @@
+# Berry Site - 苺咲べりぃ非官方粉絲網站
+# https://m-b.win/
+
+User-agent: *
+Allow: /
+
+# Aggressive crawlers / scrapers (also enforced via CloudFront UA filter)
+User-agent: Bytespider
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
