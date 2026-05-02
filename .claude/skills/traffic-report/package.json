@@ -1,0 +1,10 @@
+{
+  "name": "traffic-report-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "GeoIP lookup helper for traffic-report skill (uses DB-IP Lite, CC BY 4.0)",
+  "dependencies": {
+    "mmdb-lib": "^2.1.1"
+  }
+}

@@ -13,3 +13,8 @@ scripts/*.sql
 scripts/*.parquet
 scripts/timestamps/
 
+# traffic-report skill (auto-downloaded GeoIP DB + npm artifacts)
+.claude/skills/traffic-report/dbip-country-lite.mmdb
+.claude/skills/traffic-report/dbip-country-lite.mmdb.gz
+.claude/skills/traffic-report/package-lock.json
+
