@@ -20,34 +20,6 @@ export class DataProcessor {
   }
 
   /**
-   * Get latest date from streamlist
-   * @param {Array} streamlist - Streamlist data
-   * @returns {string} Latest date string
-   */
-  getLatestStreamDate(streamlist) {
-    if (!streamlist || streamlist.length === 0) {
-      return '2020-01-01' // Default old date if empty
-    }
-
-    const dates = streamlist
-      .map(item => item.time)
-      .filter(date => date)
-      .sort((a, b) => new Date(a) - new Date(b))
-
-    return dates[dates.length - 1] || '2020-01-01'
-  }
-
-  /**
-   * Get video publish date from video object
-   * @param {Object} video - Video object from YouTube API
-   * @returns {Date|null} Publish date
-   */
-  getVideoPublishDate(video) {
-    const videoTime = video.time
-    return videoTime ? new Date(videoTime) : null
-  }
-
-  /**
    * Categorize stream based on title and channel (支援複選邏輯)
    * @param {string} title - Stream title
    * @param {string} channelId - Channel ID
@@ -235,20 +207,6 @@ export class DataProcessor {
       throw error
     }
   }
-
-  /**
-   * Format date string to YYYY/MM/DD format
-   * @param {string} isoString - ISO date string
-   * @returns {string} Formatted date
-   */
-  formatDate(isoString) {
-    const date = new Date(isoString)
-    const year = date.getFullYear()
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    return `${year}/${month}/${day}`
-  }
-
 
   /**
    * Find setlist comment from comments array（邏輯與 yt-setlist-discord 對齊）
