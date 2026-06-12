@@ -200,12 +200,13 @@ export async function createSetlistEntry(c) {
       );
     }
 
-    // Batch fetch results for response
+    // Batch fetch results for response (composite key 含 segmentNo，缺了會撈到其他 segment 的 rows)
     const conditions = entries
-      .map(() => "(streamID = ? AND trackNo = ?)")
+      .map(() => "(streamID = ? AND segmentNo = ? AND trackNo = ?)")
       .join(" OR ");
     const fetchParams = entries.flatMap((entry) => [
       entry.streamID,
+      entry.segmentNo ?? 1,
       entry.trackNo,
     ]);
 
@@ -250,6 +251,9 @@ export async function updateSetlistEntry(c) {
   const streamID = c.req.param("streamID");
   const segmentNo = parseInt(c.req.param("segmentNo"));
   const trackNo = parseInt(c.req.param("trackNo"));
+  if (Number.isNaN(segmentNo) || Number.isNaN(trackNo)) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "segmentNo and trackNo must be integers"), 400);
+  }
   const body = await c.req.json();
 
   // Check if entry exists
@@ -326,6 +330,9 @@ export async function deleteSetlistEntry(c) {
   const streamID = c.req.param("streamID");
   const segmentNo = parseInt(c.req.param("segmentNo"));
   const trackNo = parseInt(c.req.param("trackNo"));
+  if (Number.isNaN(segmentNo) || Number.isNaN(trackNo)) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "segmentNo and trackNo must be integers"), 400);
+  }
 
   // Check if entry exists
   const existingEntry = await db.first(

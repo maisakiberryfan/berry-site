@@ -8,11 +8,10 @@ import { getSecret } from '../platform.js'
 /**
  * Fuzzy match setlist comment against songlist database via Lambda
  * @param {string} setlistComment - Raw setlist comment text
- * @param {Object} songlistData - Songlist data (unused, Lambda fetches its own)
  * @param {Object} env - Worker environment bindings
  * @returns {Promise<Object>} { songIDs: Array, matches: Array }
  */
-export async function fuzzyMatchSetlist(setlistComment, songlistData, env) {
+export async function fuzzyMatchSetlist(setlistComment, env) {
   const lambdaUrl = getSecret(env, 'LAMBDA_MATCHER_URL')
 
   if (!lambdaUrl) {
