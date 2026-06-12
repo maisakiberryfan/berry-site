@@ -419,7 +419,8 @@ export async function runPollingCheck(env) {
  * Format date for display (YYYYMMDD format)
  */
 function formatDateForDisplay(isoDateString) {
-  const date = new Date(isoDateString)
+  // 輸入可能是 ISO（YouTube API）或 MySQL DATETIME 字串（DB）——後者需顯式以 UTC 解讀
+  const date = new Date(mysqlToISO8601(isoDateString))
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
