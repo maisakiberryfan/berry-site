@@ -374,7 +374,8 @@ export async function getPendingStreams(c) {
 
     // If recent=true, only get streams from last 7 days
     if (recent === "true") {
-      query += ` AND time >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+      // UTC_TIMESTAMP：time 欄存 UTC，NOW() 在本 DB server 是 UTC+8 會使視窗偏移 8 小時
+      query += ` AND time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)`;
     }
 
     query += ` ORDER BY time DESC`;

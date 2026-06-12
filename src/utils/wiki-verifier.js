@@ -5,6 +5,7 @@
 
 import { Database } from './database.js'
 import { getSecret } from '../platform.js'
+import { mysqlToISO8601, iso8601ToMySQL } from './middleware.js'
 
 const WIKI_URL = 'https://seesaawiki.jp/maisakiberry/d/%c1%b4%b6%ca%a5%ea%a5%b9%a5%c8%28%b7%da%ce%cc%c8%c7%29'
 
@@ -187,7 +188,8 @@ async function compareStreamWithWiki(streamID, wikiSongs, db) {
  * Convert UTC datetime to JST date string "YYYY/MM/DD"
  */
 function toJSTDateString(utcTimeStr) {
-  const d = new Date(utcTimeStr)
+  // mysqlToISO8601：DB 字串顯式以 UTC 解讀（ISO 輸入原樣通過），不依賴執行環境時區
+  const d = new Date(mysqlToISO8601(utcTimeStr))
   const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
   const year = jst.getUTCFullYear()
   const month = String(jst.getUTCMonth() + 1).padStart(2, '0')
@@ -251,7 +253,8 @@ export async function verifyRecentSetlists(env, options = {}) {
        WHERE setlistComplete = true
          AND time >= ? AND time < ?
        ORDER BY time ASC`,
-      [jstDate.toISOString(), jstNextDate.toISOString()]
+      // iso8601ToMySQL：DATETIME 參數用標準格式，不依賴 MariaDB 對 T/Z 的寬鬆解析（會產生 warning）
+      [iso8601ToMySQL(jstDate.toISOString()), iso8601ToMySQL(jstNextDate.toISOString())]
     )
     singingStreams = streams.filter(s => {
       const cats = typeof s.categories === 'string' ? JSON.parse(s.categories) : s.categories
@@ -263,8 +266,8 @@ export async function verifyRecentSetlists(env, options = {}) {
       `SELECT streamID, title, time, categories FROM streamlist
        WHERE setlistComplete = true
          AND (wikiVerified IS NULL)
-         AND time >= DATE_SUB(NOW(), INTERVAL ? DAY)
-         AND time <= DATE_SUB(NOW(), INTERVAL ? DAY)
+         AND time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
+         AND time <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ? DAY)
        ORDER BY time DESC`,
       [lookbackDays, DELAY_DAYS]
     )

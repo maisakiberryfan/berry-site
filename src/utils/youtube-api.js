@@ -5,6 +5,7 @@
 
 import { getSecret } from '../platform.js'
 import { CONFIG } from '../config.js'
+import { mysqlToISO8601 } from './middleware.js'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
@@ -97,7 +98,9 @@ export async function getBaselineTimestamp(db) {
       throw new Error('找不到最新的 streamlist 時間資料')
     }
 
-    return new Date(result.time)
+    // mysqlToISO8601：MySQL DATETIME 字串顯式以 UTC 解讀
+    // （直接 new Date() 會按執行環境時區解析 — production TZ=UTC 恰好正確，本地 dev 偏 8h）
+    return new Date(mysqlToISO8601(result.time))
   } catch (error) {
     console.error('Failed to get baseline timestamp:', error)
     throw error

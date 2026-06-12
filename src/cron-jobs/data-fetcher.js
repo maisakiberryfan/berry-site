@@ -152,7 +152,8 @@ export class DataFetcher {
                    AND JSON_SEARCH(categories, 'one', '%歌枠%') IS NOT NULL`
 
       if (mode === 'recent') {
-        sql += ` AND time >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
+        // UTC_TIMESTAMP：time 欄存 UTC，NOW() 在本 DB server 是 UTC+8 會使視窗偏移 8 小時
+        sql += ` AND time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)`
       }
 
       sql += ` ORDER BY time DESC`
