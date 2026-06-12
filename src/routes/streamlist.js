@@ -211,10 +211,26 @@ export async function updateStream(c) {
     params.push(JSON.stringify(categories));
 
     // Auto-update setlistComplete when categories change (unless explicitly set)
+    // 只在「非歌枠 → 歌枠」時重置為 false（觸發解析）、改成非歌枠時設 true；
+    // 歌枠 → 歌枠維持原值，避免編輯已完成歌枠的 tag 觸發重新解析
     if (setlistComplete === undefined) {
+      let oldCategories = [];
+      try {
+        oldCategories = typeof existingStream.categories === "string"
+          ? JSON.parse(existingStream.categories)
+          : (existingStream.categories || []);
+      } catch { /* 舊資料格式異常時視為非歌枠 */ }
+      const wasSinging = oldCategories.some(cat => typeof cat === "string" && cat.includes('歌枠'));
       const isSingingStream = categories.some(cat => cat.includes('歌枠'));
-      updates.push("setlistComplete = ?");
-      params.push(!isSingingStream);
+
+      if (!wasSinging && isSingingStream) {
+        updates.push("setlistComplete = ?");
+        params.push(false);
+      } else if (!isSingingStream) {
+        updates.push("setlistComplete = ?");
+        params.push(true);
+      }
+      // wasSinging && isSingingStream：不動，保留既有狀態
     }
   }
   if (note !== undefined) {

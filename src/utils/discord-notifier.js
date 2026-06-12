@@ -133,11 +133,13 @@ function buildAutoUpdateEmbed(payload) {
     })
   }
 
-  // ❌ 整體錯誤訊息
-  if (!success && payload.error) {
+  // ❌ 整體錯誤訊息（payload.error 或 result.errors 皆顯示，否則失敗通知只有標題沒內容）
+  const errorText = payload.error ||
+    (result?.errors?.length > 0 ? result.errors.join('\n') : null)
+  if (!success && errorText) {
     embed.fields.push({
       name: '❌ 錯誤訊息:',
-      value: `\`\`\`${payload.error.substring(0, 900)}\`\`\``,
+      value: `\`\`\`${errorText.substring(0, 900)}\`\`\``,
       inline: false
     })
   }

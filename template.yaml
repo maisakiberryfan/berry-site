@@ -86,6 +86,10 @@ Resources:
             - Effect: Allow
               Action: s3:PutObject
               Resource: !Sub "${ThumbnailBucket.Arn}/*"
+            # webhook 非同步化：self-invoke（固定函數名避免循環引用）
+            - Effect: Allow
+              Action: lambda:InvokeFunction
+              Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:berry-api"
       Events:
         HttpApi:
           Type: HttpApi
@@ -124,6 +128,9 @@ Resources:
         Minify: true
         Target: es2022
         Sourcemap: false
+        # AWS SDK v3 為 Lambda runtime 內建，不打包（self-invoke 用）
+        External:
+          - "@aws-sdk/*"
         EntryPoints:
           - entry-lambda.js
 
