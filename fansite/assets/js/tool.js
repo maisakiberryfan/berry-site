@@ -950,6 +950,100 @@ $(()=>{
     return editor
   }
 
+  // Aliases 頁 canonicalName 編輯器：依該列 aliasType 從 songlist 選歌名/歌手
+  // （自由輸入容易打錯產生「死 alias」—— 半形引號、帶括號版等都對不上庫內名）
+  // title 模式選定後同步綁定 songID，與快速新增別名 modal 行為一致
+  const aliasCanonicalSelect2Editor = function(cell, onRendered, success, cancel) {
+    const editor = document.createElement('select')
+    let hasSucceeded = false
+
+    onRendered(async function() {
+      const $editor = $(editor)
+      const rowData = cell.getRow().getData()
+      const isTitle = rowData.aliasType === 'title'
+
+      try {
+        const songlist = await apiRequest('GET', API_CONFIG.ENDPOINTS.songlist)
+
+        let dataOptions
+        if (isTitle) {
+          dataOptions = songlist.map(s => ({
+            id: String(s.songID),
+            text: `${s.songName}（${s.artist || '-'}）`,
+            songName: s.songName
+          })).sort((a, b) => a.text.localeCompare(b.text, 'ja'))
+        } else {
+          const artists = [...new Set(songlist.map(s => s.artist).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, 'ja'))
+          dataOptions = artists.map(name => ({ id: name, text: name }))
+        }
+
+        $editor.select2({
+          data: dataOptions,
+          width: '100%',
+          dropdownAutoWidth: true,
+          placeholder: t('選擇...', 'Select...', '選択...'),
+          allowClear: false,
+          tags: false,  // 禁止自由輸入
+          dropdownParent: $('body')
+        })
+
+        // 設定現值（title 以 songID 對應、artist 以名稱字串）
+        const current = isTitle
+          ? (rowData.songID != null ? String(rowData.songID) : null)
+          : rowData.canonicalName
+        if (current && dataOptions.some(o => o.id === current)) {
+          $editor.val(current).trigger('change.select2')
+        }
+
+        $editor.on('select2:select', async function() {
+          if (hasSucceeded) return
+          const sel = $editor.select2('data')[0]
+          if (!sel) return
+
+          const canonicalName = isTitle ? sel.songName : sel.id
+          const payload = isTitle
+            ? { canonicalName, songID: Number(sel.id) }
+            : { canonicalName }
+
+          try {
+            await apiRequest('PUT', `${API_CONFIG.ENDPOINTS.aliases}/${rowData.aliasID}`, payload)
+            cell.getRow().update(isTitle ? { canonicalName, songID: Number(sel.id) } : { canonicalName })
+
+            const cellEl = cell.getElement()
+            if (cellEl) {
+              cellEl.style.backgroundColor = '#d4edda'
+              setTimeout(() => { cellEl.style.backgroundColor = '' }, 1000)
+            }
+          } catch (error) {
+            console.error('[aliasCanonicalSelect2Editor] ❌ Error syncing to API:', error)
+            alert(`儲存失敗 / Save failed：${error.message}`)
+            cancel()
+            return
+          }
+
+          hasSucceeded = true
+          success(canonicalName)
+        })
+
+        $editor.on('select2:close', function() {
+          if (!hasSucceeded) cancel()
+        })
+
+        setTimeout(() => $editor.select2('open'), 50)
+      } catch (error) {
+        console.error('[aliasCanonicalSelect2Editor] ❌ Failed to initialize:', error)
+        alert('載入清單失敗 / Failed to load list：' + error.message)
+        if (!hasSucceeded) {
+          hasSucceeded = true
+          cancel()
+        }
+      }
+    })
+
+    return editor
+  }
+
   // Custom formatter to display "songName - artist" even though cell stores songID
   const songDisplayFormatter = function(cell) {
     const rowData = cell.getRow().getData()
@@ -1485,7 +1579,8 @@ $(()=>{
       title:t('標準名稱', 'Canonical Name', '標準名'),
       field:"canonicalName",
       width:250,
-      editor:"input",
+      // 從 songlist 選（title=歌名+自動綁 songID；artist=歌手名），禁止自由輸入防死 alias
+      editor:aliasCanonicalSelect2Editor,
       headerFilter:"input",
       headerFilterPlaceholder:t('搜尋標準名稱', 'Search canonical name', '標準名を検索')
     },
@@ -2294,6 +2389,12 @@ $(()=>{
           return
         }
 
+        // Skip canonicalName in aliases (already synced with songID in aliasCanonicalSelect2Editor)
+        if (p === 'aliases' && field === 'canonicalName') {
+          console.log('canonicalName already synced in Select2 editor, skipping API sync')
+          return
+        }
+
         console.log(`Cell edited: ${field} = ${value}`)
 
         // Determine API endpoint and ID field
@@ -2677,6 +2778,14 @@ $(()=>{
             ...col,
             editor: select2,
             editorParams: {field:'categories', multiple: true, tags: true},
+            editable: true
+          }
+        }
+        // Aliases: canonicalName 從 songlist 選（title 自動綁 songID），禁止自由輸入
+        if (getProcess() === 'aliases' && col.field === 'canonicalName') {
+          return {
+            ...col,
+            editor: aliasCanonicalSelect2Editor,
             editable: true
           }
         }
