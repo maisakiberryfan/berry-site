@@ -49,30 +49,3 @@ export async function saveThumbnail(streamID, env) {
 
   return true
 }
-
-/**
- * Batch download thumbnails with concurrency control
- * @param {string[]} streamIDs - Array of video IDs
- * @param {Object} env - Environment variables
- * @param {number} concurrency - Max concurrent downloads
- * @returns {Promise<{success: number, failed: number, skipped: number}>}
- */
-export async function batchSaveThumbnails(streamIDs, env, concurrency = 5) {
-  const result = { success: 0, failed: 0, skipped: 0 }
-
-  for (let i = 0; i < streamIDs.length; i += concurrency) {
-    const batch = streamIDs.slice(i, i + concurrency)
-    const results = await Promise.allSettled(
-      batch.map(id => saveThumbnail(id, env))
-    )
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        r.value ? result.success++ : result.skipped++
-      } else {
-        result.failed++
-      }
-    }
-  }
-
-  return result
-}

@@ -46,7 +46,18 @@ export const CONFIG = {
     minLength: 100,        // Minimum character count
     minLines: 3,           // Minimum line count
     likeWeight: 2,         // Weight for like count in scoring
-    lengthWeight: 0.1      // Weight for text length in scoring
+    lengthWeight: 0.1,     // Weight for text length in scoring
+    // 挑留言防護（2026-06 Gh6AsG8DmCI 事故後加入，邏輯與 yt-setlist-discord 對齊）
+    preferredAuthor: '@KL-gr1my',
+    cooldownHours: 6,        // 直播結束後 N 小時內只認 preferredAuthor
+    tsLineRatio: 0.5,        // 層2：帶時間戳行數佔比門檻（排除逐曲感想留言）
+    keywordMinTimestamps: 2, // 層3：關鍵字匹配仍需的最低時間戳數
+  },
+
+  // 歌單解析熔斷：fuzzy match 結果過半是「*」（無法匹配）視為選錯留言，放棄整場
+  setlistCircuitBreak: {
+    minLines: 5,
+    starRatio: 0.5
   },
 
   // Response limits

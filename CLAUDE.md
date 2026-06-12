@@ -135,14 +135,28 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - `streamlist`：直播資訊
 - `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist，YTLink 含 `?t=startTime`）
   - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補
-- `aliases`：歌曲別名
+- `aliases`：歌曲/歌手別名
+  - title 別名可綁 `songID`（精準對應、同名異曲不互染）；artist 別名為字串表（跨曲共用，設計如此）
+  - 快速新增別名（setlist 右鍵）title 模式自動帶 songID
 
 ### Lambda setlist-matcher
 
 - 位置：`lambda/setlist-matcher/`
 - 配置：threshold=0.88, titleWeight=0.75, artistWeight=0.25
+  - 無歌手行：純 titleScore、門檻 0.95（同名 dedup 兜底）
+  - 序號感知（II/Ⅱ/2/弐）、日英欄位並比取最高、多段括號/三段式行解析
+  - 無時間戳行過濾（≥3 行帶戳時視為雜訊）
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
 - 部署：`sam build && sam deploy`（獨立 SAM stack）
+- 測試：`node test-fix.mjs` / `test-regression.mjs` / `test-history.mjs [N]` / `verify-corrections.mjs`
+  （連 production API 唯讀；改 matcher 後四支都要綠）
+
+### 歌單解析防護（src/utils/data-processor.js）
+
+- **解析時機**：直播未結束不解析；結束後 6h 內只認 `@KL-gr1my`（cooldown，留言索引延遲 20~30 分）；
+  上傳影片直接開放。手動 `/trigger-setlist-parse?force=true` 可 bypass
+- **挑留言三層**：KL ≥3 戳（多篇按時間戳合併）→ ≥5 戳且帶戳行佔比 ≥0.5（擋逐曲感想）→ 關鍵字＋≥2 戳
+- **熔斷**：fuzzy 結果 >50% 無法匹配（≥5 行）整場放棄，防垃圾入庫
 
 ### CloudFront 架構
 
@@ -236,13 +250,16 @@ cd fansite && npm run build:js
 - 新增 row 用 `_isNew` flag 區分 POST/PUT
 
 ### PubSubHubbub 訂閱
-- Lease 5 天，由 `runAutoUpdate` 每 4 天自動續訂
+- Lease 5 天，由 `runAutoUpdate` 每 4 天自動續訂（自動帶 `hub.secret`=TRIGGER_TOKEN）
+- webhook 安全：GET 驗 `hub.mode=subscribe`＋topic 頻道白名單（拒外人注銷）；
+  POST 驗 `X-Hub-Signature` HMAC-SHA1（無簽名＝舊訂閱過渡期，放行＋log 警告）
+- Lambda 上 POST 通知改 async self-invoke（立即回 200，防 hub timeout 重試重複處理）
 - **DNS 切換、長時間中斷後必須手動重新訂閱**（lease 過期 + callback 不可達 = 訂閱失效）
-- 手動訂閱指令：
+- 手動訂閱指令（記得補 `hub.secret`，值同 TRIGGER_TOKEN）：
   ```bash
   for CH in UC7A7bGRVdIwo93nqnA3x-OQ UCBOGwPeBtaPRU59j8jshdjQ UC2cgr_UtYukapRUt404In-A; do
     curl -X POST https://pubsubhubbub.appspot.com/subscribe \
-      -d "hub.callback=https://m-b.win/webhook/youtube&hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$CH&hub.verify=async&hub.mode=subscribe&hub.lease_seconds=432000"
+      -d "hub.callback=https://m-b.win/webhook/youtube&hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$CH&hub.verify=async&hub.mode=subscribe&hub.lease_seconds=432000&hub.secret=$TRIGGER_TOKEN"
   done
   ```
 - 驗證：log 應出現 `GET /webhook/youtube?hub.challenge=...` 回應 200
@@ -268,6 +285,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.3 | 2026-06-13 | 歌單辨識大修：挑留言防護（cooldown/佔比/熔斷）、matcher 精度（序號感知/EN 欄位/格式解析）、alias 綁 songID、webhook 驗證＋非同步化 |
 | v3.2 | 2026-03-22 | 安全強化：CORS、rate limiting、security headers、DB TLS |
 | v3.1 | 2026-03-21 | SPA 路由白名單、縮圖 S3 存儲、Polling 10 分鐘、CloudFront 存取日誌 |
 | v3.0 | 2026-03-18 | AWS 遷移完成：CloudFront + Lambda + S3、CI/CD、舊 Workers 停用 |
@@ -275,4 +293,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-03-22
+**最後更新**：2026-06-13

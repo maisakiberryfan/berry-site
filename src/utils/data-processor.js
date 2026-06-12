@@ -6,6 +6,7 @@ import { CONFIG } from '../config.js'
 import { extractVideoId } from './url-helpers.js'
 import { Database } from './database.js'
 import { getVideoComments } from './youtube-comments.js'
+import { getLiveDetails } from './youtube-api.js'
 import { fuzzyMatchSetlist } from './fuzzy-matcher.js'
 import { iso8601ToMySQL } from './middleware.js'
 import { getSecret } from '../platform.js'
@@ -44,44 +45,6 @@ export class DataProcessor {
   getVideoPublishDate(video) {
     const videoTime = video.time
     return videoTime ? new Date(videoTime) : null
-  }
-
-  /**
-   * Convert video object to streamlist item format
-   * @param {Object} video - Video object from YouTube API
-   * @returns {Object|null} Streamlist item
-   */
-  convertVideoToStreamItem(video) {
-    const snippet = video.snippet
-
-    if (!snippet) {
-      console.warn('[VIDEO] 影片缺少片段資料')
-      return null
-    }
-
-    // Handle different video ID formats from different sources
-    const videoId = video.id?.videoId || snippet.videoId || video.videoId || video.id
-    const title = snippet.title
-    const videoTime = video.time
-
-    if (!videoId || !title || !videoTime) {
-      console.warn(`[VIDEO] 影片缺少必要欄位: id=${videoId || 'missing'}, title=${title || 'missing'}`)
-      return null
-    }
-
-    // Determine category based on title and channel
-    const channelId = snippet.channelId
-    const category = this.categorizeStream(title, channelId)
-
-    // Format date
-    const date = this.formatDate(videoTime)
-
-    return {
-      id: videoId,
-      title: title,
-      time: videoTime,
-      category: category
-    }
   }
 
   /**
@@ -131,81 +94,39 @@ export class DataProcessor {
   }
 
   /**
-   * Find singing streams that need setlist parsing
-   * @param {Array} streamlist - Updated streamlist data
-   * @param {Array} currentSetlist - Current setlist data
-   * @param {string} mode - Comparison mode: 'recent', 'all'
-   * @param {Object} options - Mode options: { days: number, youtubeId: string }
-   * @returns {Array} Singing streams needing setlists
+   * 判斷解析時機狀態（2026-06 Gh6AsG8DmCI 事故防護）
+   * @returns {'not-ended'|'cooldown'|'open'}
+   *   not-ended: 直播未結束，不解析（runAutoUpdate 過去會在開播前反覆嘗試）
+   *   cooldown : 結束後 cooldownHours 內，只認 preferredAuthor（歌單留言+API 索引延遲）
+   *   open     : 完全開放三層
    */
-  findSingingStreamsNeedingSetlists(streamlist, currentSetlist, mode = 'all', options = {}) {
-    // Apply mode filtering to streamlist
-    let filteredStreamlist = streamlist
-    switch (mode) {
-      case 'recent': {
-        const days = CONFIG.comparisonModes.recent.days
-        const cutoffDate = new Date()
-        cutoffDate.setDate(cutoffDate.getDate() - days)
-        const cutoffISOString = cutoffDate.toISOString().split('T')[0]
-
-        filteredStreamlist = streamlist.filter(stream => {
-          const streamDate = stream.time?.split('T')[0] || stream.time
-          return streamDate >= cutoffISOString
-        })
-        break
+  async resolveParseTiming(videoId, env) {
+    try {
+      const details = await getLiveDetails(videoId, env)
+      if (details) {
+        const isUpload = !details.scheduledStartTime && !details.actualStartTime
+        if (!isUpload) {
+          if (!details.isEnded) return 'not-ended'
+          const elapsed = Date.now() - new Date(details.actualEndTime).getTime()
+          if (elapsed < CONFIG.commentFilter.cooldownHours * 3600_000) return 'cooldown'
+        }
+        // 上傳影片（非直播）無時序問題，直接開放
       }
-
-      case 'all':
-      default:
-        break
+    } catch (error) {
+      // 查詢失敗（影片已刪等）不阻擋解析，照舊行為
+      console.warn(`[SETLIST] live-details 查詢失敗，跳過時機檢查: ${videoId} - ${error.message}`)
     }
-
-    // Get existing setlist video IDs (handle flat structure)
-    const existingSetlistIds = new Set(
-      currentSetlist.map(item => {
-        const videoId = extractVideoId(item.YTLink)
-        return videoId
-      }).filter(Boolean)
-    )
-
-    // Filter for singing streams without setlists
-    const singingStreams = filteredStreamlist.filter((stream) => {
-      // 檢查是否為歌唱直播（僅支援陣列格式，不向後相容字串）
-      if (!Array.isArray(stream.category)) {
-        throw new Error(`Invalid category format for stream ${stream.id}: expected array, got ${typeof stream.category}`)
-      }
-
-      const isSingingStream = stream.category.some(cat => cat.includes('歌枠'))
-
-      if (!isSingingStream) {
-        return false
-      }
-
-      // Check if setlist already exists (create URL from stream id)
-      const streamUrl = `https://www.youtube.com/watch?v=${stream.id}`
-      const videoId = extractVideoId(streamUrl)
-
-      if (!videoId) {
-        return false
-      }
-
-      if (existingSetlistIds.has(videoId)) {
-        return false
-      }
-
-      return true
-    })
-
-    return singingStreams
+    return 'open'
   }
 
   /**
    * Parse setlist for a singing stream using Lambda fuzzy matching
    * @param {Object} stream - Stream object
    * @param {Object} env - Environment variables
+   * @param {Object} options - { bypassCooldown: boolean } 手動 force 時跳過時機檢查
    * @returns {Promise<Array|null>} Array of individual song objects in flat format
    */
-  async parseSetlistForStream(stream, env) {
+  async parseSetlistForStream(stream, env, { bypassCooldown = false } = {}) {
     try {
       const streamUrl = `https://www.youtube.com/watch?v=${stream.id}`
       const videoId = extractVideoId(streamUrl)
@@ -213,25 +134,45 @@ export class DataProcessor {
         throw new Error('無效的 YouTube URL')
       }
 
+      // 解析時機檢查
+      let timing = 'open'
+      if (!bypassCooldown) {
+        timing = await this.resolveParseTiming(videoId, env)
+        if (timing === 'not-ended') {
+          console.log(`[SETLIST] 直播未結束，跳過解析: ${videoId}`)
+          return null
+        }
+      }
+
       // Get comments and find setlist
       const apiKey = getSecret(env, 'YOUTUBE_API_KEY')
       const comments = await getVideoComments(videoId, apiKey)
-      const commentResult = this.findSetlistComment(comments)
+      const commentResult = this.findSetlistComment(comments, { onlyPreferred: timing === 'cooldown' })
 
       if (!commentResult) {
+        if (timing === 'cooldown') {
+          console.log(`[SETLIST] cooldown 中（結束未滿 ${CONFIG.commentFilter.cooldownHours}h），等待 ${CONFIG.commentFilter.preferredAuthor} 歌單留言: ${videoId}`)
+        }
         return null
       }
+      console.log(`[SETLIST] 選中歌單留言: 層${commentResult.layer} by ${commentResult.author} (${videoId})`)
 
       const setlistComment = commentResult.text
       const commentAuthor = commentResult.author
 
-      // Get songlist data for comparison
-      const songlistData = await this.getSonglistData(env)
-
-      // Use Fuzzy Matching for setlist parsing
-      const result = await fuzzyMatchSetlist(setlistComment, songlistData, env)
+      // Use Fuzzy Matching for setlist parsing（Lambda matcher 自行抓取 songlist/aliases）
+      const result = await fuzzyMatchSetlist(setlistComment, env)
 
       if (!result || !result.songIDs || result.songIDs.length === 0) {
+        return null
+      }
+
+      // 熔斷：過半行無法匹配（「*」）＝選錯留言（感想/雜訊），放棄整場避免垃圾入庫
+      // （IVQA0vzQSkE 曾整場 18 首被建成垃圾初回）
+      const { minLines, starRatio } = CONFIG.setlistCircuitBreak
+      const starCount = result.songIDs.filter(id => id === '*').length
+      if (result.songIDs.length >= minLines && starCount / result.songIDs.length > starRatio) {
+        console.warn(`[SETLIST] 熔斷: ${starCount}/${result.songIDs.length} 行無法匹配，疑似選錯留言，放棄寫入 (${videoId}, 留言 by ${commentAuthor})`)
         return null
       }
 
@@ -296,34 +237,6 @@ export class DataProcessor {
   }
 
   /**
-   * Process setlist data and insert to database
-   * @param {Array} newSetlistArrays - Array of setlist arrays from different streams (database format)
-   * @param {Object} env - Environment variables
-   * @returns {Promise<Object>} Insert result
-   */
-  async processAndInsertSetlists(newSetlistArrays, env) {
-    // Flatten all new setlist entries into a single array
-    const newEntries = newSetlistArrays.flat()
-
-    if (newEntries.length === 0) {
-      return { success: true, insertedCount: 0 }
-    }
-
-    try {
-      const result = await this.batchCreateSetlist(newEntries, env)
-      return {
-        success: true,
-        insertedCount: newEntries.length,
-        result: result
-      }
-
-    } catch (error) {
-      console.error(`[SETLIST] 歌單資料插入失敗: ${error.message}`)
-      throw new Error(`歌單資料插入失敗: ${error.message}`)
-    }
-  }
-
-  /**
    * Format date string to YYYY/MM/DD format
    * @param {string} isoString - ISO date string
    * @returns {string} Formatted date
@@ -338,43 +251,58 @@ export class DataProcessor {
 
 
   /**
-   * Find setlist comment from comments array
-   * 優先順序：1. @KL-gr1my 有時間戳的留言  2. 其他有 ≥5 個時間戳的留言  3. 關鍵字篩選
+   * Find setlist comment from comments array（邏輯與 yt-setlist-discord 對齊）
+   * 優先順序：
+   *   1. preferredAuthor（@KL-gr1my）≥3 時間戳，多篇按時間戳合併（上下半場分篇）
+   *   2. ≥5 時間戳 且 帶戳行佔比 ≥ tsLineRatio（排除「一行戳＋多行感想」的逐曲感想留言）
+   *   3. 關鍵字 + ≥keywordMinTimestamps 時間戳（整份無戳一定不是歌單）
    * @param {Array} comments - Comments array
-   * @returns {{text: string, author: string}|null} Setlist comment with author info
+   * @param {{onlyPreferred?: boolean}} options - cooldown 期間只認層 1
+   * @returns {{text: string, author: string, layer: number}|null}
    */
-  findSetlistComment(comments) {
-    const PREFERRED_AUTHOR = '@KL-gr1my'
-    const timestampRe = /\d{1,2}:\d{2}/g
+  findSetlistComment(comments, { onlyPreferred = false } = {}) {
+    const { preferredAuthor, tsLineRatio, keywordMinTimestamps } = CONFIG.commentFilter
+    const timestampRe = /\d{1,2}:\d{2}(?::\d{2})?/g
 
-    // 優先：@KL-gr1my 有時間戳的留言
-    const klComments = comments.filter(c => c.authorDisplayName === PREFERRED_AUTHOR)
-    for (const c of klComments) {
-      const matches = c.text.match(timestampRe)
-      if (matches && matches.length >= 3) {
-        return { text: c.text, author: c.authorDisplayName || 'KL' }
+    const withMeta = comments.map(c => {
+      const nonEmptyLines = c.text.split('\n').filter(l => l.trim())
+      return {
+        ...c,
+        _ts: c.text.match(timestampRe) || [],
+        _lineCount: nonEmptyLines.length || 1,
+        _tsLineCount: nonEmptyLines.filter(l => /\d{1,2}:\d{2}/.test(l)).length,
       }
+    })
+
+    // 層1：preferredAuthor ≥3 時間戳（多篇合併）
+    const klComments = withMeta.filter(c =>
+      c.authorDisplayName === preferredAuthor && c._ts.length >= 3
+    )
+    if (klComments.length > 0) {
+      return { ...this.mergeByTimestamp(klComments), layer: 1 }
     }
 
-    // 其次：任何有 ≥5 個時間戳的留言（按讚數排序）
-    const timestampComments = comments
-      .filter(c => {
-        const matches = c.text.match(timestampRe)
-        return matches && matches.length >= 5
-      })
+    // Cooldown 期間：歌單留言（通常結束後 15~60 分才發、API 索引再延遲 20~30 分）
+    // 還沒就緒，層 2/3 撿到的多半是感想 → 留 pending 給下一輪
+    if (onlyPreferred) return null
+
+    // 層2：≥5 時間戳 + 帶戳行佔比（歌單留言幾乎每行有戳；逐曲感想佔比低）
+    const timestampComments = withMeta
+      .filter(c => c._ts.length >= 5 && c._tsLineCount / c._lineCount >= tsLineRatio)
       .sort((a, b) => b.likeCount - a.likeCount)
 
     if (timestampComments.length > 0) {
       const best = timestampComments[0]
-      return { text: best.text, author: best.authorDisplayName || '匿名' }
+      return { text: best.text, author: best.authorDisplayName || '匿名', layer: 2 }
     }
 
-    // 最後：關鍵字篩選（相容舊邏輯）
+    // 層3：關鍵字 + 最低時間戳數
     const setlistKeywords = CONFIG.setlistKeywords
-    const candidates = comments.filter(comment => {
-      const text = comment.text.toLowerCase()
+    const candidates = withMeta.filter(c => {
+      if (c._ts.length < keywordMinTimestamps) return false
+      const text = c.text.toLowerCase()
       return setlistKeywords.some(keyword => text.includes(keyword.toLowerCase())) &&
-             (text.split('\n').length > CONFIG.commentFilter.minLines || text.length > CONFIG.commentFilter.minLength)
+             (c._lineCount > CONFIG.commentFilter.minLines || text.length > CONFIG.commentFilter.minLength)
     })
 
     if (candidates.length === 0) {
@@ -387,38 +315,22 @@ export class DataProcessor {
       return scoreB - scoreA
     })
 
-    return { text: candidates[0].text, author: candidates[0].authorDisplayName || '匿名' }
+    return { text: candidates[0].text, author: candidates[0].authorDisplayName || '匿名', layer: 3 }
   }
-
 
   /**
-   * Get songlist data for comparison from database
-   * @param {Object} env - Environment variables
-   * @returns {Promise<Object>} Optimized songlist data in {songID: "歌名|歌手"} format
+   * 多篇歌單留言按首個時間戳排序合併（上下半場分兩篇發的情況）
    */
-  async getSonglistData(env) {
-    try {
-      const db = new Database(env)
-      const rows = await db.query(
-        'SELECT songID, songName, songNameEn, artist, artistEn FROM songlist'
-      )
-
-      // Convert to optimized format: {songID: "歌名|歌手"}
-      const songlistData = {}
-      for (const row of rows) {
-        const parts = [row.songName, row.artist]
-        if (row.songNameEn) parts.push(row.songNameEn)
-        if (row.artistEn) parts.push(row.artistEn)
-        songlistData[row.songID] = parts.join('|')
-      }
-
-      return songlistData
-
-    } catch (error) {
-      console.error(`[SONGLIST] 載入失敗: ${error.message}`)
-      throw new Error(`載入歌曲資料庫失敗: ${error.message}`)
+  mergeByTimestamp(comments) {
+    const toSec = ts => {
+      const p = ts.split(':').map(Number)
+      return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]
     }
+    const sorted = [...comments].sort((a, b) => toSec(a._ts[0]) - toSec(b._ts[0]))
+    const authors = [...new Set(sorted.map(c => c.authorDisplayName || '匿名'))]
+    return { text: sorted.map(c => c.text).join('\n\n'), author: authors.join(', ') }
   }
+
 
   /**
    * Create new song in songlist
@@ -472,19 +384,12 @@ export class DataProcessor {
         const isSinging = categories.some(cat => typeof cat === 'string' && cat.includes('歌枠'))
         const setlistComplete = isSinging ? false : true
 
-        try {
-          await db.execute(
-            'INSERT INTO streamlist (streamID, title, time, categories, note, setlistComplete) VALUES (?, ?, ?, ?, ?, ?)',
-            [streamID, title, iso8601ToMySQL(time), categoriesJson, note, setlistComplete]
-          )
-          insertedCount++
-        } catch (error) {
-          // Duplicate entry - skip
-          if (error.message.includes('Duplicate') || error.message.includes('1062')) {
-            continue
-          }
-          throw error
-        }
+        // INSERT IGNORE：PubSub 重複通知時靜默跳過已存在影片，避免 Duplicate ERROR log 噪音
+        const result = await db.execute(
+          'INSERT IGNORE INTO streamlist (streamID, title, time, categories, note, setlistComplete) VALUES (?, ?, ?, ?, ?, ?)',
+          [streamID, title, iso8601ToMySQL(time), categoriesJson, note, setlistComplete]
+        )
+        if (result.meta.changes > 0) insertedCount++
       }
 
       return { success: true, insertedCount }
@@ -529,14 +434,18 @@ export class DataProcessor {
       const db = new Database(env)
 
       for (const entry of entries) {
-        // UPSERT: insert or update on duplicate
+        // UPSERT 保護既有資料：songID/note 既有值優先（人工修正不被自動解析覆寫）；
+        // startTime/endTime 新值優先但 NULL 不覆寫（保住 endTime 回填成果）
         await db.execute(
           `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note, startTime, endTime)
            VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE songID = VALUES(songID), note = VALUES(note),
-             startTime = VALUES(startTime), endTime = VALUES(endTime)`,
+           ON DUPLICATE KEY UPDATE
+             songID = songID,
+             note = COALESCE(note, VALUES(note)),
+             startTime = COALESCE(VALUES(startTime), startTime),
+             endTime = COALESCE(VALUES(endTime), endTime)`,
           [entry.streamID, entry.trackNo, entry.segmentNo || 1, entry.songID, entry.note || null,
-           entry.startTime || null, entry.endTime || null]
+           entry.startTime ?? null, entry.endTime ?? null]
         )
       }
 

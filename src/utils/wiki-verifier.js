@@ -65,8 +65,9 @@ export async function fetchWikiSongsByDate() {
  */
 function decodeHtmlEntities(str) {
   return str
-    .replace(/&#(\d+);/g, (_, num) => String.fromCharCode(parseInt(num, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    // fromCodePoint：BMP 外字元（&#128150; = 💕 等）fromCharCode 會解成亂碼，導致 wiki 比對誤報
+    .replace(/&#(\d+);/g, (_, num) => String.fromCodePoint(parseInt(num, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')

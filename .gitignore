@@ -2,6 +2,12 @@ node_modules/
 .env
 .env.json
 .dev.vars
+
+# 本地維運工具（含端點操作說明，不進 git）
+admin.bat
+admin.ps1
+ops-manual.md
+.claude/launch.json
 .wrangler/
 dist/
 .aws-sam/

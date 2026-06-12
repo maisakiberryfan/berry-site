@@ -10,7 +10,7 @@ import { verifyRecentSetlists, sendWikiDiffNotification } from '../utils/wiki-ve
 import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
-import { iso8601ToMySQL } from '../utils/middleware.js'
+import { iso8601ToMySQL, mysqlToISO8601 } from '../utils/middleware.js'
 import { saveThumbnail } from '../utils/thumbnail.js'
 import { CONFIG } from '../config.js'
 
@@ -166,6 +166,15 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
           const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
 
           if (parseResult && parseResult.items && parseResult.items.length > 0) {
+            // 先寫入 DB、成功後才標記完成；順序不可反，否則寫入失敗的歌枠會從 pending 永久消失
+            await dataProcessor.batchCreateSetlist(parseResult.items, env)
+
+            try {
+              await dataProcessor.updateStreamSetlistComplete(stream.id, true, env)
+            } catch (updateError) {
+              console.warn(`[SETLIST] 更新 setlistComplete 失敗: ${stream.id} - ${updateError.message}`)
+            }
+
             setlistResults.push(parseResult.items)
             result.setlistItems.push({
               videoId: stream.id,
@@ -173,22 +182,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
               title: stream.title,
               songCount: parseResult.items.length
             })
-
-            /* MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
-            // 發送歌單留言到 Discord
-            const setlistWebhookUrl = getSecret(env, 'DISCORD_SETLIST_WEBHOOK_URL')
-            if (setlistWebhookUrl) {
-              sendSetlistComment(setlistWebhookUrl, stream, parseResult.setlistComment, parseResult.commentAuthor)
-                .catch(err => console.error(`[DISCORD] 歌單留言通知失敗: ${err.message}`))
-            }
-            */
-
-            // 解析成功後標記為完成
-            try {
-              await dataProcessor.updateStreamSetlistComplete(stream.id, true, env)
-            } catch (updateError) {
-              console.warn(`[SETLIST] 更新 setlistComplete 失敗: ${stream.id} - ${updateError.message}`)
-            }
+            result.newSetlists += parseResult.items.length
 
             console.log(`[SETLIST] 解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
           } else {
@@ -211,11 +205,9 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         }
       }
 
-      // Step 5: Insert setlists to database
+      // Step 5: 統計與初回歌曲檢測（寫入已在 Step 4 逐 stream 完成）
       if (setlistResults.length > 0) {
-        const insertResult = await dataProcessor.processAndInsertSetlists(setlistResults, env)
-        result.setlistUpdated = insertResult.success
-        result.newSetlists = insertResult.insertedCount
+        result.setlistUpdated = true
 
         // 檢測初回歌曲
         result.debutSongs = await detectDebutSongs(setlistResults, result.setlistItems, db)
@@ -296,7 +288,9 @@ export async function runPollingCheck(env) {
       try {
         const videoInfo = await dataFetcher.getVideoInfo(stream.id)
         const scheduledStartTime = videoInfo?.liveStreamingDetails?.scheduledStartTime
-        if (scheduledStartTime && scheduledStartTime !== stream.time) {
+        // stream.time 是 MySQL DATETIME 字串（dateStrings），須轉 ISO 比 epoch，直接比字串永不相等
+        const dbTimeMs = new Date(mysqlToISO8601(stream.time)).getTime()
+        if (scheduledStartTime && new Date(scheduledStartTime).getTime() !== dbTimeMs) {
           console.log(`[POLLING] 修正直播時間: ${stream.id} (${stream.time} -> ${scheduledStartTime})`)
           await db.execute(
             'UPDATE streamlist SET time = ? WHERE streamID = ?',
@@ -312,7 +306,8 @@ export async function runPollingCheck(env) {
     // Step 2: 篩選在 Polling 窗口內的直播（streamTime + 3h ~ +7h）
     const now = new Date()
     const streamsInWindow = pendingStreams.filter(stream => {
-      const streamTime = new Date(stream.time)
+      // mysqlToISO8601 確保 MySQL 字串以 UTC 解讀（ISO 輸入則原樣通過）
+      const streamTime = new Date(mysqlToISO8601(stream.time))
       const windowStart = new Date(streamTime.getTime() + 3 * 60 * 60 * 1000) // +3h
       const windowEnd = new Date(streamTime.getTime() + 7 * 60 * 60 * 1000)   // +7h
 
@@ -358,8 +353,9 @@ export async function runPollingCheck(env) {
             segmentNo: item.segmentNo || 1,
             songID: item.songID,
             note: item.note || null,
-            startTime: item.startTime || null,
-            endTime: item.endTime || null
+            // ?? 而非 ||：第一首歌 0:00 開始時 startTime=0，|| 會把 0 洗成 NULL
+            startTime: item.startTime ?? null,
+            endTime: item.endTime ?? null
           }))
 
           await dataProcessor.batchCreateSetlist(formattedEntries, env)
@@ -478,6 +474,9 @@ export async function renewPubSubSubscription(env) {
       formData.append('hub.verify', 'async')
       formData.append('hub.mode', 'subscribe')
       formData.append('hub.lease_seconds', '432000') // 5 天
+      // hub.secret：之後的通知會帶 X-Hub-Signature（HMAC-SHA1），webhook 端驗證防偽造
+      const hubSecret = getSecret(env, 'TRIGGER_TOKEN')
+      if (hubSecret) formData.append('hub.secret', hubSecret)
 
       const response = await fetch(HUB_URL, {
         method: 'POST',

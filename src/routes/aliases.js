@@ -17,15 +17,9 @@ app.get('/', async (c) => {
   const db = c.get('db')
 
   try {
+    // SELECT *：包含 migration 加入的 songID 欄位（migration 前也不報錯）
     const sql = `
-      SELECT
-        aliasID,
-        aliasType,
-        canonicalName,
-        aliasValue,
-        note,
-        createdAt,
-        updatedAt
+      SELECT *
       FROM aliases
       ORDER BY aliasType, canonicalName, aliasValue
     `
@@ -62,11 +56,9 @@ app.get('/grouped', async (c) => {
   const db = c.get('db')
 
   try {
+    // SELECT *：songID 欄位由 migration 加入（見 ops-manual），migration 前查無此欄也不報錯
     const sql = `
-      SELECT
-        aliasType,
-        canonicalName,
-        aliasValue
+      SELECT *
       FROM aliases
       ORDER BY aliasType, canonicalName
     `
@@ -74,9 +66,12 @@ app.get('/grouped', async (c) => {
     const aliases = await db.query(sql)
 
     // Group aliases by type and canonical name
+    // titleAliasesByID：alias 綁定 songID 的精準對應（同名異曲不互染），
+    // titleAliases（字串 key）保留供輸入側展開與未綁定 songID 的 alias fallback
     const grouped = {
       artistAliases: {},
-      titleAliases: {}
+      titleAliases: {},
+      titleAliasesByID: {}
     }
 
     for (const alias of aliases) {
@@ -90,6 +85,12 @@ app.get('/grouped', async (c) => {
       }
 
       targetMap[alias.canonicalName].push(alias.aliasValue)
+
+      if (alias.aliasType === 'title' && alias.songID != null) {
+        const key = String(alias.songID)
+        if (!grouped.titleAliasesByID[key]) grouped.titleAliasesByID[key] = []
+        grouped.titleAliasesByID[key].push(alias.aliasValue)
+      }
     }
 
     return c.json({
@@ -123,7 +124,7 @@ app.post('/quick-add', async (c) => {
 
   try {
     const body = await c.req.json()
-    const { aliasType, canonicalName, aliasValue, note } = body
+    const { aliasType, canonicalName, aliasValue, note, songID } = body
 
     // Validation
     if (!aliasType || !['artist', 'title'].includes(aliasType)) {
@@ -152,21 +153,40 @@ app.post('/quick-add', async (c) => {
       )
     }
 
-    // Insert alias
-    const sql = `
-      INSERT INTO aliases (aliasType, canonicalName, aliasValue, note)
-      VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        note = VALUES(note),
-        updatedAt = CURRENT_TIMESTAMP(6)
-    `
+    // Insert alias（songID 為 title alias 的精準綁定，欄位由 migration 加入 —— 動態組欄避免 migration 前報錯）
+    const hasSongID = songID !== undefined && songID !== null
+    const sql = hasSongID
+      ? `INSERT INTO aliases (aliasType, canonicalName, aliasValue, note, songID)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           note = VALUES(note), songID = VALUES(songID),
+           updatedAt = CURRENT_TIMESTAMP(6)`
+      : `INSERT INTO aliases (aliasType, canonicalName, aliasValue, note)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           note = VALUES(note),
+           updatedAt = CURRENT_TIMESTAMP(6)`
 
-    const result = await db.execute(sql, [
-      aliasType,
-      canonicalName.trim(),
-      aliasValue.trim(),
-      note || null
-    ])
+    const params = [aliasType, canonicalName.trim(), aliasValue.trim(), note || null]
+    if (hasSongID) params.push(Number(songID))
+
+    let result
+    try {
+      result = await db.execute(sql, params)
+    } catch (e) {
+      // migration 未跑（songID 欄不存在）時降級為不帶 songID 寫入，不阻斷快速新增流程
+      if (hasSongID && /Unknown column/i.test(e.message)) {
+        console.warn('[ALIASES] songID 欄位不存在（migration 未執行），以未綁定模式寫入')
+        result = await db.execute(
+          `INSERT INTO aliases (aliasType, canonicalName, aliasValue, note)
+           VALUES (?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE note = VALUES(note), updatedAt = CURRENT_TIMESTAMP(6)`,
+          params.slice(0, 4)
+        )
+      } else {
+        throw e
+      }
+    }
 
     // Fetch the created/updated record
     const fetchSql = `
@@ -466,7 +486,7 @@ app.put('/:aliasID', async (c) => {
 
   try {
     const body = await c.req.json()
-    const { canonicalName, aliasValue, note } = body
+    const { canonicalName, aliasValue, note, songID } = body
 
     // Check if alias exists
     const checkSql = 'SELECT * FROM aliases WHERE aliasID = ?'
@@ -489,17 +509,33 @@ app.put('/:aliasID', async (c) => {
     const updates = []
     const params = []
 
+    // null / 非字串值會讓 .trim() 拋 TypeError → 500，先驗證
     if (canonicalName !== undefined) {
+      if (typeof canonicalName !== 'string' || !canonicalName.trim()) {
+        return c.json({ success: false, error: { message: 'Invalid canonicalName', details: 'canonicalName must be a non-empty string' } }, 400)
+      }
       updates.push('canonicalName = ?')
       params.push(canonicalName.trim())
     }
     if (aliasValue !== undefined) {
+      if (typeof aliasValue !== 'string' || !aliasValue.trim()) {
+        return c.json({ success: false, error: { message: 'Invalid aliasValue', details: 'aliasValue must be a non-empty string' } }, 400)
+      }
       updates.push('aliasValue = ?')
       params.push(aliasValue.trim())
     }
     if (note !== undefined) {
       updates.push('note = ?')
       params.push(note || null)
+    }
+    // songID 綁定（title alias 專用）：null/空字串 = 解除綁定；需先跑 migration 加欄位
+    if (songID !== undefined) {
+      const sid = (songID === null || songID === '') ? null : Number(songID)
+      if (sid !== null && (!Number.isInteger(sid) || sid < 1)) {
+        return c.json({ success: false, error: { message: 'Invalid songID', details: 'songID must be a positive integer or null' } }, 400)
+      }
+      updates.push('songID = ?')
+      params.push(sid)
     }
 
     if (updates.length === 0) {

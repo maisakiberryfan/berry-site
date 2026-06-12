@@ -237,18 +237,22 @@ export async function getSonglistOptimized(c) {
   try {
     const db = c.get("db");
     const songs = await db.query(`
-      SELECT songID, songName, artist
+      SELECT songID, songName, artist, songNameEn, artistEn
       FROM songlist
       ORDER BY songID ASC
     `);
 
-    // Convert to optimized format: {"songID": "歌名|歌手"}
+    // Convert to optimized format: {"songID": "歌名|歌手|英文歌名|英文歌手"}
+    // 固定 4 段（空字串占位），消費端（Lambda matcher）取前 2 段即向後相容
     const optimizedSongs = {};
     songs.forEach((song) => {
       const key = song.songID.toString();
-      const songName = song.songName || "";
-      const artist = song.artist || "";
-      optimizedSongs[key] = artist ? `${songName}|${artist}` : songName;
+      optimizedSongs[key] = [
+        song.songName || "",
+        song.artist || "",
+        song.songNameEn || "",
+        song.artistEn || "",
+      ].join("|");
     });
 
     // Set headers for direct download

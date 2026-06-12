@@ -1490,6 +1490,14 @@ $(()=>{
       headerFilterPlaceholder:t('搜尋標準名稱', 'Search canonical name', '標準名を検索')
     },
     {
+      // title alias 綁定的 songID（同名異曲精準對應；留空＝未綁定，比對退回歌名字串）
+      title:"songID",
+      field:"songID",
+      width:90,
+      editor:"number",
+      headerFilter:"input"
+    },
+    {
       title:t('別名', 'Alias Value', 'エイリアス'),
       field:"aliasValue",
       width:250,
@@ -1935,10 +1943,10 @@ $(()=>{
           val = Array.isArray(val) ? (val[0] || '') : (val || '')
         }
 
-        success(val)
-
-        // For headerFilter, manually trigger Tabulator to re-filter
         if (isHeaderFilter) {
+          // headerFilter editor 常駐，不銷毀
+          success(val)
+
           const table = cell.getTable()
           if (table) {
             // Use refreshFilter to trigger headerFilterFunc
@@ -1950,6 +1958,15 @@ $(()=>{
               updateAllHeaderFilterOptions(table, f, val)
             }, 10)
           }
+        } else {
+          // Cell editor：success() 後 Tabulator 會移除 editor 元素，但 select2 的
+          // dropdown 是掛在 .tabulator 容器上的獨立節點 — 不先 close+destroy 會殘留
+          // 一層 absolute 定位的面板蓋在表格上攔截滾輪事件，造成表格無法向下捲動
+          if (hasSucceeded) return
+          hasSucceeded = true
+          try { op.select2('close') } catch (err) { /* already closed */ }
+          try { op.select2('destroy') } catch (err) { /* already destroyed */ }
+          success(val)
         }
       })
     })
@@ -3338,31 +3355,30 @@ $(()=>{
       const response = await apiRequest('GET', API_CONFIG.ENDPOINTS.songlist)
       const songlist = response.data || response
 
-      // Extract unique canonical names based on type
-      let options = []
+      // Extract canonical name options based on type
+      const $select = $('#quickCanonicalName')
+      $select.empty()
+      $select.append(new Option(t('請選擇...', 'Select...', '選択してください...'), ''))
+
       if (aliasType === 'artist') {
-        // Get unique artist names
+        // artist：歌手別名跨曲共用，value = 歌手名字串
         const artists = new Set()
         songlist.forEach(song => {
           if (song.artist) artists.add(song.artist)
         })
-        options = Array.from(artists).sort()
-      } else {
-        // Get unique song titles
-        const titles = new Set()
-        songlist.forEach(song => {
-          if (song.songName) titles.add(song.songName)
+        Array.from(artists).sort().forEach(name => {
+          $select.append(new Option(name, name))
         })
-        options = Array.from(titles).sort()
+      } else {
+        // title：value = songID（別名精準綁曲，同名異曲不互染）、顯示「歌名（歌手)」便於分辨
+        const sorted = [...songlist].sort((a, b) => (a.songName || '').localeCompare(b.songName || '', 'ja'))
+        sorted.forEach(song => {
+          if (!song.songName) return
+          const opt = new Option(`${song.songName}（${song.artist || '-'}）`, String(song.songID))
+          opt.dataset.name = song.songName
+          $select.append(opt)
+        })
       }
-
-      // Update select options
-      const $select = $('#quickCanonicalName')
-      $select.empty()
-      $select.append(`<option value="">${t('請選擇...', 'Select...', '選択してください...')}</option>`)
-      options.forEach(option => {
-        $select.append(`<option value="${option}">${option}</option>`)
-      })
 
       // Trigger Select2 to refresh
       $select.trigger('change.select2')
@@ -3401,9 +3417,18 @@ $(()=>{
   // Save Quick Alias
   $('#saveQuickAlias').on('click', async () => {
     const aliasType = $('#quickAliasType').val()
-    const canonicalName = $('#quickCanonicalName').val().trim()
+    const rawValue = ($('#quickCanonicalName').val() || '').trim()
     const aliasValue = $('#quickAliasValue').val().trim()
     const note = $('#quickAliasNote').val().trim()
+
+    // title 模式 option value = songID，純歌名存在 data-name（alias 綁 songID 精準對應）
+    let canonicalName = rawValue
+    let songID = null
+    if (aliasType === 'title' && rawValue) {
+      const $opt = $('#quickCanonicalName option:selected')
+      songID = Number(rawValue) || null
+      canonicalName = $opt.data('name') || $opt.text()
+    }
 
     // Validation
     if (!canonicalName || !aliasValue) {
@@ -3419,7 +3444,8 @@ $(()=>{
         aliasType,
         canonicalName,
         aliasValue,
-        note: note || null
+        note: note || null,
+        ...(songID ? { songID } : {})
       })
 
       // Reload table if on aliases page

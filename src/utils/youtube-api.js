@@ -87,8 +87,10 @@ export async function makeYouTubeAPIRequest(url, env) {
 // Get baseline timestamp from database (replaces Hyperdrive HTTP call)
 export async function getBaselineTimestamp(db) {
   try {
+    // 排除未來的預約直播：以「已發生」的最新影片當基準，
+    // 否則預約直播入庫後、開播前上傳的影片會被 baseline 過濾器漏掉
     const result = await db.first(
-      "SELECT time FROM streamlist ORDER BY time DESC LIMIT 1"
+      "SELECT time FROM streamlist WHERE time <= UTC_TIMESTAMP() ORDER BY time DESC LIMIT 1"
     )
 
     if (!result?.time) {

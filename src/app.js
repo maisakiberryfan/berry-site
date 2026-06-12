@@ -505,14 +505,48 @@ api.post('/text-to-sql', async (c) => {
 
 // PubSubHubbub webhook
 app.get('/webhook/youtube', (c) => {
-  // Subscription verification
+  // Subscription verification：驗證 hub.mode 與 hub.topic，
+  // 否則任何人可向 hub 發起 unsubscribe，本端點無條件 echo challenge 等於替對方確認注銷
   const challenge = c.req.query('hub.challenge')
-  if (challenge) return c.text(challenge)
+  if (challenge) {
+    const mode = c.req.query('hub.mode')
+    const topic = c.req.query('hub.topic') || ''
+    const isOurChannel = CONFIG.berryChannels.some(ch => topic.includes(`channel_id=${ch}`))
+    if (mode === 'subscribe' && isOurChannel) {
+      return c.text(challenge)
+    }
+    console.warn(`[PUBSUB] 拒絕訂閱驗證: mode=${mode}, topic=${topic.slice(0, 120)}`)
+    return c.text('Forbidden', 404)
+  }
   return c.text('OK')
 })
 
+// HMAC-SHA1 hex（PubSub X-Hub-Signature 驗證用，CF/Lambda 皆有 Web Crypto）
+async function hmacSha1Hex(secret, data) {
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']
+  )
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data))
+  return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
 app.post('/webhook/youtube', async (c) => {
   const body = await c.req.text()
+
+  // 簽名驗證（hub.secret = TRIGGER_TOKEN，由 renewPubSubSubscription 訂閱時帶上）。
+  // 過渡期：舊訂閱（無 secret）的通知沒有簽名 → 放行並警告；待 lease 續訂後全部帶簽名
+  const signature = c.req.header('X-Hub-Signature')
+  const secret = getSecret(c.env, 'TRIGGER_TOKEN')
+  if (secret && signature) {
+    const expected = 'sha1=' + await hmacSha1Hex(secret, body)
+    if (signature !== expected) {
+      console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
+      return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
+    }
+  } else if (secret && !signature) {
+    console.warn('[PUBSUB] 通知無簽名（舊訂閱或偽造來源），暫予放行')
+  }
 
   // Parse Atom feed
   const videoIdMatch = body.match(/<yt:videoId>([^<]+)<\/yt:videoId>/)
@@ -537,8 +571,12 @@ app.post('/webhook/youtube', async (c) => {
 
   console.log(`PubSub notification: videoId=${videoId}, channelId=${channelId}`)
 
-  // Background processing
-  const bgWork = (async () => {
+  // 派發背景處理：
+  // - CF：waitUntil
+  // - Lambda：async self-invoke（entry-lambda.js 注入的 hook），立即回 200，
+  //   避免同步處理超過 hub ~10s timeout 造成重試與重複處理
+  // - 本地/失敗：回退同步 await
+  const bgWork = async () => {
     try {
       const { runAutoUpdate } = await import('./cron-jobs/auto-update.js')
       await runAutoUpdate(c.env, 'recent', { pubsubVideoId: videoId }, 'PUBSUB')
@@ -550,18 +588,18 @@ app.post('/webhook/youtube', async (c) => {
         success: false
       }).catch(() => {})
     }
-  })()
+  }
 
-  // Platform-specific: CF uses waitUntil, Lambda just awaits
-  try {
-    const ctx = c.executionCtx
-    if (ctx?.waitUntil) {
-      ctx.waitUntil(bgWork)
-    } else {
-      await bgWork
-    }
-  } catch {
-    await bgWork
+  let ctx = null
+  try { ctx = c.executionCtx } catch { /* Lambda adapter 無 executionCtx */ }
+
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(bgWork())
+  } else if (globalThis.__berryAsyncInvoke) {
+    const dispatched = await globalThis.__berryAsyncInvoke({ __berryAsync: 'pubsub', videoId })
+    if (!dispatched) await bgWork()
+  } else {
+    await bgWork()
   }
 
   return c.text('OK', 200)
@@ -637,7 +675,8 @@ app.get('/trigger-setlist-parse', async (c) => {
 
     const categories = typeof stream.categories === 'string' ? JSON.parse(stream.categories) : stream.categories
     const isSinging = categories?.some(cat => cat.includes('歌枠'))
-    if (!isSinging && !c.req.query('force')) {
+    const force = !!c.req.query('force')
+    if (!isSinging && !force) {
       return c.json({ error: 'Not a singing stream. Add ?force=true to override.' }, 400)
     }
 
@@ -648,7 +687,8 @@ app.get('/trigger-setlist-parse', async (c) => {
       category: categories
     }
 
-    const parseResult = await dataProcessor.parseSetlistForStream(formattedStream, c.env)
+    // force 同時跳過解析時機檢查（cooldown）——手動觸發通常是「已確認留言存在」
+    const parseResult = await dataProcessor.parseSetlistForStream(formattedStream, c.env, { bypassCooldown: force })
 
     if (parseResult && parseResult.items && parseResult.items.length > 0) {
       await dataProcessor.batchCreateSetlist(parseResult.items, c.env)
@@ -768,6 +808,9 @@ app.get('/trigger-wiki-verify', async (c) => {
   if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
 
   const lookbackDays = parseInt(c.req.query('lookbackDays') || '30', 10)
+  if (Number.isNaN(lookbackDays) || lookbackDays < 1 || lookbackDays > 365) {
+    return c.json({ error: 'lookbackDays must be an integer between 1 and 365' }, 400)
+  }
   const date = c.req.query('date')
   const streamID = c.req.query('streamID')
 
@@ -784,33 +827,6 @@ app.get('/trigger-wiki-verify', async (c) => {
     return c.json({ error: error.message }, 500)
   }
 })
-
-// Backend KL format generator
-function formatKLSetlistBackend(rows) {
-  const lines = ['♬セトリ/Set List♬', '']
-  for (const row of rows) {
-    const trackNo = String(row.trackNo).padStart(2, '0')
-    const song = row.songNameEn ? `${row.songName}(${row.songNameEn})` : row.songName
-    const artist = row.artistEn ? `${row.artist}(${row.artistEn})` : row.artist
-
-    let timePart = ''
-    if (row.startTime != null && row.endTime != null) {
-      timePart = `${secsToHMS(row.startTime)} ~ ${secsToHMS(row.endTime)} `
-    } else if (row.startTime != null) {
-      timePart = `${secsToHMS(row.startTime)} `
-    }
-
-    lines.push(`${timePart}${trackNo}| ${song} | ${artist}`)
-  }
-  return lines.join('\n')
-}
-
-function secsToHMS(v) {
-  const h = Math.floor(v / 3600)
-  const m = Math.floor((v % 3600) / 60)
-  const s = v % 60
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-}
 
 // Health check
 app.get('/health', async (c) => {
