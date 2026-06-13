@@ -284,7 +284,18 @@ export async function runPollingCheck(env) {
     }
 
     // Step 1.5: 修正 pending stream 的時間（安全網）
-    for (const stream of pendingStreams) {
+    // 寬鬆粗篩：只查「近期」pending（DB time 在 now-2d ~ now+7d）。
+    // 時間錯誤頂多是 publishedAt/scheduledStartTime 之差（同量級日期），不會錯出此範圍；
+    // 歷史積壓的 pending（早已過窗口）無修正意義，免得每 10 分鐘輪番空查 YouTube API
+    const nowMs = Date.now()
+    const recentPending = pendingStreams.filter(stream => {
+      const t = new Date(mysqlToISO8601(stream.time)).getTime()
+      return Number.isFinite(t) &&
+        t >= nowMs - 2 * 24 * 3600_000 &&
+        t <= nowMs + 7 * 24 * 3600_000
+    })
+
+    for (const stream of recentPending) {
       try {
         const videoInfo = await dataFetcher.getVideoInfo(stream.id)
         const scheduledStartTime = videoInfo?.liveStreamingDetails?.scheduledStartTime
@@ -342,8 +353,8 @@ export async function runPollingCheck(env) {
 
         result.endedStreams++
 
-        // 解析歌單
-        const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
+        // 解析歌單（傳入已查得的 liveDetails，避免 resolveParseTiming 重查同一影片）
+        const parseResult = await dataProcessor.parseSetlistForStream(stream, env, { liveDetails })
 
         if (parseResult && parseResult.items && parseResult.items.length > 0) {
           // 寫入資料庫
@@ -416,14 +427,17 @@ export async function runPollingCheck(env) {
 }
 
 /**
- * Format date for display (YYYYMMDD format)
+ * Format date for display (YYYYMMDD, JST)
+ * Discord 通知用——配信日期以 JST 表記（與 wiki／官方日曆一致），
+ * 否則台灣深夜（JST 0~9 時）的場次會顯示成前一天
  */
 function formatDateForDisplay(isoDateString) {
   // 輸入可能是 ISO（YouTube API）或 MySQL DATETIME 字串（DB）——後者需顯式以 UTC 解讀
   const date = new Date(mysqlToISO8601(isoDateString))
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000)
+  const year = jst.getUTCFullYear()
+  const month = String(jst.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(jst.getUTCDate()).padStart(2, '0')
   return `${year}${month}${day}`
 }
 

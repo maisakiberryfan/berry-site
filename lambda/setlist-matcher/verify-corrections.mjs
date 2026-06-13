@@ -22,18 +22,10 @@ const TARGETS = [
 const devVars = readFileSync('../../.dev.vars', 'utf8')
 const apiKey = devVars.match(/YOUTUBE_API_KEY\s*=\s*"?([^"\r\n]+)"?/)[1]
 
-function findSetlistComment(comments) {
-  const timestampRe = /\d{1,2}:\d{2}/g
-  const kl = comments.filter(c => c.authorDisplayName === '@KL-gr1my')
-  for (const c of kl) {
-    const m = c.text.match(timestampRe)
-    if (m && m.length >= 3) return { text: c.text, author: c.authorDisplayName, layer: 1 }
-  }
-  const tsc = comments.filter(c => (c.text.match(timestampRe) || []).length >= 5)
-    .sort((a, b) => b.likeCount - a.likeCount)
-  if (tsc.length) return { text: tsc[0].text, author: tsc[0].authorDisplayName, layer: 2 }
-  return null
-}
+// 使用 berry-site 真實作（src/utils/data-processor.js），避免測試與 production 行為漂移
+const { DataProcessor } = await import('../../src/utils/data-processor.js')
+const dp = new DataProcessor()
+const findSetlistComment = (comments) => dp.findSetlistComment(comments)
 
 async function getComments(videoId) {
   const url = `https://www.googleapis.com/youtube/v3/commentThreads?key=${apiKey}&textFormat=plainText&part=snippet&videoId=${videoId}&maxResults=100`

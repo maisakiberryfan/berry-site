@@ -72,9 +72,10 @@ export class DataProcessor {
    *   cooldown : 結束後 cooldownHours 內，只認 preferredAuthor（歌單留言+API 索引延遲）
    *   open     : 完全開放三層
    */
-  async resolveParseTiming(videoId, env) {
+  async resolveParseTiming(videoId, env, prefetched = null) {
     try {
-      const details = await getLiveDetails(videoId, env)
+      // polling 路徑已查過 live-details，直接沿用避免同輪重複呼叫 YouTube API
+      const details = prefetched ?? await getLiveDetails(videoId, env)
       if (details) {
         const isUpload = !details.scheduledStartTime && !details.actualStartTime
         if (!isUpload) {
@@ -98,7 +99,7 @@ export class DataProcessor {
    * @param {Object} options - { bypassCooldown: boolean } 手動 force 時跳過時機檢查
    * @returns {Promise<Array|null>} Array of individual song objects in flat format
    */
-  async parseSetlistForStream(stream, env, { bypassCooldown = false } = {}) {
+  async parseSetlistForStream(stream, env, { bypassCooldown = false, liveDetails = null } = {}) {
     try {
       const streamUrl = `https://www.youtube.com/watch?v=${stream.id}`
       const videoId = extractVideoId(streamUrl)
@@ -109,7 +110,7 @@ export class DataProcessor {
       // 解析時機檢查
       let timing = 'open'
       if (!bypassCooldown) {
-        timing = await this.resolveParseTiming(videoId, env)
+        timing = await this.resolveParseTiming(videoId, env, liveDetails)
         if (timing === 'not-ended') {
           console.log(`[SETLIST] 直播未結束，跳過解析: ${videoId}`)
           return null
