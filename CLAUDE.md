@@ -147,7 +147,7 @@ AWS EventBridge 為主要排程。CF cron 已停用。
   - 序號感知（II/Ⅱ/2/弐）、日英欄位並比取最高、多段括號/三段式行解析
   - 無時間戳行過濾（≥3 行帶戳時視為雜訊）
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
-- 部署：`sam build && sam deploy`（獨立 SAM stack）
+- 部署：push 自動（CI `deploy-matcher` job）；手動 `sam build && sam deploy` 亦可（獨立 SAM stack）
 - 測試：`node test-fix.mjs` / `test-regression.mjs` / `test-history.mjs [N]` / `verify-corrections.mjs`
   （連 production API 唯讀；改 matcher 後四支都要綠）
 
@@ -266,7 +266,8 @@ cd fansite && npm run build:js
 
 ### 部署
 - **AWS / CF**：push 到 GitHub 自動部署
-- **Lambda matcher**：需手動 `sam build && sam deploy`
+- **Lambda matcher**：push 自動部署（deploy.yml 的 `deploy-matcher` job，
+  僅在 `lambda/setlist-matcher/**` 或 workflow 變更時執行）；本地 `sam deploy` 仍可用
 
 ### Lambda 保溫（EventBridge Keep-Warm）
 - EventBridge Rule 每 5 分鐘觸發 Lambda `/health`
