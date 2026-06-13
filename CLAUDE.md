@@ -252,7 +252,7 @@ cd fansite && npm run build:js
 ### PubSubHubbub 訂閱
 - Lease 5 天，由 `runAutoUpdate` 每 4 天自動續訂（自動帶 `hub.secret`=TRIGGER_TOKEN）
 - webhook 安全：GET 驗 `hub.mode=subscribe`＋topic 頻道白名單（拒外人注銷）；
-  POST 驗 `X-Hub-Signature` HMAC-SHA1（無簽名＝舊訂閱過渡期，放行＋log 警告）
+  POST 驗 `X-Hub-Signature` HMAC-SHA1（**無簽名一律拒絕**；2026-06-13 全訂閱已帶 secret）
 - Lambda 上 POST 通知改 async self-invoke（立即回 200，防 hub timeout 重試重複處理）
 - **DNS 切換、長時間中斷後必須手動重新訂閱**（lease 過期 + callback 不可達 = 訂閱失效）
 - 手動訂閱指令（記得補 `hub.secret`，值同 TRIGGER_TOKEN）：
