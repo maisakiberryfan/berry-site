@@ -3432,6 +3432,16 @@ $(()=>{
         placeholder: t('請選擇...', 'Select...', '選択してください...'),
         allowClear: true
       })
+      // 打開下拉時，自動以當前列名稱為搜尋詞（拼寫相近的歌浮到最前，方便挑正確那首）
+      // select2 的搜尋監聽 jQuery 事件須用 .trigger；且 open 當下監聽尚未綁定，延遲一拍再填
+      $('#quickCanonicalName').on('select2:open', function() {
+        const seed = quickCanonicalSeed()
+        if (!seed) return
+        setTimeout(() => {
+          const $field = $('.select2-container--open .select2-search__field')
+          if ($field.length) $field.val(seed).trigger('input').trigger('keyup')
+        }, 30)
+      })
     }
 
     // Load initial options based on current type
@@ -3440,21 +3450,21 @@ $(()=>{
     applyQuickAliasPrefill()
   })
 
-  // 依來源列資料（songData）預填別名與標準名稱：
-  // title 模式時該列已綁定 songID＝canonical 目標，自動預選；artist 標準名須由用戶判斷（留空）
+  // 依來源列資料（songData）只預填「別名」欄 = 當前列名稱（要被登記的寫法）。
+  // 「標準名稱」刻意不預選——新增別名的主場景是「這列判錯/是初回新歌，要指到另一首
+  // 正確的歌」，預選當前歌反而幫倒忙；改為開啟下拉時以當前名為搜尋詞（見 select2:open）
   function applyQuickAliasPrefill() {
     const aliasType = $('#quickAliasType').val()
     const songData = $('#modalQuickAddAlias').data('songData')
     if (!songData) return
+    $('#quickAliasValue').val((aliasType === 'artist' ? songData.artist : songData.songName) || '')
+  }
 
-    if (aliasType === 'artist') {
-      $('#quickAliasValue').val(songData.artist || '')
-    } else if (aliasType === 'title') {
-      $('#quickAliasValue').val(songData.songName || '')
-      if (songData.songID) {
-        $('#quickCanonicalName').val(String(songData.songID)).trigger('change')
-      }
-    }
+  // 取得當前列名稱作為標準名稱下拉的搜尋種子
+  function quickCanonicalSeed() {
+    const songData = $('#modalQuickAddAlias').data('songData')
+    if (!songData) return ''
+    return ($('#quickAliasType').val() === 'artist' ? songData.artist : songData.songName) || ''
   }
 
   // Quick Add Alias: Update options when type changes
