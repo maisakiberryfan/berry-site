@@ -50,6 +50,12 @@ jobs:
           npm ci
           npm run build:js
 
+      # Cache-bust：dist 資產引用加 commit hash。index.html 為 no-cache 每次重驗，
+      # 新 hash＝新 URL → 瀏覽器立即抓新版（dist 本身 max-age=86400 的快取效益保留）
+      - name: Cache-bust asset references
+        run: |
+          sed -i "s|/assets/dist/tool\.js[^\"]*|/assets/dist/tool.js?v=${GITHUB_SHA::8}|; s|/assets/dist/tool\.css[^\"]*|/assets/dist/tool.css?v=${GITHUB_SHA::8}|" fansite/index.html
+
       # Build Lambda
       - run: sam build
 
