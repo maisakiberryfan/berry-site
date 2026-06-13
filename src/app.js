@@ -534,18 +534,20 @@ async function hmacSha1Hex(secret, data) {
 app.post('/webhook/youtube', async (c) => {
   const body = await c.req.text()
 
-  // 簽名驗證（hub.secret = TRIGGER_TOKEN，由 renewPubSubSubscription 訂閱時帶上）。
-  // 過渡期：舊訂閱（無 secret）的通知沒有簽名 → 放行並警告；待 lease 續訂後全部帶簽名
+  // 簽名驗證（hub.secret = TRIGGER_TOKEN）：2026-06-13 起所有訂閱已帶 secret
+  //（手動重訂閱完成＋renewPubSubSubscription 自動續訂亦帶），無簽名＝偽造來源，一律拒絕
   const signature = c.req.header('X-Hub-Signature')
   const secret = getSecret(c.env, 'TRIGGER_TOKEN')
-  if (secret && signature) {
-    const expected = 'sha1=' + await hmacSha1Hex(secret, body)
-    if (signature !== expected) {
-      console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
+  if (secret) {
+    if (!signature) {
+      console.warn('[PUBSUB] 拒絕無簽名通知（訂閱已全面帶 hub.secret）')
       return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
     }
-  } else if (secret && !signature) {
-    console.warn('[PUBSUB] 通知無簽名（舊訂閱或偽造來源），暫予放行')
+    const expected = 'sha1=' + await hmacSha1Hex(secret, body)
+    if (!timingSafeEqualStr(signature, expected)) {
+      console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
+      return c.text('OK', 200)
+    }
   }
 
   // Parse Atom feed
