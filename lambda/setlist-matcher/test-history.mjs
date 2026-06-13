@@ -8,25 +8,10 @@ const N = Number(process.argv[2]) || 8
 const devVars = readFileSync('../../.dev.vars', 'utf8')
 const apiKey = devVars.match(/YOUTUBE_API_KEY\s*=\s*"?([^"\r\n]+)"?/)[1]
 
-// --- berry-site findSetlistComment 同款邏輯（src/utils/data-processor.js）---
-function findSetlistComment(comments) {
-  const PREFERRED_AUTHOR = '@KL-gr1my'
-  const timestampRe = /\d{1,2}:\d{2}/g
-  const kl = comments.filter(c => c.authorDisplayName === PREFERRED_AUTHOR)
-  for (const c of kl) {
-    const m = c.text.match(timestampRe)
-    if (m && m.length >= 3) return { text: c.text, author: c.authorDisplayName, layer: 1 }
-  }
-  const tsc = comments.filter(c => (c.text.match(timestampRe) || []).length >= 5)
-    .sort((a, b) => b.likeCount - a.likeCount)
-  if (tsc.length) return { text: tsc[0].text, author: tsc[0].authorDisplayName, layer: 2 }
-  const keywords = ['セットリスト','セトリ','歌単','歌リスト','今日の歌','本日の歌','歌った曲','setlist','set list','playlist','song list',"today's songs",'songs sung','1.','2.','3.','4.','5.','１．','２．','３．','４．','５．','♪','🎵','🎶','🎤','🎼']
-  const cands = comments.filter(c => {
-    const t = c.text.toLowerCase()
-    return keywords.some(k => t.includes(k.toLowerCase())) && (t.split('\n').length > 3 || t.length > 100)
-  }).sort((a, b) => (b.likeCount * 2 + b.text.length * 0.1) - (a.likeCount * 2 + a.text.length * 0.1))
-  return cands.length ? { text: cands[0].text, author: cands[0].authorDisplayName, layer: 3 } : null
-}
+// --- 使用 berry-site 真實作（src/utils/data-processor.js），避免測試與 production 行為漂移 ---
+const { DataProcessor } = await import('../../src/utils/data-processor.js')
+const dp = new DataProcessor()
+const findSetlistComment = (comments) => dp.findSetlistComment(comments)
 
 async function getComments(videoId) {
   const url = `https://www.googleapis.com/youtube/v3/commentThreads?key=${apiKey}&textFormat=plainText&part=snippet&videoId=${videoId}&maxResults=100`

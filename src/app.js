@@ -631,11 +631,20 @@ app.route('/api', api)
 // ─── Infrastructure Routes (no /api/ prefix) ───
 
 // Token validation for trigger endpoints
+// constant-time 字串比較（=== 會在首個不符字元提前返回，理論上可被計時側信道逐字猜出 token）
+function timingSafeEqualStr(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+  if (a.length !== b.length) return false  // 長度非秘密
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
 function validateTriggerToken(c) {
   const token = c.req.query('token') || c.req.header('X-Trigger-Token')
   const expected = getSecret(c.env, 'TRIGGER_TOKEN')
   if (!expected) return false  // 未設定時拒絕（fail closed）
-  return token === expected
+  return timingSafeEqualStr(token || '', expected)
 }
 
 // Manual trigger
