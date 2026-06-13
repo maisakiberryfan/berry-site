@@ -29,6 +29,11 @@ jobs:
           npm ci
           npm run build:js
 
+      # Cache-bust：dist 資產引用加 commit hash（同 deploy.yml，兩站行為一致）
+      - name: Cache-bust asset references
+        run: |
+          sed -i "s|/assets/dist/tool\.js[^\"]*|/assets/dist/tool.js?v=${GITHUB_SHA::8}|; s|/assets/dist/tool\.css[^\"]*|/assets/dist/tool.css?v=${GITHUB_SHA::8}|" fansite/index.html
+
       # Install root dependencies
       - run: npm ci
 
