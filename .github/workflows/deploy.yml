@@ -109,3 +109,49 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id ${{ steps.stack.outputs.cf_dist }} \
             --paths "/*.html" "/config.js" "/changelog.json" "/assets/*"
+
+  # 獨立 SAM stack：歌單模糊比對 Lambda（lambda/setlist-matcher）
+  # 只在 matcher 或本 workflow 變更時部署
+  deploy-matcher:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect matcher changes
+        id: changes
+        run: |
+          if git diff --quiet HEAD^ HEAD -- lambda/setlist-matcher/ .github/workflows/deploy.yml 2>/dev/null; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          node-version: '24'
+
+      - uses: aws-actions/setup-sam@v2
+        if: steps.changes.outputs.changed == 'true'
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.changes.outputs.changed == 'true'
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build & deploy matcher
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: lambda/setlist-matcher
+        run: |
+          sam build
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
+            --stack-name berry-setlist-matcher \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides BerrySiteApiUrl=https://d36w2d8blmdfr.cloudfront.net
