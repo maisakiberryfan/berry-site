@@ -3436,23 +3436,36 @@ $(()=>{
 
     // Load initial options based on current type
     await loadQuickAddOptions()
+    // 入口若帶來源列資料（setlist 右鍵／行內按鈕），依當前類型自動預填
+    applyQuickAliasPrefill()
   })
+
+  // 依來源列資料（songData）預填別名與標準名稱：
+  // title 模式時該列已綁定 songID＝canonical 目標，自動預選；artist 標準名須由用戶判斷（留空）
+  function applyQuickAliasPrefill() {
+    const aliasType = $('#quickAliasType').val()
+    const songData = $('#modalQuickAddAlias').data('songData')
+    if (!songData) return
+
+    if (aliasType === 'artist') {
+      $('#quickAliasValue').val(songData.artist || '')
+    } else if (aliasType === 'title') {
+      $('#quickAliasValue').val(songData.songName || '')
+      if (songData.songID) {
+        $('#quickCanonicalName').val(String(songData.songID)).trigger('change')
+      }
+    }
+  }
 
   // Quick Add Alias: Update options when type changes
   $('#quickAliasType').on('change', async function() {
     await loadQuickAddOptions()
+    applyQuickAliasPrefill()
+  })
 
-    // Auto-update alias value based on new type
-    const aliasType = $(this).val()
-    const songData = $('#modalQuickAddAlias').data('songData')
-
-    if (songData) {
-      if (aliasType === 'artist') {
-        $('#quickAliasValue').val(songData.artist || '')
-      } else if (aliasType === 'title') {
-        $('#quickAliasValue').val(songData.songName || '')
-      }
-    }
+  // Modal 關閉時清除來源資料，避免下次從其他入口開啟時殘留汙染預填
+  $('#modalQuickAddAlias').on('hidden.bs.modal', function() {
+    $(this).removeData('songData streamID trackNo')
   })
 
   // Function to load canonical name options for Quick Add
@@ -3692,7 +3705,9 @@ $(()=>{
       aliasValue = rowData.artist
     }
 
-    // Open modal with pre-filled values
+    // Open modal with pre-filled values（songData 供 shown/type-change 預填，
+    // title 模式會自動預選該列綁定的歌曲）
+    $('#modalQuickAddAlias').data('songData', rowData)
     $('#quickAliasType').val(aliasType)
     $('#quickCanonicalName').val(canonicalName)
     $('#quickAliasValue').val(aliasValue)
@@ -3702,7 +3717,7 @@ $(()=>{
 
     // Show instruction alert
     setTimeout(() => {
-      alert(`💡 使用說明 (Instructions):\n\n1. 請在「標準名稱」欄位填入資料庫中正確的歌名/歌手名稱\n   (Enter the correct song/artist name from the database in "Canonical Name")\n\n2. 「別名」欄位已預填歌單中的名稱\n   (The "Alias" field is pre-filled with the name from setlist)\n\n3. 確認無誤後點擊 Add 即可新增別名\n   (Click Add to save the alias mapping)`)
+      alert(`💡 使用說明 (Instructions):\n\n1. 「標準名稱」請從下拉選單選擇（title 已自動選定該列綁定的歌曲，請確認）\n   (Pick "Canonical Name" from the dropdown — for title it's preselected from this row)\n\n2. 「別名」欄位已預填歌單中的名稱\n   (The "Alias" field is pre-filled with the name from setlist)\n\n3. 確認無誤後點擊 Add 即可新增別名\n   (Click Add to save the alias mapping)`)
     }, 300)
   })
 
