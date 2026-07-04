@@ -89,7 +89,7 @@ function getLabel(item) {
 // Load nav configuration from JSON
 async function loadNavConfig() {
   if (navConfig) return navConfig
-  const response = await fetch('/assets/data/nav.json')
+  const response = await fetch('/assets/data/nav.json', { cache: 'no-cache' })
   navConfig = await response.json()
   return navConfig
 }
@@ -505,7 +505,9 @@ $(()=>{
     else {
       $.ajax({
         url:url,
-        //cache:false
+        // 附加 _=ts 穿透瀏覽器快取（含部署前的存量快取）；
+        // CloudFront cache key 不含 query string，edge 快取不受影響
+        cache:false
       }).done((d, textStatus, request)=>{
         let ext = url.split('.')  //check .html
 
@@ -4353,7 +4355,8 @@ function getChangelog(){
   return new Promise((resolve, reject)=>{
     $.ajax({
       url: '/changelog.json',
-      dataType: 'json'
+      dataType: 'json',
+      cache: false
     })
     .done((d)=>{
       if (!d.time || !d.msg) { resolve(''); return }
