@@ -3,7 +3,7 @@
 * 2026/07/11　[XRライブイベント CROSS REALITY LIVE Vol.1 出演](https://x.com/1stStage_info/status/2065026266940506150)
 * 2026/07/03　[苺咲べりぃ × OIOI「Sweet Cafe Collection」オンラインくじ発売](https://x.com/MaisakiBerry/status/2071051237232173289)
 * 2026/06/11　[3Dの新衣装のお披露目Live](https://www.youtube.com/watch?v=Gh6AsG8DmCI)
-* 2026/04/26　[10th Album 『Lucisphere』 発売](https://www.maisakiberry.com/10th-rebirthr)
+* 2026/04/26　[10th Album 『RebiRthR!!!』 発売](https://www.maisakiberry.com/10th-rebirthr)
 * 2026/03/13　[AWA公式番組「#アワステ」ゲスト](https://x.com/AWA_official/status/2032441548705825110)
 * 2026/02/14　[ライブイベント「#ぶいかふぇ♪」vol.208 出演キャスト](https://x.com/MaisakiBerry/status/2022655123101811036)
 * 2026/02/12　[新しいお洋服をみて♥](https://www.youtube.com/live/OraWP0bLPfY)
