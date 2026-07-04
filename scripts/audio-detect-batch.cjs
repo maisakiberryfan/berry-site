@@ -57,7 +57,11 @@ async function main() {
     const ns = f.nextStart ?? nextStart(f.streamID, f.segmentNo, f.trackNo)
     let ws = f.startTime + 45
     let we = ns ?? f.endTime + 120
-    if (we - ws < 90) ws = Math.max(f.startTime + 20, we - 150)
+    if (we <= ws) {
+      // trackNo/時間矛盾（nextStart 早於 startTime）：nextStart 不可靠，改用寬窗口雙側觀察
+      ws = Math.max(0, f.startTime - 120)
+      we = f.startTime + (f.duration || 300) + 180
+    } else if (we - ws < 90) ws = Math.max(f.startTime + 20, we - 150)
     batch.push({
       id: `${f.streamID}_${f.segmentNo}_${f.trackNo}`, kind: 'flagged',
       streamID: f.streamID, segmentNo: f.segmentNo, trackNo: f.trackNo,
