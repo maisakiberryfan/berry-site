@@ -10,9 +10,14 @@ from scipy.signal import medfilt
 DIR = 'e:/tmp/audio_batch'
 ENV_HOP = 0.05
 WIN = 2.0
-K = 50               # 對比窗 25s
-END_OFFSET = 14.0    # music→talk 偵測點 → 歌聲結束的經驗偏移（PoC 校正）
-SUSPECT_TH = 30      # outlier 裁決門檻
+K = 50                    # 對比窗 25s
+END_OFFSET_FULL = 14.0    # 完整版：尾奏漸弱＋掌聲過渡（PoC 校正）
+END_OFFSET_SHORT = 3.0    # 短版（<150s）：收尾快直接講話（用戶實聽校正 2026-07-05）
+SHORT_TH = 150            # 演唱長度分界
+SUSPECT_TH = 30           # outlier 裁決門檻
+
+def end_offset(sung_dur):
+    return END_OFFSET_SHORT if sung_dur < SHORT_TH else END_OFFSET_FULL
 
 def envelope(path):
     sr, y = wavfile.read(path)
@@ -87,7 +92,8 @@ def main():
             if rel is None:
                 r.update(status='no_cp')
             else:
-                det = w0 + rel - END_OFFSET
+                raw = w0 + rel
+                det = raw - end_offset(raw - b['startTime'])
                 r.update(status='ok', detectedEnd=round(det, 1), conf=round(conf, 3),
                          suggestedEnd=int(round(det)))
                 # 守衛：不得超過 nextStart、不得早於 start+40
@@ -102,7 +108,11 @@ def main():
             relS, confS = change_point(t, s, -1, hi=mid)          # talk→music 在前半
             relE, confE = change_point(t, s, +1, lo=mid)          # music→talk 在後半
             detS = w0 + relS if relS is not None else None
-            detE = w0 + relE - END_OFFSET if relE is not None else None
+            detE = None
+            if relE is not None:
+                rawE = w0 + relE
+                base = detS if detS is not None else b['startTime']
+                detE = rawE - end_offset(rawE - base)
             dS = round(detS - b['startTime'], 1) if detS is not None else None
             dE = round(detE - b['recEnd'], 1) if detE is not None else None
             verdict = []
