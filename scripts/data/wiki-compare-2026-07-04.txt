@@ -1,0 +1,289 @@
+wiki × DB 曲目交叉比對 — 2026-07-04
+================================================================================
+wiki 場次 515（含曲目 10808 行，其中 10690 行可歸屬影片）
+對上 DB 的場次: 513   wiki 獨有場: 2
+比對範圍內: DB 10579 行 / wiki 10575 行 / 曲名匹配 10539
+同位置不同曲(填錯曲候選): 4
+第二輪按日期跨場匹配: 消化 193 筆（wiki 連結貼錯/無連結/斷線分場）
+最終 wiki 有 DB 沒有: 39
+最終 DB 有 wiki 沒有: 2（多半 wiki 漏記，供參考）
+
+wiki 連結貼錯偵測（同影片掛多日期，4 個）:
+  nRnw4KuwkJo: 2023/12/18, 2023/12/14
+  rtAvwcUUM-k: 2022/01/13, 2022/01/11
+  jjqh9ymvydM: 2021/12/25, 2021/12/24, 2021/12/12
+  bkHVu62nKx8: 2021/11/11, 2021/08/15
+
+================================================================================
+【同位置不同曲】 4 筆 — 依裁決傾向排序
+================================================================================
+
+[偏DB] sim=0.13  aJojvd3J97A seg1 #8  2023/08/03
+  DB:   青空のラプソディ / fhána (songID=62)  參考曲長=4:36(n=10)
+  wiki: 空色デイズ  [備考:高評価1100耐久]  → 對應 空色デイズ(songID=445) 參考曲長=4:12
+  實際演唱: 4:35 (275s)  start=64:23
+  確認: https://www.youtube.com/watch?v=aJojvd3J97A&t=3863s
+
+[偏DB] sim=0.00  ZyQZagrDY_Q seg1 #50  2023/06/24
+  DB:   あなたがいることで / Uru (songID=25)  參考曲長=5:12(n=59)
+  wiki: fragile  [備考:115曲耐久]  → 對應 fragile(songID=678) 參考曲長=4:50
+  實際演唱: 5:10 (310s)  start=269:52
+  確認: https://www.youtube.com/watch?v=ZyQZagrDY_Q&t=16192s
+
+[DB吻合] sim=0.80  cnMMTnmQXd0 seg1 #1  2022/11/09
+  DB:   ″らしく″いきましょ / Meu(梶谷美由紀) (songID=855)  參考曲長=3:30(n=8)
+  wiki: “らしく”いきましょ@  [備考:23時]  → DB songlist 查無此曲
+  實際演唱: 3:29 (209s)  start=21:02
+  確認: https://www.youtube.com/watch?v=cnMMTnmQXd0&t=1262s
+
+[DB對] sim=0.14  paieRVNpSUE seg1 #7  2023/11/28
+  DB:   メルト 10th ANNIVERSARY MIX / ryo (supercell) × やなぎなぎ (songID=805)  參考曲長=5:05(n=1)
+  wiki: メルト  → 對應 メルト(songID=804) 參考曲長=4:18
+  實際演唱: 5:05 (305s)  start=83:13
+  確認: https://www.youtube.com/watch?v=paieRVNpSUE&t=4993s
+
+================================================================================
+【二輪後仍 wiki 有、DB 沒有】 39 筆（真正的 DB 疑似漏記或曲名對不上）
+================================================================================
+  2023/09/15 (無連結) 場內#1  コネクト [ぶいかふぇ]  (noVid)
+  2023/09/15 (無連結) 場內#2  ガーネット [ぶいかふぇ]  (noVid)
+  2023/09/15 (無連結) 場內#3  ルンがピカッと光ったら [ぶいかふぇ]  (noVid)
+  2023/09/15 (無連結) 場內#4  星へ伸ばす手 [ぶいかふぇ/オリソン]  (noVid)
+  2021/05/13 (無連結) 場內#1  メランコリック  (noVid)
+  2021/05/13 (無連結) 場內#2  白金ディスコ  (noVid)
+  2021/05/13 (無連結) 場內#3  フリージア  (noVid)
+  2021/05/13 (無連結) 場內#4  Happy Lucky Strawberry [オリソン]  (noVid)
+  2021/05/13 (無連結) 場內#5  フレンジャー  (noVid)
+  2021/05/13 (無連結) 場內#6  ロキ  (noVid)
+  2021/05/13 (無連結) 場內#7  渡月橋 ～君 想ふ～  (noVid)
+  2021/05/13 (無連結) 場內#8  天城越え  (noVid)
+  2021/05/13 (無連結) 場內#9  津軽海峡・冬景色  (noVid)
+  2021/05/13 (無連結) 場內#10  Honey♥Come!!  (noVid)
+  2021/05/13 (無連結) 場內#11  Ring Ring Rainbow!!@  (noVid)
+  2021/05/13 (無連結) 場內#12  Baby Sweet Berry Love@  (noVid)
+  2021/05/13 (無連結) 場內#13  はじめてのチュウ  (noVid)
+  2021/05/13 (無連結) 場內#14  ラムのラブソング  (noVid)
+  2021/05/13 (無連結) 場內#15  3年目の浮気  (noVid)
+  2021/05/13 (無連結) 場內#16  Everything  (noVid)
+  2021/05/13 (無連結) 場內#17  StartRoll [オリソン]  (noVid)
+  2021/04/18 (無連結) 場內#1  エンヴィーベイビー@  (noVid)
+  2021/04/18 (無連結) 場內#2  Happy Lucky Strawberry@ [オリソン]  (noVid)
+  2021/04/18 (無連結) 場內#3  プラチナ  (noVid)
+  2021/04/18 (無連結) 場內#4  放課後オーバーフロウ  (noVid)
+  2021/04/18 (無連結) 場內#5  おじゃま虫  (noVid)
+  2021/04/18 (無連結) 場內#6  ファンサ  (noVid)
+  2021/04/18 (無連結) 場內#7  Love marginal  (noVid)
+  2021/04/18 (無連結) 場內#8  うっせぇわ  (noVid)
+  2021/04/18 (無連結) 場內#9  フリージア  (noVid)
+  2021/04/18 (無連結) 場內#10  花に亡霊  (noVid)
+  2021/04/18 (無連結) 場內#11  白金ディスコ@  (noVid)
+  2021/04/18 (無連結) 場內#12  魂のルフラン  (noVid)
+  2021/04/18 (無連結) 場內#13  Catch You Catch Me  (noVid)
+  2021/04/18 (無連結) 場內#14  ロケットビート  (noVid)
+  2021/04/18 (無連結) 場內#15  千本桜  (noVid)
+  2021/04/18 (無連結) 場內#16  からくりピエロ  (noVid)
+  2021/04/18 (無連結) 場內#17  少女レイ  (noVid)
+  2021/04/18 (無連結) 場內#18  StartRoll@ [オリソン]  (noVid)
+
+================================================================================
+【二輪消化明細】 193 筆（wiki 錯掛→實際在 DB 的哪場）
+================================================================================
+  2024/05/13 wiki@K9-71R3uMZ0#5 Mela! → DB n2lV7RCWhLs seg1#5 Mela!
+  2024/05/13 wiki@K9-71R3uMZ0#6 吉原ラメント → DB n2lV7RCWhLs seg1#6 吉原ラメント
+  2024/05/13 wiki@K9-71R3uMZ0#7 ロミオとシンデレラ → DB n2lV7RCWhLs seg1#7 ロミオとシンデレラ
+  2024/05/13 wiki@K9-71R3uMZ0#8 深愛 → DB n2lV7RCWhLs seg1#8 深愛
+  2024/05/13 wiki@K9-71R3uMZ0#9 謎 → DB n2lV7RCWhLs seg1#9 謎
+  2024/05/13 wiki@K9-71R3uMZ0#10 恋はスリル、ショック、サスペンス → DB n2lV7RCWhLs seg1#10 恋はスリル、ショック、サスペンス
+  2024/05/13 wiki@K9-71R3uMZ0#11 Super Driver → DB n2lV7RCWhLs seg1#11 Super Driver
+  2024/05/13 wiki@K9-71R3uMZ0#12 コレカラ → DB n2lV7RCWhLs seg1#12 コレカラ
+  2024/05/13 wiki@K9-71R3uMZ0#13 ブルーバード → DB n2lV7RCWhLs seg1#13 ブルーバード
+  2024/05/13 wiki@K9-71R3uMZ0#14 青春コンプレックス → DB n2lV7RCWhLs seg1#14 青春コンプレックス
+  2024/05/13 wiki@K9-71R3uMZ0#15 空色デイズ → DB n2lV7RCWhLs seg1#15 空色デイズ
+  2024/05/13 wiki@K9-71R3uMZ0#16 ステラブリーズ → DB n2lV7RCWhLs seg1#16 ステラブリーズ
+  2024/05/13 wiki@K9-71R3uMZ0#17 桜色舞うころ → DB n2lV7RCWhLs seg1#17 桜色舞うころ
+  2024/05/13 wiki@K9-71R3uMZ0#18 ヒトリゴト → DB n2lV7RCWhLs seg1#18 ヒトリゴト
+  2024/05/13 wiki@K9-71R3uMZ0#19 adrenaline!!! → DB n2lV7RCWhLs seg1#19 adrenaline!!!
+  2024/05/13 wiki@K9-71R3uMZ0#20 you → DB n2lV7RCWhLs seg1#20 you
+  2023/12/18 wiki@nRnw4KuwkJo#1 勇者 → DB BE7DV5lZDdQ seg2#1 勇者
+  2023/12/18 wiki@nRnw4KuwkJo#2 花になって → DB BE7DV5lZDdQ seg2#2 花になって
+  2023/12/18 wiki@nRnw4KuwkJo#3 コイノシルシ → DB BE7DV5lZDdQ seg2#3 コイノシルシ
+  2023/12/18 wiki@nRnw4KuwkJo#4 アイノヨカン@ → DB BE7DV5lZDdQ seg2#4 アイノヨカン
+  2023/12/18 wiki@nRnw4KuwkJo#5 Let It Go~ありのままで~ → DB BE7DV5lZDdQ seg2#5 Let It Go~ありのままで~
+  2023/12/18 wiki@nRnw4KuwkJo#6 虹が架かるまでの話 → DB BE7DV5lZDdQ seg2#6 虹が架かるまでの話
+  2023/12/18 wiki@nRnw4KuwkJo#7 Snow halation → DB BE7DV5lZDdQ seg2#7 Snow halation
+  2023/12/18 wiki@nRnw4KuwkJo#8 虹 → DB BE7DV5lZDdQ seg2#8 虹
+  2023/12/18 wiki@nRnw4KuwkJo#9 ALIVE～祈りの唄～ → DB BE7DV5lZDdQ seg2#9 ALIVE～祈りの唄～
+  2023/12/18 wiki@nRnw4KuwkJo#10 星座になれたら → DB BE7DV5lZDdQ seg2#10 星座になれたら
+  2023/12/18 wiki@nRnw4KuwkJo#11 君の知らない物語 → DB BE7DV5lZDdQ seg2#11 君の知らない物語
+  2023/12/18 wiki@nRnw4KuwkJo#12 プロローグ → DB BE7DV5lZDdQ seg2#12 プロローグ
+  2023/12/18 wiki@nRnw4KuwkJo#13 ライオン → DB BE7DV5lZDdQ seg2#13 ライオン
+  2023/12/18 wiki@nRnw4KuwkJo#14 GIRAFFE BLUES → DB BE7DV5lZDdQ seg2#14 GIRAFFE BLUES
+  2023/12/18 wiki@nRnw4KuwkJo#15 God Bless You → DB BE7DV5lZDdQ seg2#15 God Bless You
+  2023/12/18 wiki@nRnw4KuwkJo#16 愛してる. → DB BE7DV5lZDdQ seg2#16 愛してる
+  2023/12/18 wiki@nRnw4KuwkJo#17 ファンサ → DB BE7DV5lZDdQ seg2#17 ファンサ
+  2023/12/18 wiki@nRnw4KuwkJo#18 夜空 → DB BE7DV5lZDdQ seg2#18 夜空
+  2023/12/18 wiki@nRnw4KuwkJo#19 Happy Lucky Strawberry → DB BE7DV5lZDdQ seg2#19 Happy Lucky Strawberry
+  2023/12/18 wiki@nRnw4KuwkJo#20 星へ伸ばす手 → DB BE7DV5lZDdQ seg2#20 星へ伸ばす手
+  2022/09/23 wiki@c4h7MMi2bK4#15 対象a → DB JeToLKSjfFM seg1#15 対象a
+  2022/09/23 wiki@c4h7MMi2bK4#16 高鳴る → DB JeToLKSjfFM seg1#16 高鳴る
+  2022/09/23 wiki@c4h7MMi2bK4#17 だから僕は音楽を辞めた → DB JeToLKSjfFM seg1#17 だから僕は音楽を辞めた
+  2022/09/23 wiki@c4h7MMi2bK4#18 115万キロのフィルム → DB JeToLKSjfFM seg1#18 115万キロのフィルム
+  2022/09/23 wiki@c4h7MMi2bK4#19 キラキラ → DB JeToLKSjfFM seg1#19 キラキラ
+  2022/09/23 wiki@c4h7MMi2bK4#20 花に亡霊 → DB JeToLKSjfFM seg1#20 花に亡霊
+  2022/09/23 wiki@c4h7MMi2bK4#21 三日月 → DB JeToLKSjfFM seg1#21 三日月
+  2022/09/23 wiki@c4h7MMi2bK4#22 fragile → DB JeToLKSjfFM seg1#22 fragile
+  2022/09/23 wiki@c4h7MMi2bK4#23 YUME日和 → DB JeToLKSjfFM seg1#23 YUME日和
+  2022/09/23 wiki@c4h7MMi2bK4#24 天使にふれたよ! → DB JeToLKSjfFM seg1#24 天使にふれたよ！
+  2022/09/23 wiki@c4h7MMi2bK4#25 未来へ → DB JeToLKSjfFM seg1#25 未来へ
+  2022/09/23 wiki@c4h7MMi2bK4#26 風になる → DB JeToLKSjfFM seg1#26 風になる
+  2022/09/23 wiki@c4h7MMi2bK4#27 たばこ → DB JeToLKSjfFM seg1#27 たばこ
+  2022/09/23 wiki@c4h7MMi2bK4#28 恋人失格 → DB JeToLKSjfFM seg1#28 恋人失格
+  2022/09/23 wiki@c4h7MMi2bK4#29 Crosswalk → DB JeToLKSjfFM seg1#29 Crosswalk
+  2022/09/23 wiki@c4h7MMi2bK4#30 彗星フラーウラ@ → DB JeToLKSjfFM seg1#30 彗星フラーウラ
+  2022/01/13 wiki@rtAvwcUUM-k#1 Best Friend → DB T2D_u8Sueo0 seg1#1 Best Friend
+  2022/01/13 wiki@rtAvwcUUM-k#2 ハルジオン → DB T2D_u8Sueo0 seg1#2 ハルジオン
+  2022/01/13 wiki@rtAvwcUUM-k#3 愛してるばんざーい! → DB T2D_u8Sueo0 seg1#3 愛してるばんざーい!
+  2022/01/13 wiki@rtAvwcUUM-k#4 Cry Baby → DB T2D_u8Sueo0 seg1#4 Cry Baby
+  2022/01/13 wiki@rtAvwcUUM-k#5 黒毛和牛上塩タン焼680円 → DB T2D_u8Sueo0 seg1#5 黒毛和牛上塩タン焼680円
+  2022/01/13 wiki@rtAvwcUUM-k#6 ハルウタ → DB T2D_u8Sueo0 seg1#6 ハルウタ
+  2022/01/13 wiki@rtAvwcUUM-k#7 蕾 → DB T2D_u8Sueo0 seg1#7 蕾
+  2022/01/13 wiki@rtAvwcUUM-k#8 未来 → DB T2D_u8Sueo0 seg1#8 未来
+  2022/01/13 wiki@rtAvwcUUM-k#9 君の知らない物語 → DB T2D_u8Sueo0 seg1#9 君の知らない物語
+  2022/01/13 wiki@rtAvwcUUM-k#10 風は予告なく吹く → DB T2D_u8Sueo0 seg1#10 風は予告なく吹く
+  2022/01/13 wiki@rtAvwcUUM-k#11 愛してる. → DB T2D_u8Sueo0 seg1#11 愛してる
+  2022/01/13 wiki@rtAvwcUUM-k#12 unlasting → DB T2D_u8Sueo0 seg1#12 unlasting
+  2022/01/13 wiki@rtAvwcUUM-k#13 私、アイドル宣言 → DB T2D_u8Sueo0 seg1#13 私、アイドル宣言
+  2022/01/13 wiki@rtAvwcUUM-k#14 ガーネット → DB T2D_u8Sueo0 seg1#14 ガーネット
+  2022/01/13 wiki@rtAvwcUUM-k#15 ギミー! レボリューション → DB T2D_u8Sueo0 seg1#15 ギミー! レボリューション
+  2022/01/13 wiki@rtAvwcUUM-k#16 YUME日和 → DB T2D_u8Sueo0 seg1#16 YUME日和
+  2021/12/25 wiki@jjqh9ymvydM#1 ドライフラワー → DB rrY998zlGk0 seg1#1 ドライフラワー
+  2021/12/25 wiki@jjqh9ymvydM#2 猫 → DB rrY998zlGk0 seg1#2 猫
+  2021/12/25 wiki@jjqh9ymvydM#3 マリーゴールド → DB rrY998zlGk0 seg1#3 マリーゴールド
+  2021/12/25 wiki@jjqh9ymvydM#4 金魚花火 → DB rrY998zlGk0 seg1#4 金魚花火
+  2021/12/25 wiki@jjqh9ymvydM#5 夕日坂 → DB rrY998zlGk0 seg1#5 夕日坂
+  2021/12/25 wiki@jjqh9ymvydM#6 promise → DB rrY998zlGk0 seg1#6 promise
+  2021/12/25 wiki@jjqh9ymvydM#7 365日の紙飛行機 → DB rrY998zlGk0 seg1#7 365日の紙飛行機
+  2021/12/25 wiki@jjqh9ymvydM#8 心做し → DB rrY998zlGk0 seg1#8 心做し
+  2021/12/25 wiki@jjqh9ymvydM#9 エフェメラをあつめて → DB rrY998zlGk0 seg1#9 エフェメラをあつめて
+  2021/12/25 wiki@jjqh9ymvydM#10 僕らの戦場 → DB rrY998zlGk0 seg1#10 僕らの戦場
+  2021/12/25 wiki@jjqh9ymvydM#11 ALIVE～祈りの唄～@ → DB rrY998zlGk0 seg1#11 ALIVE～祈りの唄～
+  2021/12/25 wiki@jjqh9ymvydM#12 愛してる. → DB rrY998zlGk0 seg1#12 愛してる
+  2021/12/25 wiki@jjqh9ymvydM#13 歌に形はないけれど → DB rrY998zlGk0 seg1#13 歌に形はないけれど
+  2021/12/25 wiki@jjqh9ymvydM#14 プラネタリウム → DB rrY998zlGk0 seg1#14 プラネタリウム
+  2021/12/25 wiki@jjqh9ymvydM#15 ファンサ → DB rrY998zlGk0 seg1#15 ファンサ
+  2021/12/25 wiki@jjqh9ymvydM#16 夜空 → DB rrY998zlGk0 seg1#16 夜空
+  2021/12/25 wiki@jjqh9ymvydM#17 創聖のアクエリオン → DB rrY998zlGk0 seg1#17 創聖のアクエリオン
+  2021/12/24 wiki@jjqh9ymvydM#1 ジングルベル → DB nvWyYAs4HBA seg1#1 ジングルベル
+  2021/12/24 wiki@jjqh9ymvydM#2 あわてんぼうのサンタクロース → DB nvWyYAs4HBA seg1#2 あわてんぼうのサンタクロース
+  2021/12/24 wiki@jjqh9ymvydM#3 きよしこの夜 → DB nvWyYAs4HBA seg1#3 きよしこの夜
+  2021/12/24 wiki@jjqh9ymvydM#4 赤鼻のトナカイ@ → DB nvWyYAs4HBA seg1#4 赤鼻のトナカイ
+  2021/12/24 wiki@jjqh9ymvydM#5 サンタが町にやってくる → DB nvWyYAs4HBA seg1#5 サンタが街にやってくる
+  2021/12/24 wiki@jjqh9ymvydM#6 First Love → DB nvWyYAs4HBA seg1#6 First Love
+  2021/12/24 wiki@jjqh9ymvydM#7 Flavor Of Life@ → DB nvWyYAs4HBA seg1#7 Flavor Of Life
+  2021/12/24 wiki@jjqh9ymvydM#8 Winter Bells@ → DB nvWyYAs4HBA seg1#8 Winter Bells
+  2021/12/24 wiki@jjqh9ymvydM#9 クリスマスソング → DB nvWyYAs4HBA seg1#9 クリスマスソング
+  2021/12/24 wiki@jjqh9ymvydM#10 メリクリ → DB nvWyYAs4HBA seg1#10 メリクリ
+  2021/12/24 wiki@jjqh9ymvydM#11 DEAR…again → DB nvWyYAs4HBA seg1#11 DEAR…again
+  2021/12/24 wiki@jjqh9ymvydM#12 ゲレンデがとけるほど恋したい → DB nvWyYAs4HBA seg1#12 ゲレンデがとけるほど恋したい
+  2021/12/24 wiki@jjqh9ymvydM#13 雪の華 → DB nvWyYAs4HBA seg1#13 雪の華
+  2021/12/24 wiki@jjqh9ymvydM#14 粉雪 → DB nvWyYAs4HBA seg1#14 粉雪
+  2021/12/24 wiki@jjqh9ymvydM#15 ポケット → DB nvWyYAs4HBA seg1#15 ポケット
+  2021/12/24 wiki@jjqh9ymvydM#16 WISH → DB nvWyYAs4HBA seg1#16 WISH
+  2021/12/24 wiki@jjqh9ymvydM#17 冬がはじまるよ → DB nvWyYAs4HBA seg1#17 冬がはじまるよ
+  2021/12/24 wiki@jjqh9ymvydM#18 Everything → DB nvWyYAs4HBA seg1#18 Everything
+  2021/08/15 wiki@bkHVu62nKx8#1 シル・ヴ・プレジデント → DB OZNIIQ-0PAk seg1#1 シル・ヴ・プレジデント
+  2021/08/15 wiki@bkHVu62nKx8#2 ドラえもんのうた → DB OZNIIQ-0PAk seg1#2 ドラえもんのうた
+  2021/08/15 wiki@bkHVu62nKx8#3 夜空 → DB OZNIIQ-0PAk seg1#3 夜空
+  2021/08/15 wiki@bkHVu62nKx8#4 夏空グラフィティ → DB OZNIIQ-0PAk seg1#4 夏空グラフィティ
+  2021/08/15 wiki@bkHVu62nKx8#5 ムーンライト伝説 → DB OZNIIQ-0PAk seg1#5 ムーンライト伝説
+  2021/08/15 wiki@bkHVu62nKx8#6 Snow halation → DB OZNIIQ-0PAk seg1#6 Snow halation
+  2021/08/15 wiki@bkHVu62nKx8#7 風になる → DB OZNIIQ-0PAk seg1#7 風になる
+  2021/08/15 wiki@bkHVu62nKx8#8 Cry Baby → DB OZNIIQ-0PAk seg1#8 Cry Baby
+  2021/08/15 wiki@bkHVu62nKx8#9 白金ディスコ → DB OZNIIQ-0PAk seg1#9 白金ディスコ
+  2021/08/15 wiki@bkHVu62nKx8#10 星間飛行 → DB OZNIIQ-0PAk seg1#10 星間飛行
+  2021/08/15 wiki@bkHVu62nKx8#11 Booo! → DB OZNIIQ-0PAk seg1#11 Booo!
+  2024/02/14 wiki@(無連結)#1 気まぐれロマンティック → DB APsWa17nmiA seg1#2 気まぐれロマンティック
+  2024/02/14 wiki@(無連結)#2 夏祭り → DB APsWa17nmiA seg1#3 夏祭り
+  2024/02/14 wiki@(無連結)#3 Mela! → DB APsWa17nmiA seg1#4 Mela!
+  2024/02/14 wiki@(無連結)#4 花になって → DB APsWa17nmiA seg1#5 花になって
+  2024/02/14 wiki@(無連結)#5 ユメクイ → DB APsWa17nmiA seg1#6 ユメクイ
+  2024/02/14 wiki@(無連結)#6 KissHug → DB APsWa17nmiA seg1#7 KissHug
+  2024/02/14 wiki@(無連結)#7 プラチナ → DB APsWa17nmiA seg1#8 プラチナ
+  2024/02/14 wiki@(無連結)#8 YUME日和 → DB APsWa17nmiA seg1#9 YUME日和
+  2024/02/14 wiki@(無連結)#9 ハルノヒ → DB APsWa17nmiA seg1#10 ハルノヒ
+  2024/02/14 wiki@(無連結)#10 First Love → DB APsWa17nmiA seg1#11 First Love
+  2024/02/14 wiki@(無連結)#11 うるわしきひと → DB APsWa17nmiA seg1#12 うるわしきひと
+  2024/02/14 wiki@(無連結)#12 SAKURA → DB APsWa17nmiA seg1#13 SAKURA
+  2024/02/14 wiki@(無連結)#13 桜色舞うころ → DB APsWa17nmiA seg1#14 桜色舞うころ
+  2024/02/14 wiki@(無連結)#14 桜の時 → DB APsWa17nmiA seg1#15 桜の時
+  2024/02/14 wiki@(無連結)#15 世界は恋に落ちている → DB APsWa17nmiA seg1#16 世界は恋に落ちている
+  2024/02/14 wiki@(無連結)#16 オトメロディー → DB APsWa17nmiA seg1#17 オトメロディー
+  2024/02/14 wiki@(無連結)#17 はっぴぃ にゅう にゃあ@ → DB APsWa17nmiA seg1#18 はっぴぃ にゅう にゃあ
+  2024/02/14 wiki@(無連結)#18 虹が架かるまでの話 → DB APsWa17nmiA seg1#19 虹が架かるまでの話
+  2024/02/14 wiki@(無連結)#19 桜色√END → DB APsWa17nmiA seg1#20 桜色√END
+  2023/02/04 wiki@(無連結)#1 チキチキバンバン → DB YUdt9vzlWCM seg1#1 チキチキバンバン
+  2023/02/04 wiki@(無連結)#2 祝福 → DB YUdt9vzlWCM seg1#2 祝福
+  2023/02/04 wiki@(無連結)#3 地球最後の告白を → DB YUdt9vzlWCM seg1#3 地球最後の告白を
+  2023/02/04 wiki@(無連結)#4 春泥棒 → DB YUdt9vzlWCM seg1#4 春泥棒
+  2023/02/04 wiki@(無連結)#5 恋(星野源) → DB YUdt9vzlWCM seg1#5 恋
+  2023/02/04 wiki@(無連結)#6 ハルジオン → DB YUdt9vzlWCM seg1#6 ハルジオン
+  2023/02/04 wiki@(無連結)#7 Grip! → DB YUdt9vzlWCM seg1#7 Grip!
+  2023/02/04 wiki@(無連結)#8 夜もすがら君想ふ → DB YUdt9vzlWCM seg1#8 夜もすがら君想ふ
+  2023/02/04 wiki@(無連結)#9 Subtitle → DB YUdt9vzlWCM seg1#9 Subtitle
+  2023/02/04 wiki@(無連結)#10 心做し → DB YUdt9vzlWCM seg1#10 心做し
+  2023/02/04 wiki@(無連結)#11 バレンタイン・キッス → DB YUdt9vzlWCM seg1#11 バレンタイン・キッス
+  2023/02/04 wiki@(無連結)#12 新時代 → DB YUdt9vzlWCM seg1#12 新時代
+  2023/02/04 wiki@(無連結)#13 PEACH → DB YUdt9vzlWCM seg1#13 PEACH
+  2023/02/04 wiki@(無連結)#14 Catch the Moment → DB YUdt9vzlWCM seg1#14 Catch the Moment
+  2023/02/04 wiki@(無連結)#15 可愛くてごめん → DB YUdt9vzlWCM seg1#15 可愛くてごめん
+  2023/02/04 wiki@(無連結)#16 群青 → DB YUdt9vzlWCM seg1#16 群青
+  2023/02/04 wiki@(無連結)#17 ギラギラ → DB YUdt9vzlWCM seg1#17 ギラギラ
+  2023/02/04 wiki@(無連結)#18 HOT LIMIT → DB YUdt9vzlWCM seg1#18 HOT LIMIT
+  2023/02/04 wiki@(無連結)#19 ガーネット → DB YUdt9vzlWCM seg1#19 ガーネット
+  2023/02/04 wiki@(無連結)#20 青春コンプレックス → DB YUdt9vzlWCM seg1#20 青春コンプレックス
+  2023/01/30 wiki@(無連結)#1 Best Friend → DB EVHOgoFOKX0 seg1#1 Best Friend
+  2023/01/30 wiki@(無連結)#2 ヒトツボシ → DB EVHOgoFOKX0 seg1#2 ヒトツボシ
+  2023/01/30 wiki@(無連結)#3 Subtitle → DB EVHOgoFOKX0 seg1#3 Subtitle
+  2023/01/30 wiki@(無連結)#4 Time goes by → DB EVHOgoFOKX0 seg1#4 Time goes by
+  2023/01/30 wiki@(無連結)#5 キラキラ → DB EVHOgoFOKX0 seg1#5 キラキラ
+  2023/01/30 wiki@(無連結)#6 I can't stop my love for you♥ → DB EVHOgoFOKX0 seg1#6 I can't stop my love for you♥
+  2023/01/30 wiki@(無連結)#7 祝福 → DB EVHOgoFOKX0 seg1#7 祝福
+  2023/01/30 wiki@(無連結)#8 花に亡霊 → DB EVHOgoFOKX0 seg1#8 花に亡霊
+  2023/01/30 wiki@(無連結)#9 あなたがいることで → DB EVHOgoFOKX0 seg1#9 あなたがいることで
+  2023/01/30 wiki@(無連結)#10 115万キロのフィルム → DB EVHOgoFOKX0 seg1#10 115万キロのフィルム
+  2023/01/30 wiki@(無連結)#11 奏 → DB EVHOgoFOKX0 seg1#11 奏(かなで)
+  2023/01/30 wiki@(無連結)#12 君の知らない物語 → DB EVHOgoFOKX0 seg1#12 君の知らない物語
+  2023/01/30 wiki@(無連結)#13 アイのシナリオ → DB EVHOgoFOKX0 seg1#13 アイのシナリオ
+  2023/01/30 wiki@(無連結)#14 フリージア → DB EVHOgoFOKX0 seg1#14 フリージア
+  2023/01/30 wiki@(無連結)#15 虹 → DB EVHOgoFOKX0 seg1#15 虹
+  2023/01/30 wiki@(無連結)#16 ユメセカイ → DB EVHOgoFOKX0 seg1#16 ユメセカイ
+  2023/01/30 wiki@(無連結)#17 crossing field → DB EVHOgoFOKX0 seg1#17 crossing field
+  2023/01/30 wiki@(無連結)#18 コネクト → DB EVHOgoFOKX0 seg1#18 コネクト
+  2023/01/30 wiki@(無連結)#19 Pretender → DB EVHOgoFOKX0 seg1#19 Pretender
+  2023/01/30 wiki@(無連結)#20 ひまわりの約束 → DB EVHOgoFOKX0 seg1#20 ひまわりの約束
+  2023/01/30 wiki@(無連結)#21 ドライフラワー → DB EVHOgoFOKX0 seg1#21 ドライフラワー
+  2023/01/30 wiki@(無連結)#22 いけないボーダーライン → DB EVHOgoFOKX0 seg1#22 いけないボーダーライン
+  2023/01/30 wiki@(無連結)#23 愛・おぼえていますか → DB EVHOgoFOKX0 seg1#23 愛・おぼえていますか
+  2023/01/30 wiki@(無連結)#24 サイハテ → DB EVHOgoFOKX0 seg1#24 サイハテ
+  2023/01/30 wiki@(無連結)#25 心が、青い。 → DB EVHOgoFOKX0 seg1#25 心が、青い。
+  2022/06/15 wiki@(無連結)#1 天城越え → DB js0DFgmhojw seg1#17 天城越え
+  2022/06/15 wiki@(無連結)#2 心做し → DB js0DFgmhojw seg1#18 心做し
+  2022/06/15 wiki@(無連結)#3 うたかた花火 → DB js0DFgmhojw seg1#19 うたかた花火
+  2022/06/15 wiki@(無連結)#4 三日月 → DB js0DFgmhojw seg1#20 三日月
+  2022/06/16 wiki@(無連結)#1 初めての恋が終わる時 → DB js0DFgmhojw seg1#21 初めての恋が終わる時
+  2022/06/16 wiki@(無連結)#2 ユメセカイ → DB js0DFgmhojw seg1#22 ユメセカイ
+  2022/06/16 wiki@(無連結)#3 粉雪 → DB js0DFgmhojw seg1#23 粉雪
+  2022/06/16 wiki@(無連結)#4 金魚花火 → DB js0DFgmhojw seg1#24 金魚花火
+  2022/06/16 wiki@(無連結)#5 クラゲ、流れ星 → DB js0DFgmhojw seg1#25 クラゲ、流れ星
+  2022/06/16 wiki@(無連結)#6 虹 → DB js0DFgmhojw seg1#26 虹
+  2022/06/16 wiki@(無連結)#7 猫 → DB js0DFgmhojw seg1#27 猫
+  2022/06/16 wiki@(無連結)#8 Lemon → DB js0DFgmhojw seg1#28 Lemon
+  2022/06/16 wiki@(無連結)#9 フリージア → DB js0DFgmhojw seg1#29 フリージア
+  2022/06/16 wiki@(無連結)#10 Wishing → DB js0DFgmhojw seg1#30 Wishing
+  2022/06/16 wiki@(無連結)#11 世界に一つだけの花 → DB js0DFgmhojw seg1#31 世界に一つだけの花
+
+================================================================================
+【最終 DB 有、wiki 沒有】 2 筆（多半是 wiki 漏記，供參考）
+================================================================================
+  2021/03/06 hWWwIoQLBWg seg1#14  ひまわりの約束 (songID=651)
+  2020/12/19 NsPoTJoxgYE seg1#13  U&I (songID=822)
