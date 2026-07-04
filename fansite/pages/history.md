@@ -12,6 +12,7 @@
 
 ## 2025
 * 2025/12/20　Single 『いつも通りのI love you』[youtube](https://www.youtube.com/watch?v=4kQH6ELDJ8Q) / [booth](https://maisakiberry.booth.pm/items/7776451)
+* 2025/12/14　チャンネル登録130,000人
 * 2025/11/30　Single 『季節の歩幅』[youtube](https://www.youtube.com/watch?v=zqyrT6ONh_c) / [booth](https://maisakiberry.booth.pm/items/7707663)
 * 2025/10/31　Single 『Happy, Likey』[youtube](https://www.youtube.com/watch?v=htpuXviUngU) / [booth](https://maisakiberry.booth.pm/items/7599259)
 * 2025/10/26　[9th Album 『Lucisphere』 発売](https://www.maisakiberry.com/9th-lucisphere)
@@ -40,7 +41,9 @@
 * 2025/04/13　[「Rock on V」 出演](https://x.com/MaisakiBerry/status/1886013630392811976)
 * 2025/03/30　Single 『虹の向こう側』[youtube](https://www.youtube.com/watch?v=uJMo_6VWbNU) / [booth](https://maisakiberry.booth.pm/items/6749581)
 * 2025/03/17　[べりぃぬいぐるみ発売決定](https://booth.pm/ja/items/6701348)
+* 2025/03/10　[TBSラジオ「City Chill Club」深夜の推薦曲に「キャンドルトーチ」選出](https://x.com/MaisakiBerry/status/1897592501067804777)
 * 2025/02/14　Single 『Tasting my love！』[youtube](https://www.youtube.com/watch?v=0oiLP4U35wU) / [booth](https://maisakiberry.booth.pm/items/6590835)
+* 2025/02/08　LSCM Records新曲「キャンドルトーチ」ボーカル＆MV公開 [twitter](https://x.com/MaisakiBerry/status/1888181289045443014) / [youtube](https://youtu.be/YKRljPqm3YE)
 * 2025/01/29　Single 『かくれんぼ』[youtube](https://www.youtube.com/watch?v=NnlmnMSXIks) / [booth](https://maisakiberry.booth.pm/items/6535210)
 * 2025/01/28　[12ヶ月連続！オリジナル楽曲リリースチャレンジ！](https://x.com/MaisakiBerry/status/1884376072512495625)
 * 2025/01/20　[2Dの新衣装のお披露目Live](https://www.youtube.com/watch?v=s8xse8ghpTw)
