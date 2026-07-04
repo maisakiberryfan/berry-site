@@ -1,8 +1,8 @@
 {
-  "time": "2026-03-22T13:19:39+08:00",
+  "time": "2026-07-04T23:52:56+08:00",
   "msg": {
-    "zh": "- 歌單中，歌曲加入在影片的開始與結束時間，並使用按鈕進行顯示\n- Streamlist 新增右鍵查看歌單功能",
-    "en": "- Added song start and end times in setlist, with a toggle button to show/hide\n- Added right-click \"View Setlist\" option in Streamlist",
-    "ja": "- セットリストに曲の開始・終了時間を追加、ボタンで表示切替が可能に\n- Streamlistに右クリックでセットリスト表示機能を追加"
+    "zh": "衣裝頁新增「3D にゃんにゃん衣装」（2026/06/11 お披露目）",
+    "en": "Added the new 3D Nyan-Nyan outfit (unveiled 2026/06/11) to the Clothes page",
+    "ja": "衣装ページに「3Dにゃんにゃん衣装」（2026/06/11お披露目）を追加"
   }
 }
