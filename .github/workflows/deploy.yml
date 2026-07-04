@@ -98,13 +98,20 @@ jobs:
             --exclude "package-lock.json" \
             --exclude "*.scss" \
             --exclude "*.html" \
+            --exclude "*.htm" \
+            --exclude "*.md" \
+            --exclude "nav.json" \
             --exclude "config.js" \
             --exclude "changelog.json"
+          # 內容檔案用 no-cache（瀏覽器每次 revalidate，304 極快）；不用 --size-only
+          # 以免同大小的內容變更被跳過（此組皆為小檔案，全量比對成本可忽略）
           aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
-            --size-only \
             --cache-control "no-cache, must-revalidate" \
             --exclude "*" \
             --include "*.html" \
+            --include "*.htm" \
+            --include "*.md" \
+            --include "nav.json" \
             --include "config.js" \
             --include "changelog.json" \
             --exclude "node_modules/*"
@@ -112,9 +119,10 @@ jobs:
       # Invalidate CloudFront cache for updated files
       - name: Invalidate CloudFront
         run: |
+          # 全路徑 invalidation：1 path/次（免費額度 1000/月），避免再有「新目錄忘了加清單」的遺漏
           aws cloudfront create-invalidation \
             --distribution-id ${{ steps.stack.outputs.cf_dist }} \
-            --paths "/*.html" "/config.js" "/changelog.json" "/assets/*"
+            --paths "/*"
 
   # 獨立 SAM stack：歌單模糊比對 Lambda（lambda/setlist-matcher）
   # 只在 matcher 或本 workflow 變更時部署
