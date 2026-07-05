@@ -20,7 +20,8 @@ if (!['mbdb', 'mbdb_test'].includes(DB)) {
   process.exit(1)
 }
 
-const PLAN_FILE = 'e:/tmp/endtime_backfill_plan.json'
+const planArg = process.argv.find(a => a.startsWith('--plan='))
+const PLAN_FILE = planArg ? planArg.split('=')[1] : 'e:/tmp/endtime_backfill_plan.json'
 const { plan, summary, generated } = JSON.parse(fs.readFileSync(PLAN_FILE, 'utf8'))
 console.log(`計畫: ${PLAN_FILE}（產出於 ${generated}）`)
 console.log(`目標 DB: ${DB}${DB === 'mbdb_test' ? '（演練）' : '（正式）'}`)
