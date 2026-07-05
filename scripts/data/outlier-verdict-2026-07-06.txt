@@ -1,0 +1,222 @@
+outlier 音訊裁決 — 85 筆已測
+兩端吻合（記錄正確，結案）: 54
+有可疑端（建議修正）: 31
+
+==========================================================================================
+【修正建議】記錄值 vs 偵測值（>30s 判可疑；修正會覆蓋既有資料，逐筆過目）
+==========================================================================================
+
+世界に一つだけの花  qwShk9BlFKQ seg1#11  (start可疑(+146s))
+  記錄: 95:12 ~ 100:21  (309s)   偵測: 97:38 ~ 100:18  diff start+145.5s / end-3s
+  confS=0.497 confE=0.782
+  → 建議 startTime: 5712 → 5858   驗證: https://www.youtube.com/watch?v=qwShk9BlFKQ&t=5858s
+
+晴る  ZM5QGzC_Nxo seg1#15  (start可疑(+136s))
+  記錄: 107:32 ~ 112:18  (286s)   偵測: 109:48 ~ 112:11  diff start+136s / end-7.5s
+  confS=0.258 confE=0.454
+  → 建議 startTime: 6452 → 6588   驗證: https://www.youtube.com/watch?v=ZM5QGzC_Nxo&t=6588s
+
+打上花火  mSW8udr7HBU seg1#1  (end可疑(-122s))
+  記錄: 3:06 ~ 7:25  (259s)   偵測: 2:51 ~ 5:23  diff start-15.5s / end-122s
+  confS=0.399 confE=0.174
+  → 建議 endTime: 445 → 323   驗證: https://www.youtube.com/watch?v=mSW8udr7HBU&t=323s
+
+春泥棒  -HtiLkMky18 seg1#4  (end可疑(-115s))
+  記錄: 44:43 ~ 49:55  (312s)   偵測: 44:54 ~ 48:00  diff start+11s / end-115s
+  confS=0.407 confE=0.264
+  → 建議 endTime: 2995 → 2880   驗證: https://www.youtube.com/watch?v=-HtiLkMky18&t=2880s
+
+おジャ魔女カーニバル!!  MdkpQGWPT3E seg1#8  (start可疑(-40s) end可疑(-108s))
+  記錄: 60:43 ~ 64:18  (215s)   偵測: 60:03 ~ 62:31  diff start-40.5s / end-107.5s
+  confS=0.406 confE=0.145
+  → 建議 startTime: 3643 → 3603   驗證: https://www.youtube.com/watch?v=MdkpQGWPT3E&t=3603s
+  → 建議 endTime: 3858 → 3751   驗證: https://www.youtube.com/watch?v=MdkpQGWPT3E&t=3751s
+
+SUNNY DAY SONG  rjD963YEr9s seg1#13  (start可疑(+88s))
+  記錄: 83:03 ~ 87:20  (257s)   偵測: 84:32 ~ 87:18  diff start+88.5s / end-2s
+  confS=0.155 confE=0.606
+  → 建議 startTime: 4983 → 5072   驗證: https://www.youtube.com/watch?v=rjD963YEr9s&t=5072s
+
+ウィーアー!  q7luWSH8Pj0 seg1#6  (start可疑(-71s))
+  記錄: 81:25 ~ 85:43  (258s)   偵測: 80:14 ~ ?  diff start-71s / end+nulls
+  confS=0.261 confE=0
+  → 建議 startTime: 4885 → 4814   驗證: https://www.youtube.com/watch?v=q7luWSH8Pj0&t=4814s
+
+花に赤い糸  aEJvkEArIKQ seg1#16  (start可疑(-71s))
+  記錄: 107:01 ~ 110:43  (222s)   偵測: 105:50 ~ 110:27  diff start-71s / end-16.5s
+  confS=0.822 confE=0.398
+  → 建議 startTime: 6421 → 6350   驗證: https://www.youtube.com/watch?v=aEJvkEArIKQ&t=6350s
+
+未来  uxl_7J96WKI seg1#17  (start可疑(-71s))
+  記錄: 81:37 ~ 86:58  (321s)   偵測: 80:26 ~ 86:46  diff start-71s / end-12s
+  confS=0.412 confE=0.43
+  → 建議 startTime: 4897 → 4826   驗證: https://www.youtube.com/watch?v=uxl_7J96WKI&t=4826s
+
+瞳をとじて  yhA3tGc7EbQ seg1#10  (start可疑(-70s) end可疑(+46s))
+  記錄: 88:47 ~ 94:34  (347s)   偵測: 87:37 ~ 95:20  diff start-70.5s / end+45.5s
+  confS=0.56 confE=0.339
+  → 建議 startTime: 5327 → 5257   驗證: https://www.youtube.com/watch?v=yhA3tGc7EbQ&t=5257s
+  → 建議 endTime: 5674 → 5720   驗證: https://www.youtube.com/watch?v=yhA3tGc7EbQ&t=5720s
+
+ありがとう  3XyjOkeArbA seg1#19  (start可疑(+64s))
+  記錄: 149:58 ~ 156:57  (419s)   偵測: 151:02 ~ 156:45  diff start+63.5s / end-12s
+  confS=0.277 confE=0.438
+  → 建議 startTime: 8998 → 9062   驗證: https://www.youtube.com/watch?v=3XyjOkeArbA&t=9062s
+
+トリセツ  PgOgP_UJYKw seg1#3  (start可疑(-60s))
+  記錄: 24:12 ~ 28:39  (267s)   偵測: 23:13 ~ 28:45  diff start-59.5s / end+5.5s
+  confS=0.107 confE=0.582
+  → 建議 startTime: 1452 → 1393   驗證: https://www.youtube.com/watch?v=PgOgP_UJYKw&t=1393s
+
+夜に駆ける  MymHcZ6a29o seg1#2  (end可疑(+59s))
+  記錄: 18:57 ~ 23:07  (250s)   偵測: 19:03 ~ 24:06  diff start+5.5s / end+59s
+  confS=1.055 confE=0.468
+  → 建議 endTime: 1387 → 1446   驗證: https://www.youtube.com/watch?v=MymHcZ6a29o&t=1446s
+
+ヒトリゴト  4eBbbpqWb34 seg1#8  (end可疑(+52s))
+  記錄: 66:41 ~ 70:03  (202s)   偵測: 66:28 ~ 70:55  diff start-13.5s / end+52s
+  confS=0.196 confE=0.718
+  → 建議 endTime: 4203 → 4255   驗證: https://www.youtube.com/watch?v=4eBbbpqWb34&t=4255s
+
+同担☆拒否  fGHQHRjXDLo seg1#3  (start可疑(+50s))
+  記錄: 23:09 ~ 27:42  (273s)   偵測: 23:00 ~ 27:31  diff start+50.5s / end-11s
+  confS=0.197 confE=0.472
+  → 建議 startTime: 1389 → 1440   驗證: https://www.youtube.com/watch?v=fGHQHRjXDLo&t=1440s
+
+ジングルベル  J_IOIckEb14 seg1#3  (end可疑(+50s))
+  記錄: 34:35 ~ 36:29  (114s)   偵測: 34:53 ~ 37:19  diff start+18s / end+50s
+  confS=0.447 confE=0.305
+  → 建議 endTime: 2189 → 2239   驗證: https://www.youtube.com/watch?v=J_IOIckEb14&t=2239s
+
+ダダダダ天使  v2a6XxSLF_0 seg1#15  (start可疑(+50s))
+  記錄: 93:09 ~ 97:02  (233s)   偵測: 93:59 ~ 96:51  diff start+49.5s / end-11.5s
+  confS=0.159 confE=0.454
+  → 建議 startTime: 5589 → 5639   驗證: https://www.youtube.com/watch?v=v2a6XxSLF_0&t=5639s
+
+KissHug  lXR1ZKi-E9c seg1#11  (start可疑(+48s))
+  記錄: 85:02 ~ 91:28  (386s)   偵測: 85:51 ~ 91:23  diff start+48.5s / end-5s
+  confS=0.159 confE=0.794
+  → 建議 startTime: 5102 → 5151   驗證: https://www.youtube.com/watch?v=lXR1ZKi-E9c&t=5151s
+
+FEELING AROUND  ERk8mXLE6UY seg1#10  (end可疑(+48s))
+  記錄: 82:18 ~ 86:28  (250s)   偵測: 82:42 ~ 87:17  diff start+23.5s / end+48.5s
+  confS=0.7 confE=0.143
+  → 建議 endTime: 5188 → 5237   驗證: https://www.youtube.com/watch?v=ERk8mXLE6UY&t=5237s
+
+名前のない怪物  3KmSIILrjXk seg1#8  (end可疑(-48s))
+  記錄: 66:28 ~ 72:34  (366s)   偵測: 66:29 ~ 71:46  diff start+1s / end-48s
+  confS=0.505 confE=0.234
+  → 建議 endTime: 4354 → 4306   驗證: https://www.youtube.com/watch?v=3KmSIILrjXk&t=4306s
+
+そばかす  tW7JIZcx5J8 seg1#15  (start可疑(+46s))
+  記錄: 105:57 ~ 110:50  (293s)   偵測: 106:43 ~ 110:37  diff start+45.5s / end-13s
+  confS=0.41 confE=0.636
+  → 建議 startTime: 6357 → 6403   驗證: https://www.youtube.com/watch?v=tW7JIZcx5J8&t=6403s
+
+ハルノヒ  ksOXpzMdD7Q seg1#3  (end可疑(-46s))
+  記錄: 34:09 ~ 39:40  (331s)   偵測: 34:04 ~ 38:55  diff start-5s / end-45.5s
+  confS=0.619 confE=0.177
+  → 建議 endTime: 2380 → 2335   驗證: https://www.youtube.com/watch?v=ksOXpzMdD7Q&t=2335s
+
+竈門炭治郎のうた  WHclPvp6PJQ seg1#3  (start可疑(+44s))
+  記錄: 38:36 ~ 44:24  (348s)   偵測: 39:21 ~ 44:14  diff start+44.5s / end-10.5s
+  confS=0.426 confE=0.602
+  → 建議 startTime: 2316 → 2361   驗證: https://www.youtube.com/watch?v=WHclPvp6PJQ&t=2361s
+
+大好きだよ。  EutC-F8Tse4 seg1#9  (start可疑(-43s))
+  記錄: 81:41 ~ 85:10  (209s)   偵測: 80:58 ~ ?  diff start-43s / end+nulls
+  confS=0.077 confE=0
+  → 建議 startTime: 4901 → 4858   驗證: https://www.youtube.com/watch?v=EutC-F8Tse4&t=4858s
+
+366日  2fUTpPtVIEs seg1#5  (start可疑(-42s))
+  記錄: 39:18 ~ 44:51  (333s)   偵測: 38:36 ~ ?  diff start-42.5s / end+nulls
+  confS=0.133 confE=0
+  → 建議 startTime: 2358 → 2316   驗證: https://www.youtube.com/watch?v=2fUTpPtVIEs&t=2316s
+
+Time goes by  CVgjUAz7Vpg seg1#13  (start可疑(+40s))
+  記錄: 85:51 ~ 91:30  (339s)   偵測: 86:31 ~ 91:35  diff start+39.5s / end+4.5s
+  confS=0.476 confE=0.498
+  → 建議 startTime: 5151 → 5191   驗證: https://www.youtube.com/watch?v=CVgjUAz7Vpg&t=5191s
+
+はちゃめちゃわちゃライフ！  sPYPxU3SWR0 seg1#3  (start可疑(+40s))
+  記錄: 23:53 ~ 28:25  (272s)   偵測: 24:33 ~ 28:17  diff start+39.5s / end-8.5s
+  confS=0.444 confE=0.342
+  → 建議 startTime: 1433 → 1473   驗證: https://www.youtube.com/watch?v=sPYPxU3SWR0&t=1473s
+
+ふでペン ～ボールペン～  s_VpsRb34mo seg1#6  (start可疑(-38s))
+  記錄: 51:31 ~ 55:50  (259s)   偵測: 50:54 ~ 55:48  diff start-37.5s / end-2.5s
+  confS=0.383 confE=0.357
+  → 建議 startTime: 3091 → 3054   驗證: https://www.youtube.com/watch?v=s_VpsRb34mo&t=3054s
+
+僕らの戦場  lfPDD4Ae1xo seg1#16  (end可疑(+34s))
+  記錄: 122:02 ~ 125:22  (200s)   偵測: 121:57 ~ 125:56  diff start-5.5s / end+33.5s
+  confS=0.459 confE=0.332
+  → 建議 endTime: 7522 → 7556   驗證: https://www.youtube.com/watch?v=lfPDD4Ae1xo&t=7556s
+
+Shoot!  ukkqGAh_kdc seg1#75  (start可疑(+32s))
+  記錄: 411:08 ~ 415:38  (270s)   偵測: 411:40 ~ 415:24  diff start+32s / end-14s
+  confS=0.468 confE=0.352
+  → 建議 startTime: 24668 → 24700   驗證: https://www.youtube.com/watch?v=ukkqGAh_kdc&t=24700s
+
+Time goes by  qKG0MIBc6F4 seg1#12  (start可疑(+30s))
+  記錄: 101:41 ~ 106:30  (289s)   偵測: 102:12 ~ 106:26  diff start+30.5s / end-4s
+  confS=0.247 confE=0.835
+  → 建議 startTime: 6101 → 6132   驗證: https://www.youtube.com/watch?v=qKG0MIBc6F4&t=6132s
+
+==========================================================================================
+【兩端吻合結案】54 筆（該場真的唱得偏短/長，記錄無誤）
+==========================================================================================
+  n08-5lSjBc0 seg1#2  ALIVE～祈りの唄～  diff s+14.5/e+null
+  Cs_bcr4mYSU seg1#18  unlasting  diff s+0/e-19.5
+  haQ7-mFKSio seg1#77  ありがとう  diff s-21/e+15
+  bAPyHdL4GOE seg1#20  愛してるばんざーい!  diff s-0.5/e-14.5
+  lfPDD4Ae1xo seg1#19  愛してるばんざーい!  diff s+8.5/e+null
+  lWO0nWkAe9Y seg1#5  Yeah! めっちゃホリディ  diff s+9/e-21
+  Jd1-YX1wGdg seg1#2  いつも何度でも  diff s+4.5/e-9.5
+  ZBZKwp8h7Ak seg1#1  いつも何度でも  diff s+7/e-2.5
+  ODW2Ye7rfSg seg1#14  一度だけの恋なら  diff s+14.5/e+null
+  oVINbDvIuVw seg1#1  M  diff s+5/e-6
+  QJg9Xo5FnHA seg1#10  Overfly  diff s+6/e+null
+  svCuFVnFFmc seg1#3  カブトムシ  diff s+3/e-7
+  EdC3rGcaXgA seg1#13  カラフル。  diff s-4.5/e+null
+  nNxTvF-ze6s seg1#18  キラキラ  diff s+7/e-25.5
+  MVH4BCPbo6w seg1#19  黒毛和牛上塩タン焼735円  diff s+1.5/e+null
+  zUsEyybKJ8A seg1#21  恋  diff s+1/e-2.5
+  SKbr8Q6BoQw seg1#11  サヨナラノツバサ ～ the end of tr  diff s+22.5/e-9
+  N1ul0Aeo7FY seg1#8  最悪な日でもあなたが好き。  diff s+9/e-12.5
+  CbEB1sJH9xU seg1#5  三原色  diff s-6.5/e-12.5
+  gqewO0F-aGw seg1#10  三原色  diff s-22.5/e-5.5
+  CbEB1sJH9xU seg1#11  SHOOT!  diff s-10/e-6.5
+  svCuFVnFFmc seg1#12  心拍数#0822  diff s-15.5/e-10.5
+  9Kc_2HrAcp4 seg1#19  GIRAFFE BLUES  diff s+14/e-14.5
+  YFx5eJYT_Cs seg1#1  それを愛と呼ぶなら  diff s-18.5/e-6.5
+  HRgBLXAqFag seg1#6  CHE.R.RY  diff s+0/e-5
+  wHFEBlfG7dA seg1#4  超最強  diff s+11.5/e-8
+  HUSRRBJ9rug seg1#2  トライアングラー  diff s+4.5/e-12
+  -U93qnDCTKg seg1#12  時の流れに身をまかせ  diff s+7/e-3.5
+  kvuktpG0wMI seg1#1  NewWorld!!  diff s+10.5/e+11
+  mDkaLJ852kA seg1#15  ハッピーエンド  diff s+3/e-9
+  joEltch0OPc seg1#13  ハナミズキ  diff s+10/e-3.5
+  oVINbDvIuVw seg1#12  ハナミズキ  diff s+2/e-8.5
+  opsaP4IiX_E seg1#7  白日  diff s+10.5/e-3.5
+  aEJvkEArIKQ seg1#14  半永久的に愛してよ♡  diff s+13.5/e-23
+  Wy_VNv2pAnU seg1#19  ひぐらしのなく頃に  diff s+13/e+3
+  HAGkISR9tok seg1#4  ヒッチコック  diff s+7/e+23
+  oX5ME7FsllA seg1#15  光るなら  diff s+11.5/e-2
+  PIBs-nPwRos seg1#2  冬のうた  diff s-3/e-9.5
+  ycjlZv6HA5A seg1#20  Pretender  diff s+6.5/e-5
+  RXDk2Q7vDuo seg1#5  プロローグ  diff s+22.5/e+1
+  ukkqGAh_kdc seg1#1  Berry nice!!  diff s+9.5/e-26
+  Jd1-YX1wGdg seg1#9  ベテルギウス  diff s+15/e-6.5
+  NNZErosM_zg seg1#45  別の人の彼女になったよ  diff s-12/e-14.5
+  61TdPwpqekc seg1#10  星へ伸ばす手  diff s+6/e-25
+  _Yo0Cc_yYOc seg1#11  ポケット  diff s+9.5/e-18
+  9Kc_2HrAcp4 seg1#11  マジックナンバー  diff s-16/e-7
+  qWShn_n79e8 seg1#8  メンヘラじゃないもん！  diff s+9/e-3
+  Jd1-YX1wGdg seg1#14  雪の華  diff s+3/e-6.5
+  eQLA-MiaFDM seg1#12  ライオン  diff s+6.5/e-9
+  2fUTpPtVIEs seg1#1  ラストディーヴァと光の歌  diff s+6.5/e-16
+  aEJvkEArIKQ seg1#9  ループ  diff s+4/e-10
+  K9DcFkV-IC0 seg1#9  Legend of Mermaid  diff s+11/e-4
+  BkOVsjB0dHE seg1#11  恋愛サーキュレーション  diff s+10/e+null
+  N1ul0Aeo7FY seg1#13  ロケットビート  diff s-15.5/e-12

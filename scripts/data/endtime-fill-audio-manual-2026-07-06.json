@@ -1,0 +1,1465 @@
+{
+ "generated": "2026-07-06",
+ "plan": [
+  {
+   "streamID": "0W-LiA6BWLU",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 880,
+   "songName": "ルンがピカッと光ったら",
+   "startTime": 1939,
+   "endTime": 2034,
+   "source": "audio-detect(conf=1.126,short)"
+  },
+  {
+   "streamID": "bw3NBDya-5Q",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 675,
+   "songName": "FEELING AROUND",
+   "startTime": 4925,
+   "endTime": 5012,
+   "source": "audio-detect(conf=0.735,short)"
+  },
+  {
+   "streamID": "5NKArkzcKP0",
+   "segmentNo": 1,
+   "trackNo": 15,
+   "songID": 332,
+   "songName": "サンタと天使が笑う夜",
+   "startTime": 5765,
+   "endTime": 6000,
+   "source": "audio-detect(conf=0.668)"
+  },
+  {
+   "streamID": "D1N2fNAgZ9U",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 592,
+   "songName": "Happy Girl",
+   "startTime": 2447,
+   "endTime": 2534,
+   "source": "audio-detect(conf=0.73,short)"
+  },
+  {
+   "streamID": "D1N2fNAgZ9U",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 256,
+   "songName": "Glossy:MMM",
+   "startTime": 2628,
+   "endTime": 2722,
+   "source": "audio-detect(conf=0.711,short)"
+  },
+  {
+   "streamID": "T_RgvON2YYM",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 824,
+   "songName": "you",
+   "startTime": 743,
+   "endTime": 891,
+   "source": "audio-detect(conf=0.488,short)"
+  },
+  {
+   "streamID": "1KZkIpDqheE",
+   "segmentNo": 1,
+   "trackNo": 12,
+   "songID": 166,
+   "songName": "かくしん的☆めたまるふぉ～ぜっ!",
+   "startTime": 4357,
+   "endTime": 4446,
+   "source": "audio-detect(conf=0.764,short)"
+  },
+  {
+   "streamID": "1KZkIpDqheE",
+   "segmentNo": 1,
+   "trackNo": 22,
+   "songID": 681,
+   "songName": "ふ・れ・ん・ど・し・た・い",
+   "startTime": 8086,
+   "endTime": 8171,
+   "source": "audio-detect(conf=0.559,short)"
+  },
+  {
+   "streamID": "1KZkIpDqheE",
+   "segmentNo": 1,
+   "trackNo": 23,
+   "songID": 742,
+   "songName": "ぼなぺてぃーと♡S",
+   "startTime": 8246,
+   "endTime": 8332,
+   "source": "audio-detect(conf=0.791,short)"
+  },
+  {
+   "streamID": "jiFDl3TgV1A",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 598,
+   "songName": "Honey",
+   "startTime": 777,
+   "endTime": 925,
+   "source": "audio-detect(conf=0.307,short)"
+  },
+  {
+   "streamID": "5GV1w_GnMgU",
+   "segmentNo": 1,
+   "trackNo": 38,
+   "songID": 824,
+   "songName": "you",
+   "startTime": 15815,
+   "endTime": 16096,
+   "source": "audio-detect(conf=0.567)"
+  },
+  {
+   "streamID": "Nd50pWE0p-E",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 675,
+   "songName": "FEELING AROUND",
+   "startTime": 4186,
+   "endTime": 4276,
+   "source": "audio-detect(conf=0.551,short)"
+  },
+  {
+   "streamID": "SEeDklKRt9M",
+   "segmentNo": 1,
+   "trackNo": 18,
+   "songID": 681,
+   "songName": "ふ・れ・ん・ど・し・た・い",
+   "startTime": 6612,
+   "endTime": 6704,
+   "source": "audio-detect(conf=0.407,short)"
+  },
+  {
+   "streamID": "Q4nHOeY9Up0",
+   "segmentNo": 1,
+   "trackNo": 47,
+   "songID": 600,
+   "songName": "はじめてのチュウ",
+   "startTime": 15103,
+   "endTime": 15315,
+   "source": "audio-detect(conf=0.163)"
+  },
+  {
+   "streamID": "GjH8M8FLd6I",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 592,
+   "songName": "Happy Girl",
+   "startTime": 3557,
+   "endTime": 3646,
+   "source": "audio-detect(conf=0.709,short)"
+  },
+  {
+   "streamID": "0PWgDlP9TRU",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 910,
+   "songName": "ワルキューレはあきらめない",
+   "startTime": 6215,
+   "endTime": 6309,
+   "source": "audio-detect(conf=0.164,short)"
+  },
+  {
+   "streamID": "3eJUavDwf6w",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 225,
+   "songName": "気分上々↑↑",
+   "startTime": 3541,
+   "endTime": 3616,
+   "source": "audio-detect(conf=0.678,short)"
+  },
+  {
+   "streamID": "kbMigoCQeAA",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 681,
+   "songName": "ふ・れ・ん・ど・し・た・い",
+   "startTime": 2648,
+   "endTime": 2824,
+   "source": "audio-detect(conf=0.603)"
+  },
+  {
+   "streamID": "MGvQHicm9LQ",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 2936,
+   "endTime": 3153,
+   "source": "audio-detect(conf=0.666)"
+  },
+  {
+   "streamID": "MGvQHicm9LQ",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 888,
+   "songName": "Let's go!スマイルプリキュア!",
+   "startTime": 3279,
+   "endTime": 3490,
+   "source": "audio-detect(conf=0.617)"
+  },
+  {
+   "streamID": "mdB3NZYs1lo",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 181,
+   "songName": "火葬曲",
+   "startTime": 2882,
+   "endTime": 3160,
+   "source": "audio-detect(conf=0.863)"
+  },
+  {
+   "streamID": "Yc-pvP2youQ",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 1102,
+   "endTime": 1316,
+   "source": "audio-detect(conf=0.663)"
+  },
+  {
+   "streamID": "-fYnUDw9z8c",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 904,
+   "songName": "1 2 3 ～恋がはじまる～",
+   "startTime": 1123,
+   "endTime": 1406,
+   "source": "audio-detect(conf=0.841)"
+  },
+  {
+   "streamID": "-fYnUDw9z8c",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 866,
+   "songName": "ラ♪ラ♪ラ♪スイートプリキュア♪",
+   "startTime": 3559,
+   "endTime": 3755,
+   "source": "audio-detect(conf=0.637)"
+  },
+  {
+   "streamID": "-fYnUDw9z8c",
+   "segmentNo": 1,
+   "trackNo": 17,
+   "songID": 218,
+   "songName": "きよしのズンドコ節",
+   "startTime": 6683,
+   "endTime": 6887,
+   "source": "audio-detect(conf=0.663)"
+  },
+  {
+   "streamID": "MPJDOZyAc5M",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 692,
+   "songName": "フレンジャー",
+   "startTime": 1681,
+   "endTime": 1965,
+   "source": "audio-detect(conf=0.767)"
+  },
+  {
+   "streamID": "MPJDOZyAc5M",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 82,
+   "songName": "イェイ!イェイ!イェイ!",
+   "startTime": 1999,
+   "endTime": 2226,
+   "source": "audio-detect(conf=0.739)"
+  },
+  {
+   "streamID": "MPJDOZyAc5M",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 422,
+   "songName": "セーラー服と機関銃",
+   "startTime": 2612,
+   "endTime": 2694,
+   "source": "audio-detect(conf=0.184,short)"
+  },
+  {
+   "streamID": "1qmzGIKMnOY",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 770,
+   "songName": "魔法戦隊マジレンジャー",
+   "startTime": 2962,
+   "endTime": 3261,
+   "source": "audio-detect(conf=0.598)"
+  },
+  {
+   "streamID": "1qmzGIKMnOY",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 888,
+   "songName": "Let's go!スマイルプリキュア!",
+   "startTime": 3417,
+   "endTime": 3622,
+   "source": "audio-detect(conf=0.81)"
+  },
+  {
+   "streamID": "UL-nsyLI430",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 92,
+   "songName": "以心電信",
+   "startTime": 3545,
+   "endTime": 3759,
+   "source": "audio-detect(conf=0.618)"
+  },
+  {
+   "streamID": "l4sTNgBHiLQ",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 2615,
+   "endTime": 2832,
+   "source": "audio-detect(conf=0.587)"
+  },
+  {
+   "streamID": "NsPoTJoxgYE",
+   "segmentNo": 1,
+   "trackNo": 33,
+   "songID": 230,
+   "songName": "君ノ記憶",
+   "startTime": 12441,
+   "endTime": 12529,
+   "source": "audio-detect(conf=1.119,short)"
+  },
+  {
+   "streamID": "5NKArkzcKP0",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 299,
+   "songName": "恋人がサンタクロース",
+   "startTime": 2010,
+   "endTime": 2321,
+   "source": "audio-detect(conf=0.761)"
+  },
+  {
+   "streamID": "D1N2fNAgZ9U",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 127,
+   "songName": "え？あぁ、そう。",
+   "startTime": 3225,
+   "endTime": 3418,
+   "source": "audio-detect(conf=1.146)"
+  },
+  {
+   "streamID": "ltafbQmf0FA",
+   "segmentNo": 1,
+   "trackNo": 14,
+   "songID": 818,
+   "songName": "やさしさで溢れるように",
+   "startTime": 6126,
+   "endTime": 6406,
+   "source": "audio-detect(conf=0.851)"
+  },
+  {
+   "streamID": "ltafbQmf0FA",
+   "segmentNo": 1,
+   "trackNo": 20,
+   "songID": 215,
+   "songName": "キャンディ・キャンディ",
+   "startTime": 8458,
+   "endTime": 8655,
+   "source": "audio-detect(conf=0.894)"
+  },
+  {
+   "streamID": "ltafbQmf0FA",
+   "segmentNo": 1,
+   "trackNo": 24,
+   "songID": 176,
+   "songName": "カントリー・ロード",
+   "startTime": 9907,
+   "endTime": 10129,
+   "source": "audio-detect(conf=1.095)"
+  },
+  {
+   "streamID": "ltafbQmf0FA",
+   "segmentNo": 1,
+   "trackNo": 25,
+   "songID": 23,
+   "songName": "アゲハ蝶",
+   "startTime": 10218,
+   "endTime": 10489,
+   "source": "audio-detect(conf=0.811)"
+  },
+  {
+   "streamID": "AHomzXlgjCI",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 422,
+   "songName": "セーラー服と機関銃",
+   "startTime": 5570,
+   "endTime": 5822,
+   "source": "audio-detect(conf=0.794)"
+  },
+  {
+   "streamID": "AHomzXlgjCI",
+   "segmentNo": 1,
+   "trackNo": 14,
+   "songID": 112,
+   "songName": "宇宙戦艦ヤマト",
+   "startTime": 5972,
+   "endTime": 6158,
+   "source": "audio-detect(conf=0.627)"
+  },
+  {
+   "streamID": "mOVsl2eVUaU",
+   "segmentNo": 1,
+   "trackNo": 3,
+   "songID": 796,
+   "songName": "結ンデ開イテ羅刹ト骸",
+   "startTime": 1567,
+   "endTime": 1912,
+   "source": "audio-detect(conf=0.551)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 371,
+   "songName": "瞬間センチメンタル",
+   "startTime": 3929,
+   "endTime": 4144,
+   "source": "audio-detect(conf=0.545)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 45,
+   "songID": 911,
+   "songName": "ワルキューレは裏切らない",
+   "startTime": 16067,
+   "endTime": 16114,
+   "source": "audio-detect(conf=0.156,short)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 55,
+   "songID": 222,
+   "songName": "キリトリセン",
+   "startTime": 20098,
+   "endTime": 20192,
+   "source": "audio-detect(conf=0.073,short)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 62,
+   "songID": 810,
+   "songName": "モザイクロール",
+   "startTime": 22344,
+   "endTime": 22522,
+   "source": "audio-detect(conf=0.676)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 65,
+   "songID": 89,
+   "songName": "いろは唄",
+   "startTime": 23309,
+   "endTime": 23548,
+   "source": "audio-detect(conf=0.559)"
+  },
+  {
+   "streamID": "lvhVDp8DL-4",
+   "segmentNo": 1,
+   "trackNo": 72,
+   "songID": 692,
+   "songName": "フレンジャー",
+   "startTime": 26143,
+   "endTime": 26358,
+   "source": "audio-detect(conf=0.511)"
+  },
+  {
+   "streamID": "Ujz2iw0G5b8",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 184,
+   "songName": "感電",
+   "startTime": 733,
+   "endTime": 984,
+   "source": "audio-detect(conf=0.733)"
+  },
+  {
+   "streamID": "Ujz2iw0G5b8",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 902,
+   "songName": "炉心融解",
+   "startTime": 3420,
+   "endTime": 3489,
+   "source": "audio-detect(conf=0.055,short)"
+  },
+  {
+   "streamID": "Ujz2iw0G5b8",
+   "segmentNo": 1,
+   "trackNo": 17,
+   "songID": 741,
+   "songName": "ぼくはくま",
+   "startTime": 6976,
+   "endTime": 7121,
+   "source": "audio-detect(conf=0.892,short)"
+  },
+  {
+   "streamID": "FlefQ-HoDxU",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 184,
+   "songName": "感電",
+   "startTime": 2088,
+   "endTime": 2346,
+   "source": "audio-detect(conf=0.802)"
+  },
+  {
+   "streamID": "FlefQ-HoDxU",
+   "segmentNo": 1,
+   "trackNo": 19,
+   "songID": 888,
+   "songName": "Let's go!スマイルプリキュア!",
+   "startTime": 8336,
+   "endTime": 8540,
+   "source": "audio-detect(conf=0.75)"
+  },
+  {
+   "streamID": "1KZkIpDqheE",
+   "segmentNo": 1,
+   "trackNo": 24,
+   "songID": 584,
+   "songName": "ノーポイッ！",
+   "startTime": 8392,
+   "endTime": 8480,
+   "source": "audio-detect(conf=0.563,short)"
+  },
+  {
+   "streamID": "2oIk6HWNrFg",
+   "segmentNo": 1,
+   "trackNo": 12,
+   "songID": 176,
+   "songName": "カントリー・ロード",
+   "startTime": 6722,
+   "endTime": 7038,
+   "source": "audio-detect(conf=0.425)"
+  },
+  {
+   "streamID": "ukOr3H8lzY8",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 282,
+   "songName": "香水",
+   "startTime": 5472,
+   "endTime": 5712,
+   "source": "audio-detect(conf=0.494)"
+  },
+  {
+   "streamID": "FK1_lo5dkj4",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 1128,
+   "endTime": 1450,
+   "source": "audio-detect(conf=0.459)"
+  },
+  {
+   "streamID": "FK1_lo5dkj4",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 35,
+   "songName": "アンパンマンのマーチ",
+   "startTime": 2445,
+   "endTime": 2601,
+   "source": "audio-detect(conf=0.506)"
+  },
+  {
+   "streamID": "FK1_lo5dkj4",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 109,
+   "songName": "うまるん体操",
+   "startTime": 3138,
+   "endTime": 3232,
+   "source": "audio-detect(conf=0.535,short)"
+  },
+  {
+   "streamID": "Dz-ZDKahEQQ",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 80,
+   "songName": "Yes! Party Time!!",
+   "startTime": 1269,
+   "endTime": 1310,
+   "source": "audio-detect(conf=0.071,short)"
+  },
+  {
+   "streamID": "hjIDzKAecXQ",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 35,
+   "songName": "アンパンマンのマーチ",
+   "startTime": 3165,
+   "endTime": 3324,
+   "source": "audio-detect(conf=0.307)"
+  },
+  {
+   "streamID": "N7u0NgpvbIQ",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 514,
+   "songName": "trick and treat",
+   "startTime": 4620,
+   "endTime": 4829,
+   "source": "audio-detect(conf=0.7)"
+  },
+  {
+   "streamID": "cl_NXi2R6Ps",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 587,
+   "songName": "HANABI",
+   "startTime": 3846,
+   "endTime": 4107,
+   "source": "audio-detect(conf=0.511)"
+  },
+  {
+   "streamID": "t0UiBtL4Pik",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 477,
+   "songName": "チカっとチカ千花っ♡",
+   "startTime": 2331,
+   "endTime": 2549,
+   "source": "audio-detect(conf=0.69)"
+  },
+  {
+   "streamID": "t0UiBtL4Pik",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 215,
+   "songName": "キャンディ・キャンディ",
+   "startTime": 2581,
+   "endTime": 2772,
+   "source": "audio-detect(conf=0.585)"
+  },
+  {
+   "streamID": "OmxwOa1AZcg",
+   "segmentNo": 1,
+   "trackNo": 3,
+   "songID": 24,
+   "songName": "アザトカワイイ",
+   "startTime": 1243,
+   "endTime": 1469,
+   "source": "audio-detect(conf=0.777)"
+  },
+  {
+   "streamID": "4ztyIJlz-VE",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 563,
+   "songName": "ニア",
+   "startTime": 4608,
+   "endTime": 4854,
+   "source": "audio-detect(conf=0.511)"
+  },
+  {
+   "streamID": "zQtYY6DeAdw",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 176,
+   "songName": "カントリー・ロード",
+   "startTime": 1644,
+   "endTime": 1716,
+   "source": "audio-detect(conf=0.805,short)"
+  },
+  {
+   "streamID": "qTQv5CZXHMM",
+   "segmentNo": 1,
+   "trackNo": 16,
+   "songID": 82,
+   "songName": "イェイ!イェイ!イェイ!",
+   "startTime": 6004,
+   "endTime": 6215,
+   "source": "audio-detect(conf=0.432)"
+  },
+  {
+   "streamID": "N-HTU0lxpOo",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 82,
+   "songName": "イェイ!イェイ!イェイ!",
+   "startTime": 3008,
+   "endTime": 3234,
+   "source": "audio-detect(conf=0.589)"
+  },
+  {
+   "streamID": "N-HTU0lxpOo",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 23,
+   "songName": "アゲハ蝶",
+   "startTime": 4057,
+   "endTime": 4331,
+   "source": "audio-detect(conf=0.661)"
+  },
+  {
+   "streamID": "5GV1w_GnMgU",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 82,
+   "songName": "イェイ!イェイ!イェイ!",
+   "startTime": 1205,
+   "endTime": 1418,
+   "source": "audio-detect(conf=0.442)"
+  },
+  {
+   "streamID": "5GV1w_GnMgU",
+   "segmentNo": 1,
+   "trackNo": 22,
+   "songID": 563,
+   "songName": "ニア",
+   "startTime": 9021,
+   "endTime": 9264,
+   "source": "audio-detect(conf=0.504)"
+  },
+  {
+   "streamID": "5GV1w_GnMgU",
+   "segmentNo": 1,
+   "trackNo": 36,
+   "songID": 817,
+   "songName": "やさしいキスをして",
+   "startTime": 15106,
+   "endTime": 15310,
+   "source": "audio-detect(conf=0.534)"
+  },
+  {
+   "streamID": "Nd50pWE0p-E",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 907,
+   "songName": "Wonderful Rush",
+   "startTime": 3090,
+   "endTime": 3358,
+   "source": "audio-detect(conf=0.458)"
+  },
+  {
+   "streamID": "-pwpOeFXwJA",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 250,
+   "songName": "悔やむと書いてミライ",
+   "startTime": 667,
+   "endTime": 882,
+   "source": "audio-detect(conf=0.566)"
+  },
+  {
+   "streamID": "-pwpOeFXwJA",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 181,
+   "songName": "火葬曲",
+   "startTime": 4560,
+   "endTime": 4814,
+   "source": "audio-detect(conf=0.617)"
+  },
+  {
+   "streamID": "-pwpOeFXwJA",
+   "segmentNo": 1,
+   "trackNo": 16,
+   "songID": 846,
+   "songName": "よくばり",
+   "startTime": 5521,
+   "endTime": 5711,
+   "source": "audio-detect(conf=0.567)"
+  },
+  {
+   "streamID": "-pwpOeFXwJA",
+   "segmentNo": 1,
+   "trackNo": 18,
+   "songID": 810,
+   "songName": "モザイクロール",
+   "startTime": 6062,
+   "endTime": 6230,
+   "source": "audio-detect(conf=0.754)"
+  },
+  {
+   "streamID": "KkYok0GGylU",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 35,
+   "songName": "アンパンマンのマーチ",
+   "startTime": 925,
+   "endTime": 1080,
+   "source": "audio-detect(conf=0.597)"
+  },
+  {
+   "streamID": "KkYok0GGylU",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 294,
+   "songName": "恋のシグナル Rin rin rin!",
+   "startTime": 1871,
+   "endTime": 1954,
+   "source": "audio-detect(conf=0.039,short)"
+  },
+  {
+   "streamID": "CZMhuklTRFI",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 862,
+   "songName": "LOVE! THUNDER GLOW",
+   "startTime": 3438,
+   "endTime": 3690,
+   "source": "audio-detect(conf=0.815)"
+  },
+  {
+   "streamID": "Hzvr26YjRKQ",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 866,
+   "songName": "ラ♪ラ♪ラ♪スイートプリキュア♪",
+   "startTime": 1049,
+   "endTime": 1246,
+   "source": "audio-detect(conf=0.447)"
+  },
+  {
+   "streamID": "eBfqMu6IgZ4",
+   "segmentNo": 1,
+   "trackNo": 12,
+   "songID": 51,
+   "songName": "会いたくて",
+   "startTime": 4445,
+   "endTime": 4727,
+   "source": "audio-detect(conf=0.637)"
+  },
+  {
+   "streamID": "BSZaaaO5e3Q",
+   "segmentNo": 1,
+   "trackNo": 15,
+   "songID": 51,
+   "songName": "会いたくて",
+   "startTime": 6502,
+   "endTime": 6780,
+   "source": "audio-detect(conf=0.548)"
+  },
+  {
+   "streamID": "RmWyxsVJQu0",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 337,
+   "songName": "最後のKiss",
+   "startTime": 2187,
+   "endTime": 2428,
+   "source": "audio-detect(conf=0.527)"
+  },
+  {
+   "streamID": "RmWyxsVJQu0",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 169,
+   "songName": "カゲロウデイズ",
+   "startTime": 5291,
+   "endTime": 5510,
+   "source": "audio-detect(conf=0.675)"
+  },
+  {
+   "streamID": "RmWyxsVJQu0",
+   "segmentNo": 1,
+   "trackNo": 15,
+   "songID": 588,
+   "songName": "HANABI",
+   "startTime": 6093,
+   "endTime": 6364,
+   "source": "audio-detect(conf=0.711)"
+  },
+  {
+   "streamID": "RmWyxsVJQu0",
+   "segmentNo": 1,
+   "trackNo": 17,
+   "songID": 326,
+   "songName": "サマータイムレコード",
+   "startTime": 6804,
+   "endTime": 7170,
+   "source": "audio-detect(conf=0.545)"
+  },
+  {
+   "streamID": "YbW1J9lFFa4",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 567,
+   "songName": "ニュームーンに恋して",
+   "startTime": 4813,
+   "endTime": 5067,
+   "source": "audio-detect(conf=0.56)"
+  },
+  {
+   "streamID": "YbW1J9lFFa4",
+   "segmentNo": 1,
+   "trackNo": 12,
+   "songID": 778,
+   "songName": "milk",
+   "startTime": 5142,
+   "endTime": 5382,
+   "source": "audio-detect(conf=0.449)"
+  },
+  {
+   "streamID": "iVdgUTYiN7Y",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 155,
+   "songName": "乙女のルートはひとつじゃない!",
+   "startTime": 539,
+   "endTime": 766,
+   "source": "audio-detect(conf=0.526)"
+  },
+  {
+   "streamID": "xSdb312w0gY",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 54,
+   "songName": "甘い気持ちまるかじり",
+   "startTime": 5081,
+   "endTime": 5334,
+   "source": "audio-detect(conf=0.651)"
+  },
+  {
+   "streamID": "WaYltTfY-Vc",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 44,
+   "songName": "愛の戦士",
+   "startTime": 1075,
+   "endTime": 1274,
+   "source": "audio-detect(conf=0.381)"
+  },
+  {
+   "streamID": "WaYltTfY-Vc",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 576,
+   "songName": "ね～え?",
+   "startTime": 2240,
+   "endTime": 2438,
+   "source": "audio-detect(conf=0.48)"
+  },
+  {
+   "streamID": "WaYltTfY-Vc",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 397,
+   "songName": "Starry Heavens",
+   "startTime": 3825,
+   "endTime": 4104,
+   "source": "audio-detect(conf=0.616)"
+  },
+  {
+   "streamID": "Xm7aRveS470",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 404,
+   "songName": "Story",
+   "startTime": 985,
+   "endTime": 1266,
+   "source": "audio-detect(conf=0.811)"
+  },
+  {
+   "streamID": "Xm7aRveS470",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 818,
+   "songName": "やさしさで溢れるように",
+   "startTime": 4511,
+   "endTime": 4786,
+   "source": "audio-detect(conf=0.857)"
+  },
+  {
+   "streamID": "KpcCmI8Np-c",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 876,
+   "songName": "リリリリ★バーニングナイト",
+   "startTime": 2534,
+   "endTime": 2671,
+   "source": "audio-detect(conf=0.106,short)"
+  },
+  {
+   "streamID": "KpcCmI8Np-c",
+   "segmentNo": 1,
+   "trackNo": 18,
+   "songID": 21,
+   "songName": "アイラビューアイニジュー",
+   "startTime": 6781,
+   "endTime": 6958,
+   "source": "audio-detect(conf=0.73)"
+  },
+  {
+   "streamID": "JHKo2L0EFgI",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 363,
+   "songName": "シス×ラブ",
+   "startTime": 3089,
+   "endTime": 3294,
+   "source": "audio-detect(conf=0.448)"
+  },
+  {
+   "streamID": "NyGnc7yI3EU",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 563,
+   "songName": "ニア",
+   "startTime": 5212,
+   "endTime": 5455,
+   "source": "audio-detect(conf=0.66)"
+  },
+  {
+   "streamID": "jlOceMeeWsY",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 692,
+   "songName": "フレンジャー",
+   "startTime": 933,
+   "endTime": 1148,
+   "source": "audio-detect(conf=0.276)"
+  },
+  {
+   "streamID": "EP-25Ntat_8",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 215,
+   "songName": "キャンディ・キャンディ",
+   "startTime": 975,
+   "endTime": 1170,
+   "source": "audio-detect(conf=0.706)"
+  },
+  {
+   "streamID": "mlDy5VIJybI",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 911,
+   "songName": "ワルキューレは裏切らない",
+   "startTime": 2815,
+   "endTime": 3083,
+   "source": "audio-detect(conf=0.827)"
+  },
+  {
+   "streamID": "mlDy5VIJybI",
+   "segmentNo": 1,
+   "trackNo": 19,
+   "songID": 909,
+   "songName": "ワルキューレのバースデイソング",
+   "startTime": 7458,
+   "endTime": 7541,
+   "source": "audio-detect(conf=0.58,short)"
+  },
+  {
+   "streamID": "Jyqn3kMffg4",
+   "segmentNo": 1,
+   "trackNo": 3,
+   "songID": 843,
+   "songName": "ようかい体操第一",
+   "startTime": 1109,
+   "endTime": 1169,
+   "source": "audio-detect(conf=0.052,short)"
+  },
+  {
+   "streamID": "Jyqn3kMffg4",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 904,
+   "songName": "1 2 3 ～恋がはじまる～",
+   "startTime": 2031,
+   "endTime": 2312,
+   "source": "audio-detect(conf=0.842)"
+  },
+  {
+   "streamID": "ltiRkuh7sSM",
+   "segmentNo": 1,
+   "trackNo": 3,
+   "songID": 766,
+   "songName": "真冬の帰り道",
+   "startTime": 1706,
+   "endTime": 1956,
+   "source": "audio-detect(conf=0.54)"
+  },
+  {
+   "streamID": "jjqh9ymvydM",
+   "segmentNo": 1,
+   "trackNo": 1,
+   "songID": 54,
+   "songName": "甘い気持ちまるかじり",
+   "startTime": 715,
+   "endTime": 962,
+   "source": "audio-detect(conf=0.903)"
+  },
+  {
+   "streamID": "04kftFP5x9E",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 723,
+   "songName": "ベノム",
+   "startTime": 1245,
+   "endTime": 1432,
+   "source": "audio-detect(conf=0.673)"
+  },
+  {
+   "streamID": "nvWyYAs4HBA",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 65,
+   "songName": "赤鼻のトナカイ",
+   "startTime": 1613,
+   "endTime": 1731,
+   "source": "audio-detect(conf=0.753,short)"
+  },
+  {
+   "streamID": "C6phWLV6gIQ",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 353,
+   "songName": "CITRUS",
+   "startTime": 3283,
+   "endTime": 3518,
+   "source": "audio-detect(conf=0.82)"
+  },
+  {
+   "streamID": "kVcZkhYNBUA",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 666,
+   "songName": "ビー玉",
+   "startTime": 1910,
+   "endTime": 1989,
+   "source": "audio-detect(conf=0.046,short)"
+  },
+  {
+   "streamID": "lB4NledCvQU",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 171,
+   "songName": "カヌレ",
+   "startTime": 3540,
+   "endTime": 3786,
+   "source": "audio-detect(conf=0.554)"
+  },
+  {
+   "streamID": "Q4nHOeY9Up0",
+   "segmentNo": 1,
+   "trackNo": 11,
+   "songID": 222,
+   "songName": "キリトリセン",
+   "startTime": 3476,
+   "endTime": 3698,
+   "source": "audio-detect(conf=0.28)"
+  },
+  {
+   "streamID": "Q4nHOeY9Up0",
+   "segmentNo": 1,
+   "trackNo": 17,
+   "songID": 895,
+   "songName": "恋愛レボリューション21",
+   "startTime": 5387,
+   "endTime": 5666,
+   "source": "audio-detect(conf=0.484)"
+  },
+  {
+   "streamID": "Q4nHOeY9Up0",
+   "segmentNo": 1,
+   "trackNo": 100,
+   "songID": 353,
+   "songName": "CITRUS",
+   "startTime": 33819,
+   "endTime": 34051,
+   "source": "audio-detect(conf=0.329)"
+  },
+  {
+   "streamID": "on0fsIKCtvI",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 703,
+   "songName": "ブライトファンタジー",
+   "startTime": 3920,
+   "endTime": 4140,
+   "source": "audio-detect(conf=0.388)"
+  },
+  {
+   "streamID": "Mq3m_DK7js0",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 170,
+   "songName": "カタオモイ",
+   "startTime": 962,
+   "endTime": 1162,
+   "source": "audio-detect(conf=0.684)"
+  },
+  {
+   "streamID": "IfPHnbSmKkA",
+   "segmentNo": 1,
+   "trackNo": 13,
+   "songID": 275,
+   "songName": "ココロ",
+   "startTime": 4810,
+   "endTime": 5066,
+   "source": "audio-detect(conf=0.569)"
+  },
+  {
+   "streamID": "IfPHnbSmKkA",
+   "segmentNo": 1,
+   "trackNo": 14,
+   "songID": 276,
+   "songName": "ココロ・キセキ",
+   "startTime": 5290,
+   "endTime": 5546,
+   "source": "audio-detect(conf=0.644)"
+  },
+  {
+   "streamID": "0PWgDlP9TRU",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 797,
+   "songName": "無限大DRIVE",
+   "startTime": 2330,
+   "endTime": 2436,
+   "source": "audio-detect(conf=0.051,short)"
+  },
+  {
+   "streamID": "GH_91T0WZQ4",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 601,
+   "songName": "ハッピー・ジャムジャム",
+   "startTime": 4020,
+   "endTime": 4120,
+   "source": "audio-detect(conf=0.72,short)"
+  },
+  {
+   "streamID": "MG1OtjOeNl0",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 389,
+   "songName": "時間の国のアリス",
+   "startTime": 3601,
+   "endTime": 3873,
+   "source": "audio-detect(conf=0.593)"
+  },
+  {
+   "streamID": "jEX3RErwNvk",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 502,
+   "songName": "Daydream cafe",
+   "startTime": 2229,
+   "endTime": 2452,
+   "source": "audio-detect(conf=0.464)"
+  },
+  {
+   "streamID": "jEX3RErwNvk",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 130,
+   "songName": "エブリデイワールド",
+   "startTime": 3714,
+   "endTime": 3962,
+   "source": "audio-detect(conf=0.7)"
+  },
+  {
+   "streamID": "tbzUfd8CMHk",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 95,
+   "songName": "一番の宝物",
+   "startTime": 2295,
+   "endTime": 2344,
+   "source": "audio-detect(conf=0.02,short)"
+  },
+  {
+   "streamID": "s8VqlwNJWGg",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 221,
+   "songName": "キラッ!満開スマイル",
+   "startTime": 2720,
+   "endTime": 2976,
+   "source": "audio-detect(conf=0.606)"
+  },
+  {
+   "streamID": "s8VqlwNJWGg",
+   "segmentNo": 1,
+   "trackNo": 9,
+   "songID": 344,
+   "songName": "桜坂",
+   "startTime": 3803,
+   "endTime": 4092,
+   "source": "audio-detect(conf=0.523)"
+  },
+  {
+   "streamID": "RN94zvOJ_qk",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 508,
+   "songName": "Diva in Abyss",
+   "startTime": 1832,
+   "endTime": 2186,
+   "source": "audio-detect(conf=0.571)"
+  },
+  {
+   "streamID": "R4a1ypFU8IQ",
+   "segmentNo": 1,
+   "trackNo": 8,
+   "songID": 114,
+   "songName": "初心LOVE",
+   "startTime": 3206,
+   "endTime": 3428,
+   "source": "audio-detect(conf=0.744)"
+  },
+  {
+   "streamID": "RMdTLEgG9MM",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 860,
+   "songName": "Love Song",
+   "startTime": 2285,
+   "endTime": 2567,
+   "source": "audio-detect(conf=0.667)"
+  },
+  {
+   "streamID": "RMdTLEgG9MM",
+   "segmentNo": 1,
+   "trackNo": 7,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 3121,
+   "endTime": 3170,
+   "source": "audio-detect(conf=0.17,short)"
+  },
+  {
+   "streamID": "ZfMGlHQxvuE",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 664,
+   "songName": "ビリーヴ",
+   "startTime": 1450,
+   "endTime": 1723,
+   "source": "audio-detect(conf=0.842)"
+  },
+  {
+   "streamID": "9__w-kwVRDU",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 762,
+   "songName": "マツケンサンバII",
+   "startTime": 2282,
+   "endTime": 2560,
+   "source": "audio-detect(conf=0.647)"
+  },
+  {
+   "streamID": "ukr1Imc6JB8",
+   "segmentNo": 1,
+   "trackNo": 12,
+   "songID": 813,
+   "songName": "もののけ姫",
+   "startTime": 4820,
+   "endTime": 5028,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "-fYnUDw9z8c",
+   "segmentNo": 1,
+   "trackNo": 20,
+   "songID": 187,
+   "songName": "川の流れのように",
+   "startTime": 7939,
+   "endTime": 8229,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "Ujz2iw0G5b8",
+   "segmentNo": 1,
+   "trackNo": 14,
+   "songID": 904,
+   "songName": "1 2 3 ～恋がはじまる～",
+   "startTime": 5626,
+   "endTime": 5919,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "T_RgvON2YYM",
+   "segmentNo": 1,
+   "trackNo": 6,
+   "songID": 698,
+   "songName": "冬花火",
+   "startTime": 2694,
+   "endTime": 2927,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "wTRADIYwBWI",
+   "segmentNo": 1,
+   "trackNo": 2,
+   "songID": 363,
+   "songName": "シス×ラブ",
+   "startTime": 1019,
+   "endTime": 1230,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "wTRADIYwBWI",
+   "segmentNo": 1,
+   "trackNo": 14,
+   "songID": 493,
+   "songName": "翼",
+   "startTime": 5575,
+   "endTime": 5778,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "USKP40uw-Yk",
+   "segmentNo": 1,
+   "trackNo": 10,
+   "songID": 862,
+   "songName": "LOVE! THUNDER GLOW",
+   "startTime": 4435,
+   "endTime": 4692,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "ZOzLqvfyFtg",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 464,
+   "songName": "DANZEN!ふたりはプリキュア(Ver.Max Heart)",
+   "startTime": 1725,
+   "endTime": 1950,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "MG1OtjOeNl0",
+   "segmentNo": 1,
+   "trackNo": 4,
+   "songID": 81,
+   "songName": "いい日旅立ち",
+   "startTime": 1789,
+   "endTime": 2045,
+   "source": "manual-listen(2026-07-06)"
+  },
+  {
+   "streamID": "MG1OtjOeNl0",
+   "segmentNo": 1,
+   "trackNo": 5,
+   "songID": 215,
+   "songName": "キャンディ・キャンディ",
+   "startTime": 2135,
+   "endTime": 2339,
+   "source": "manual-listen(2026-07-06)"
+  }
+ ]
+}
