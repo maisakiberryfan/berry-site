@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs'
 
 const GROUP_TOLERANCE = 5
@@ -36,10 +37,7 @@ const CORRECTIONS = [
   // #20 ロケットビート: 傳輸問題但時軸正確，不需修正
 ]
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig('mbdb'))
 
 const fmt = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 

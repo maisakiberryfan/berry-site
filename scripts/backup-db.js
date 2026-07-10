@@ -1,10 +1,8 @@
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs'
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig('mbdb'))
 
 const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
 const outFile = `e:/tmp/backup_mbdb_${ts}.sql`

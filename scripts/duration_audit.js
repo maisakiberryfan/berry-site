@@ -1,9 +1,7 @@
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig('mbdb'))
 
 // Get all songs with at least one valid startTime+endTime record
 const [records] = await conn.query(`

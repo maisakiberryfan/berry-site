@@ -1,12 +1,9 @@
 import { fetchWikiSongsByDate } from 'file:///e:/website/berry-site/src/utils/wiki-verifier.js';
 import mysql from 'mysql2/promise';
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs';
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root',
-  password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-});
+const conn = await mysql.createConnection({ ...dbConfig('mbdb') });
 
 const wikiMap = await fetchWikiSongsByDate();
 

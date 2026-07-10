@@ -1,14 +1,12 @@
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs'
 
 const GROUP_TOLERANCE = 5 // ±5s to form a group
 const MIN_GROUP_SIZE = 2  // at least 2 entries to be a valid group
 const MB_CACHE = 'e:/tmp/mb_cache.json'
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig('mbdb'))
 
 // Get all songs with valid startTime+endTime, include stream date
 const [records] = await conn.query(`
