@@ -154,9 +154,12 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 ### 歌單解析防護（src/utils/data-processor.js）
 
 - **解析時機**：直播未結束不解析；結束後 6h 內只認 `@KL-gr1my`（cooldown，留言索引延遲 20~30 分）；
-  上傳影片直接開放。手動 `/trigger-setlist-parse?force=true` 可 bypass
+  上傳影片直接開放。手動 `/trigger-setlist-parse?force=true` 可 bypass cooldown＋全部防線
 - **挑留言三層**：KL ≥3 戳（多篇按時間戳合併）→ ≥5 戳且帶戳行佔比 ≥0.5（擋逐曲感想）→ 關鍵字＋≥2 戳
-- **熔斷**：fuzzy 結果 >50% 無法匹配（≥5 行）整場放棄，防垃圾入庫
+- **熔斷**：fuzzy 結果 >50% 無法匹配（≥3 行）整場放棄，防垃圾入庫（2026-07-10 由 ≥5 收緊）
+- **無戳防線**（2026-07-10）：無時間戳的未匹配行不建新曲（6/15 名言留言 4 行繞過熔斷事件）；
+  matcher 端純括號註記行（「25:04 (big dream)」型）直接跳過
+- **攔截可觀測**：熔斷/無戳全滅發 Discord 通知（同場只發一次），不靜默
 
 ### CloudFront 架構
 

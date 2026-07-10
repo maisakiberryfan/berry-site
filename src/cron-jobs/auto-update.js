@@ -14,6 +14,11 @@ import { iso8601ToMySQL, mysqlToISO8601 } from '../utils/middleware.js'
 import { saveThumbnail } from '../utils/thumbnail.js'
 import { CONFIG } from '../config.js'
 
+// 防線攔截通知去重：blocked 的歌枠保持 pending（等 KL 留言出現後仍要重試解析），
+// 但 polling 每 10 分鐘＋每日 cron 都會再攔一次——同一 instance 內只通知一次。
+// module scope 在 warm Lambda/Worker 跨 invocation 存活；冷啟後重發一次可接受。
+const notifiedBlockedStreams = new Set()
+
 /**
  * Main auto-update function
  * @param {Object} env - Environment variables
@@ -51,6 +56,7 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     streamlistItems: [],
     setlistItems: [],
     failedItems: [],
+    blockedItems: [],
     debutSongs: []
   }
 
@@ -114,6 +120,19 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         video.categories = dataProcessor.categorizeStream(title, channelId)
       }
     }
+
+    // Free chat（常駐待機所）過濾：upcoming 且排程在 horizon 之後（如 Freee chat 排 2027）。
+    // 一旦入庫，其遠未來 time 會永遠霸佔 ORDER BY time DESC（首頁最新影片）。
+    const FREECHAT_HORIZON_MS = CONFIG.freechatFilter.horizonDays * 24 * 60 * 60 * 1000
+    newVideos = (newVideos || []).filter(video => {
+      const scheduled = video.liveStreamingDetails?.scheduledStartTime
+      const isFarFuture = scheduled && (new Date(scheduled).getTime() - Date.now() > FREECHAT_HORIZON_MS)
+      if (video.snippet?.liveBroadcastContent === 'upcoming' && isFarFuture) {
+        console.log(`[STREAM] 跳過 free chat / 遠期排程影片: ${video.id} (scheduled ${scheduled})`)
+        return false
+      }
+      return true
+    })
 
     if (newVideos && newVideos.length > 0) {
       console.log(`[STREAM] 發現 ${newVideos.length} 部新影片`)
@@ -180,11 +199,26 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
               videoId: stream.id,
               date: formatDateForDisplay(stream.time),
               title: stream.title,
-              songCount: parseResult.items.length
+              songCount: parseResult.items.length,
+              skippedLines: parseResult.skippedLines || []
             })
             result.newSetlists += parseResult.items.length
 
             console.log(`[SETLIST] 解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
+          } else if (parseResult?.blocked) {
+            // 防線攔截（熔斷/無戳全滅）：不入庫，但要通知（誤擋真歌單時能及時發現、force 重解析）。
+            // 同一場只通知一次——stream 保持 pending，之後每輪解析都會再攔到。
+            // 去重標記在 Step 6 通知「送達成功」後才寫入，送失敗下輪重試
+            if (!notifiedBlockedStreams.has(stream.id)) {
+              result.blockedItems.push({
+                videoId: stream.id,
+                date: formatDateForDisplay(stream.time),
+                title: stream.title,
+                reason: parseResult.blocked.reason,
+                commentAuthor: parseResult.blocked.commentAuthor,
+                skippedLines: parseResult.blocked.skippedLines || []
+              })
+            }
           } else {
             result.failedItems.push({
               videoId: stream.id,
@@ -216,13 +250,17 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       }
     }
 
-    // Step 6: Send Discord notification
-    if (result.streamlistUpdated || result.setlistUpdated) {
-      await sendDiscordNotification(env, {
+    // Step 6: Send Discord notification（防線攔截也要發——不入庫但不可靜默）
+    if (result.streamlistUpdated || result.setlistUpdated || result.blockedItems.length > 0) {
+      const sent = await sendDiscordNotification(env, {
         type: 'auto-update',
         result,
         success: true
       })
+      // 送達成功才標記攔截已通知；失敗（網路/Discord 4xx）下輪重試
+      if (sent) {
+        result.blockedItems.forEach(item => notifiedBlockedStreams.add(item.videoId))
+      }
     }
 
     // Step 7: Wiki 歌單二次校正（驗證近期已解析的歌枠）
@@ -400,8 +438,26 @@ export async function runPollingCheck(env) {
             streamID: stream.id,
             title: stream.title,
             songCount: parseResult.items.length,
+            skippedLines: parseResult.skippedLines?.length ? parseResult.skippedLines : undefined,
             debutSongs: debutSongs.length > 0 ? debutSongs : undefined
           })
+        } else if (parseResult?.blocked) {
+          // 防線攔截：不入庫但要通知（誤擋可用 force 重解析）；同場只通知一次防 10 分鐘輪詢轟炸。
+          // 附上被擋的行內容供人工判斷是否誤擋；送達成功才標記，失敗下輪重試
+          console.warn(`[POLLING] 防線攔截: ${parseResult.blocked.reason} (${stream.id})`)
+          if (!notifiedBlockedStreams.has(stream.id)) {
+            const skippedInfo = parseResult.blocked.skippedLines?.length
+              ? `\n被擋的行: ${parseResult.blocked.skippedLines.join('、').substring(0, 300)}`
+              : ''
+            const sent = await sendDiscordNotification(env, {
+              type: 'polling-parse',
+              success: false,
+              streamID: stream.id,
+              title: stream.title,
+              error: `🛡️ ${parseResult.blocked.reason}（留言 by ${parseResult.blocked.commentAuthor || '?'}）${skippedInfo}`
+            })
+            if (sent) notifiedBlockedStreams.add(stream.id)
+          }
         } else {
           console.warn(`[POLLING] 未找到歌單留言: ${stream.title} (${stream.id})`)
         }

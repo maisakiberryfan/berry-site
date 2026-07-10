@@ -18,24 +18,30 @@ export async function sendDiscordNotification(env, payload) {
   const webhookUrl = getSecret(env, 'DISCORD_WEBHOOK_URL')
   if (!webhookUrl) {
     console.log('Discord webhook URL not configured, skipping notification')
-    return
+    return false
   }
 
   try {
     const embed = buildEmbed(payload)
 
-    await fetch(webhookUrl, {
+    const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         embeds: [embed]
       })
     })
+    if (!res.ok) {
+      console.error(`Discord notification rejected: HTTP ${res.status}`)
+      return false
+    }
 
     console.log('Discord notification sent successfully')
+    return true
   } catch (error) {
     console.error('Failed to send Discord notification:', error)
-    // 不拋出錯誤，避免影響主流程
+    // 不拋出錯誤，避免影響主流程；回傳 false 讓呼叫端知道未送達（攔截去重依賴此值）
+    return false
   }
 }
 
@@ -91,13 +97,35 @@ function buildAutoUpdateEmbed(payload) {
       .map(item => {
         const debutCount = item.debutCount || 0
         const debutInfo = debutCount > 0 ? ` (含${debutCount}首初回)` : ''
-        return `• \`${item.date}-${item.videoId}\` - ${item.songCount}首歌${debutInfo}`
+        const skipped = item.skippedLines?.length
+          ? `\n  ⚠️ 跳過 ${item.skippedLines.length} 行無戳雜訊: ${item.skippedLines.join('、').substring(0, 200)}`
+          : ''
+        return `• \`${item.date}-${item.videoId}\` - ${item.songCount}首歌${debutInfo}${skipped}`
       })
       .join('\n')
 
     embed.fields.push({
       name: '🎵 Setlist 解析完成:',
       value: setlistText.substring(0, 1024),
+      inline: false
+    })
+  }
+
+  // 🛡️ 防線攔截（熔斷/無戳全滅）：未入庫，需人工確認是否誤擋（誤擋可 force=true 重解析）。
+  // 附被擋行內容——沒有內容就無從判斷是否誤擋，還得去翻 CloudWatch
+  if (result.blockedItems && result.blockedItems.length > 0) {
+    const blockedText = result.blockedItems
+      .map(item => {
+        const lines = item.skippedLines?.length
+          ? `\n  被擋的行: ${item.skippedLines.join('、').substring(0, 200)}`
+          : ''
+        return `• \`${item.date}-${item.videoId}\`\n  ${item.reason}（留言 by ${item.commentAuthor || '?'}）${lines}`
+      })
+      .join('\n')
+
+    embed.fields.push({
+      name: '🛡️ 防線攔截（未入庫，請確認是否誤擋）:',
+      value: blockedText.substring(0, 1024),
       inline: false
     })
   }
@@ -157,7 +185,7 @@ function buildAutoUpdateEmbed(payload) {
  * 建立手動解析通知 embed
  */
 function buildManualParseEmbed(payload) {
-  const { success, streamID, title, songCount, error, debutSongs } = payload
+  const { success, streamID, title, songCount, error, debutSongs, skippedLines } = payload
 
   const embed = {
     title: success ? '✅ 手動解析完成' : '❌ 手動解析失敗',
@@ -201,6 +229,15 @@ function buildManualParseEmbed(payload) {
         inline: false
       })
     }
+
+    // 無戳防線跳過的行（已過濾的雜訊，供人工確認）
+    if (skippedLines && skippedLines.length > 0) {
+      embed.fields.push({
+        name: '⚠️ 跳過無戳雜訊行:',
+        value: skippedLines.join('、').substring(0, 1024),
+        inline: false
+      })
+    }
   } else {
     // 失敗時顯示錯誤訊息
     embed.fields.push({
@@ -217,7 +254,7 @@ function buildManualParseEmbed(payload) {
  * 建立 Polling 解析通知 embed
  */
 function buildPollingParseEmbed(payload) {
-  const { success, streamID, title, songCount, error, debutSongs } = payload
+  const { success, streamID, title, songCount, error, debutSongs, skippedLines } = payload
 
   const embed = {
     title: success ? '🔄 Polling 解析完成' : '❌ Polling 解析失敗',
@@ -258,6 +295,15 @@ function buildPollingParseEmbed(payload) {
       embed.fields.push({
         name: '🆕 新增初回歌曲:',
         value: debutText.substring(0, 1024),
+        inline: false
+      })
+    }
+
+    // 無戳防線跳過的行（已過濾的雜訊，供人工確認）
+    if (skippedLines && skippedLines.length > 0) {
+      embed.fields.push({
+        name: '⚠️ 跳過無戳雜訊行:',
+        value: skippedLines.join('、').substring(0, 1024),
         inline: false
       })
     }

@@ -99,7 +99,7 @@ export class DataProcessor {
    * @param {Object} options - { bypassCooldown: boolean } 手動 force 時跳過時機檢查
    * @returns {Promise<Array|null>} Array of individual song objects in flat format
    */
-  async parseSetlistForStream(stream, env, { bypassCooldown = false, liveDetails = null } = {}) {
+  async parseSetlistForStream(stream, env, { bypassCooldown = false, bypassGuards = false, liveDetails = null } = {}) {
     try {
       const streamUrl = `https://www.youtube.com/watch?v=${stream.id}`
       const videoId = extractVideoId(streamUrl)
@@ -142,15 +142,18 @@ export class DataProcessor {
 
       // 熔斷：過半行無法匹配（「*」）＝選錯留言（感想/雜訊），放棄整場避免垃圾入庫
       // （IVQA0vzQSkE 曾整場 18 首被建成垃圾初回）
+      // 回傳 items:[] + blocked 標記：呼叫端據此發 Discord 警告（攔截不靜默，誤擋可及時發現）
       const { minLines, starRatio } = CONFIG.setlistCircuitBreak
       const starCount = result.songIDs.filter(id => id === '*').length
-      if (result.songIDs.length >= minLines && starCount / result.songIDs.length > starRatio) {
-        console.warn(`[SETLIST] 熔斷: ${starCount}/${result.songIDs.length} 行無法匹配，疑似選錯留言，放棄寫入 (${videoId}, 留言 by ${commentAuthor})`)
-        return null
+      if (!bypassGuards && result.songIDs.length >= minLines && starCount / result.songIDs.length > starRatio) {
+        const reason = `熔斷: ${starCount}/${result.songIDs.length} 行無法匹配，疑似選錯留言`
+        console.warn(`[SETLIST] ${reason}，放棄寫入 (${videoId}, 留言 by ${commentAuthor})`)
+        return { items: [], blocked: { reason, commentAuthor } }
       }
 
       // Process songID array and handle "*" entries
       const setlistItems = []
+      const skippedLines = []
 
       for (let i = 0; i < result.songIDs.length; i++) {
         const songID = result.songIDs[i]
@@ -164,6 +167,15 @@ export class DataProcessor {
         if (songID === "*") {
           if (matchInfo && matchInfo.parsed) {
             const parsed = matchInfo.parsed
+
+            // 建新曲（初回）必須帶時間戳：自動解析的真實初回 100% 帶戳（915 筆歷史驗證，
+            // 無戳者僅手動補錄的不留檔場）；無戳＋無匹配＝感想/名言雜訊（6/15 名言事件最後防線）
+            if (!bypassGuards && (parsed.startSec === null || parsed.startSec === undefined)) {
+              console.warn(`[SONGLIST] 跳過無時間戳的未匹配行（疑似雜訊）: ${parsed.titleJP || parsed.titleEN}`)
+              skippedLines.push(parsed.titleJP || parsed.titleEN || parsed.raw || '(空)')
+              continue
+            }
+
             songName = parsed.titleJP || parsed.titleEN || ''
             const songNameEn = parsed.titleEN || ''
             artist = parsed.artistJP || parsed.artistEN || ''
@@ -200,8 +212,15 @@ export class DataProcessor {
         })
       }
 
+      // 全部行被無戳防線跳過＝整條留言是雜訊（6/15 名言型），視同熔斷回報
+      if (setlistItems.length === 0 && skippedLines.length > 0) {
+        const reason = `全部 ${skippedLines.length} 行被無戳防線跳過（疑似感想/名言留言）`
+        console.warn(`[SETLIST] ${reason} (${videoId}, 留言 by ${commentAuthor})`)
+        return { items: [], blocked: { reason, commentAuthor, skippedLines } }
+      }
+
       // Return setlist items + comment info for caller to handle notifications
-      return { items: setlistItems, setlistComment, commentAuthor }
+      return { items: setlistItems, setlistComment, commentAuthor, skippedLines }
 
     } catch (error) {
       console.error(`[SETLIST] 解析歌單失敗: ${stream.title} - ${error.message}`)
