@@ -190,8 +190,10 @@ api.get('/yt', async (c) => {
 api.get('/yt/latest', async (c) => {
   try {
     const db = c.get('db')
+    // time 上限（與 auto-update 寫入端過濾共用 CONFIG.freechatFilter.horizonDays）：
+    // free chat 的 scheduledStartTime 排在遠未來（如 2027），一旦入庫會永遠霸佔「最新影片」
     const rows = await db.query(
-      'SELECT streamID, title, time, categories FROM streamlist ORDER BY time DESC LIMIT 1'
+      `SELECT streamID, title, time, categories FROM streamlist WHERE time <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${CONFIG.freechatFilter.horizonDays} DAY) ORDER BY time DESC LIMIT 1`
     )
     if (!rows || rows.length === 0) {
       return c.json({ error: 'No streams found' }, 404)
@@ -276,6 +278,9 @@ api.post('/parse-setlist', async (c) => {
     const setlistResult = await dataProcessor.parseSetlistForStream(stream, c.env)
 
     if (!setlistResult || !setlistResult.items || setlistResult.items.length === 0) {
+      if (setlistResult?.blocked) {
+        return c.json({ error: `防線攔截: ${setlistResult.blocked.reason}`, videoId }, 422)
+      }
       return c.json({ error: '未找到歌單', videoId }, 404)
     }
 
@@ -362,13 +367,16 @@ const AI_BLACKLIST = [
   '翻譯', '什麼意思'
 ]
 
-const AI_SYSTEM_PROMPT = `Convert to DuckDB SQL. Output ONLY the SQL statement, no explanation or markdown.
+// localDate = 使用者本地日期（前端帶上），作為相對時間（今年/上個月/最近7天）的計算錨點
+const buildAiSystemPrompt = (localDate) => `Convert to DuckDB SQL. Output ONLY the SQL statement, no explanation or markdown.
+
+Today (user's local date): ${localDate}
 
 Table: berry_data (每 row = 一首歌在一場直播中被唱)
 Columns:
 - streamID (VARCHAR): 直播 ID
 - streamTitle (VARCHAR): 直播標題
-- time (TIMESTAMP): 直播時間 (UTC)
+- time (TIMESTAMP): 直播時間（已是使用者當地時區，直接與字面日期比較即可）
 - categories (VARCHAR): 直播分類 (歌枠, 雑談, ASMR, ゲーム...)
 - setlistComplete (BOOLEAN): 該場歌單是否完整
 - segmentNo (INTEGER): 場次編號 (一場直播可能多段歌枠)
@@ -386,18 +394,19 @@ Columns:
 DuckDB syntax rules:
 - Subquery MUST have alias: FROM (...) AS sub
 - Outer SELECT can ONLY reference columns/aliases from subquery's SELECT list
-- Time arithmetic: NOW()::TIMESTAMP for current time, INTERVAL '7' DAY for intervals
+- Relative dates: compute literal dates from Today above (do NOT use NOW(), it returns UTC not user-local)
 - Time aggregation: use alias, e.g. MAX(time) AS lastTime
 - YEAR(time) for year extraction, COUNT(*) for counting
 - LIKE '%keyword%' for text search
 - ROW_NUMBER() OVER (PARTITION BY x ORDER BY y DESC) for ranking
 - LIMIT 100 max
 
-Examples:
+Examples (assuming Today = 2026-07-10):
 - 唱最多的歌 → SELECT songName,artist,COUNT(*)as c FROM berry_data GROUP BY songName,artist ORDER BY c DESC LIMIT 20
 - 2024年歌單 → SELECT songName,artist,time FROM berry_data WHERE YEAR(time)=2024 ORDER BY time DESC
 - 各年前10名 → SELECT year,songName,artist,c FROM(SELECT YEAR(time)as year,songName,artist,COUNT(*)as c,ROW_NUMBER()OVER(PARTITION BY YEAR(time)ORDER BY COUNT(*)DESC)as rn FROM berry_data GROUP BY YEAR(time),songName,artist)AS sub WHERE rn<=10 ORDER BY year DESC,c DESC
-- 最近7天的歌 → SELECT songName,artist,time FROM berry_data WHERE time>=NOW()::TIMESTAMP-INTERVAL '7' DAY ORDER BY time DESC
+- 最近7天的歌 → SELECT songName,artist,time FROM berry_data WHERE time>='2026-07-03' ORDER BY time DESC
+- 上個月唱了什麼 → SELECT songName,artist,time FROM berry_data WHERE time>='2026-06-01' AND time<'2026-07-01' ORDER BY time DESC
 - 唱過幾次心做し → SELECT songName,artist,COUNT(*)as c FROM berry_data WHERE songName LIKE'%心做し%'GROUP BY songName,artist`
 
 function validateAiInput(query) {
@@ -421,7 +430,7 @@ api.post('/text-to-sql', async (c) => {
   if (!anthropicKey) return c.json({ error: 'AI service not configured' }, 503)
 
   try {
-    const { query } = await c.req.json()
+    const { query, localDate, failedSql, errorMessage } = await c.req.json()
     if (!query || query.trim().length === 0) return c.json({ error: '請輸入查詢問題' }, 400)
 
     // Input validation (whitelist/blacklist)
@@ -429,6 +438,10 @@ api.post('/text-to-sql', async (c) => {
     if (!validation.valid) {
       return c.json({ success: false, error: validation.error }, 400)
     }
+
+    // 使用者本地日期（相對時間錨點）；格式不符則退回 server 端 UTC 日期
+    const safeLocalDate = /^\d{4}-\d{2}-\d{2}$/.test(localDate || '')
+      ? localDate : new Date().toISOString().slice(0, 10)
 
     // Budget check via DB
     const db = c.get('db')
@@ -451,6 +464,16 @@ api.post('/text-to-sql', async (c) => {
       return c.json({ success: false, error: '今日 AI 額度已用完，請明天再試' }, 429)
     }
 
+    // 修復模式：前端試跑失敗後帶回失敗 SQL 與錯誤訊息，請 AI 修正（限制長度防濫用）
+    const messages = [{ role: 'user', content: query }]
+    if (typeof failedSql === 'string' && typeof errorMessage === 'string' && failedSql.length > 0) {
+      messages.push({ role: 'assistant', content: failedSql.slice(0, 2000) })
+      messages.push({
+        role: 'user',
+        content: `That SQL failed with DuckDB error: ${errorMessage.slice(0, 500)}\nFix it. Output ONLY the corrected SQL.`
+      })
+    }
+
     // Call Claude Haiku with system prompt
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -462,8 +485,8 @@ api.post('/text-to-sql', async (c) => {
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 500,
-        system: AI_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: query }]
+        system: buildAiSystemPrompt(safeLocalDate),
+        messages
       })
     })
 
@@ -698,8 +721,9 @@ app.get('/trigger-setlist-parse', async (c) => {
       category: categories
     }
 
-    // force 同時跳過解析時機檢查（cooldown）——手動觸發通常是「已確認留言存在」
-    const parseResult = await dataProcessor.parseSetlistForStream(formattedStream, c.env, { bypassCooldown: force })
+    // force 同時跳過解析時機檢查（cooldown）與防線（熔斷/無戳）——手動觸發是「已人工確認留言正確」，
+    // 也是防線誤擋時的救援通道
+    const parseResult = await dataProcessor.parseSetlistForStream(formattedStream, c.env, { bypassCooldown: force, bypassGuards: force })
 
     if (parseResult && parseResult.items && parseResult.items.length > 0) {
       await dataProcessor.batchCreateSetlist(parseResult.items, c.env)
@@ -719,10 +743,18 @@ app.get('/trigger-setlist-parse', async (c) => {
         success: true,
         streamID,
         title: stream.title,
-        songCount: parseResult.items.length
+        songCount: parseResult.items.length,
+        skippedLines: parseResult.skippedLines?.length ? parseResult.skippedLines : undefined
       })
 
       return c.json({ success: true, streamID, songCount: parseResult.items.length, items: parseResult.items })
+    }
+
+    if (parseResult?.blocked) {
+      return c.json({
+        success: false,
+        message: `防線攔截: ${parseResult.blocked.reason}（留言 by ${parseResult.blocked.commentAuthor || '?'}）。確認留言正確後可加 force=true 重試`
+      })
     }
 
     return c.json({ success: false, message: '未找到歌單留言' })
