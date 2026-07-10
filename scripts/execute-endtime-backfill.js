@@ -11,6 +11,7 @@
  *   - transaction，全程逐筆 affectedRows 檢查
  */
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs'
 
 const dbArg = process.argv.find(a => a.startsWith('--db='))
@@ -27,10 +28,7 @@ console.log(`計畫: ${PLAN_FILE}（產出於 ${generated}）`)
 console.log(`目標 DB: ${DB}${DB === 'mbdb_test' ? '（演練）' : '（正式）'}`)
 console.log(`待寫入: ${plan.length} 筆\n`)
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: DB,
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig(DB))
 
 // 寫入前基準
 const [[before]] = await conn.query(

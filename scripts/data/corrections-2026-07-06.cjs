@@ -31,7 +31,7 @@ const EXTRA = process.env.VALKYRIE_ST ? [{
 async function main() {
   const fixes = [...FIXES, ...EXTRA]
   const conn = await mysql.createConnection({
-    host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: DB,
+    host: '163.44.98.136', port: 8081, user: 'root', password: '<REDACTED>', database: DB,
     ssl: { rejectUnauthorized: false },
   })
   console.log(`目標 DB: ${DB}${DB === 'mbdb_test' ? '（演練）' : '（正式）'}，修正 ${fixes.length} 筆`)

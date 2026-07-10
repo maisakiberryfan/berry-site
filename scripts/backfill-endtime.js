@@ -9,16 +9,14 @@
  *   node scripts/backfill-endtime.js --missing              # 列出無曲長的 89 首（查 MusicBrainz）
  */
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 
 const DRY_RUN = process.argv.includes('--dry-run')
 const SHOW_MISSING = process.argv.includes('--missing')
 const STREAM_FLAG = process.argv.indexOf('--stream')
 const SINGLE_STREAM = STREAM_FLAG !== -1 ? process.argv[STREAM_FLAG + 1] : null
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false }
-})
+const conn = await mysql.createConnection(dbConfig('mbdb'))
 
 const fmt = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 

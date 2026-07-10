@@ -2,6 +2,7 @@
 // 三類目標：flagged（缺end撞下一首）/ nohistory（缺end無平均）/ outlier（已有時間但可疑）
 // 輸出 e:/tmp/audio_batch/batch.json
 const mysql = require('mysql2/promise')
+const { dbConfig } = require('./db-config.cjs')
 const fs = require('fs')
 
 const PLAN = 'e:/tmp/endtime_backfill_plan.json'
@@ -15,10 +16,7 @@ async function main() {
   const outliers = JSON.parse(fs.readFileSync(OUTLIERS, 'utf8'))
   const mb = JSON.parse(fs.readFileSync(MB_CACHE, 'utf8'))
 
-  const conn = await mysql.createConnection({
-    host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-    ssl: { rejectUnauthorized: false },
-  })
+  const conn = await mysql.createConnection(dbConfig('mbdb'))
   // 全部 setlist 序列（nextStart 查詢）
   const [allRows] = await conn.query(`
     SELECT streamID, segmentNo, trackNo, CAST(startTime AS SIGNED) st
@@ -90,10 +88,7 @@ async function main() {
   }
 
   // --- outlier (|diff|>10s): 窗口 [start-75, end+75] 雙端偵測 ---
-  const conn2 = await mysql.createConnection({
-    host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-    ssl: { rejectUnauthorized: false },
-  })
+  const conn2 = await mysql.createConnection(dbConfig('mbdb'))
   let outCnt = 0
   for (const song of outliers) {
     for (const o of song.outliers) {

@@ -1,13 +1,10 @@
 import mysql from 'mysql2/promise'
+import { dbConfig } from './db-config.cjs'
 import fs from 'fs'
 
 const BACKUP_SQL = 'e:/tmp/restore_setlist_ori.sql'
 
-const conn = await mysql.createConnection({
-  host: '163.44.98.136', port: 8081, user: 'root', password: '***REMOVED***', database: 'mbdb',
-  ssl: { rejectUnauthorized: false },
-  multipleStatements: true
-})
+const conn = await mysql.createConnection({ ...dbConfig('mbdb'), multipleStatements: true })
 
 // Read extracted setlist_ori SQL (LOCK + INSERT + UNLOCK)
 const sql = fs.readFileSync(BACKUP_SQL, 'utf-8')
