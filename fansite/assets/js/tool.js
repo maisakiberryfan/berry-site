@@ -1,14 +1,15 @@
 // Local JS imports (bundled)
+// Tabulator/Fancybox 為最大兩塊（合計 ~600KB），改動態載入（code splitting）：
+// 首頁/靜態頁不再付這筆成本，資料表頁與 lightbox 首次使用時才拉對應 chunk
 import $ from 'jquery'
 import * as bootstrap from 'bootstrap'
-import { TabulatorFull as Tabulator } from 'tabulator-tables'
 import { marked } from 'marked'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { Fancybox } from '@fancyapps/ui'
 
 // Local CSS imports (bundled)
 import 'bootstrap/dist/css/bootstrap.min.css'
+import 'bootstrap-icons/font/bootstrap-icons.css'
 import 'select2/dist/css/select2.min.css'
 import '@fancyapps/ui/dist/fancybox/fancybox.css'
 import '../css/tabulator-bootstrap5-custom.css'
@@ -19,10 +20,8 @@ import { API_CONFIG, apiRequest, loadingManager, showError } from '../../config.
 // Expose globals for libraries expecting window bindings
 window.$ = window.jQuery = $
 window.bootstrap = bootstrap
-window.Tabulator = Tabulator
 window.marked = marked
 window.dayjs = dayjs
-window.Fancybox = Fancybox
 
 let fancyboxPromise
 window.loadFancybox = async () => {
@@ -37,9 +36,23 @@ window.loadFancybox = async () => {
   return fancyboxPromise
 }
 
-// Load select2 after jQuery is set on window (plugin expects global jQuery)
-{
-  const mod = await import('select2/dist/js/select2.full.js')
+// Tabulator 動態載入（analytics.js 亦透過 window.loadTabulator/window.Tabulator 使用）
+let tabulatorPromise
+window.loadTabulator = async () => {
+  if (window.Tabulator) return window.Tabulator
+  if (!tabulatorPromise) {
+    tabulatorPromise = import('tabulator-tables').then(mod => {
+      window.Tabulator = mod.TabulatorFull
+      return mod.TabulatorFull
+    })
+  }
+  return tabulatorPromise
+}
+
+// Load select2 after jQuery is set on window (plugin expects global jQuery)。
+// 不 await：splitting 下 top-level await 會讓首屏串行等這顆 chunk；改背景載入，
+// 使用點全在互動之後（進頁→點編輯的間隔遠大於 chunk 載入時間），編輯模式入口另有 await 保險
+const select2Ready = import('select2/dist/js/select2.full.js').then(mod => {
   // In case the module exports a factory instead of self-registering, bind it to our jQuery
   if (!$.fn.select2) {
     const maybeFactory = mod?.default || mod
@@ -47,7 +60,8 @@ window.loadFancybox = async () => {
       maybeFactory($)
     }
   }
-}
+})
+window.loadSelect2 = () => select2Ready
 
 // Load dayjs UTC plugin
 dayjs.extend(utc)
@@ -577,8 +591,11 @@ $(()=>{
     }
   }
   
-  function setContentMDTable(){
-    let t = [...document.querySelectorAll('table')].forEach(e=>{
+  async function setContentMDTable(){
+    const tables = [...document.querySelectorAll('table')]
+    if (tables.length === 0) return
+    await window.loadTabulator()
+    tables.forEach(e=>{
       new Tabulator(e, {
         columnDefaults:{
           width:200,
@@ -1206,7 +1223,8 @@ $(()=>{
     batchEditModal.show()
   }
 
-  function loadExistingSetlist(entries) {
+  async function loadExistingSetlist(entries) {
+    await window.loadTabulator()
     // Get songlist for mapping
     apiRequest('GET', API_CONFIG.ENDPOINTS.songlist).then(songlist => {
       // Build songID -> song Map for O(1) lookup (instead of O(n) find)
@@ -2157,7 +2175,8 @@ $(()=>{
 
 
   //set table
-  function configJsonTable(u, p){
+  async function configJsonTable(u, p){
+    await window.loadTabulator()
     var colDef
 
     if(p == 'setlist'){
@@ -2761,7 +2780,8 @@ $(()=>{
     $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
-  $('#content').on('click', '#edit', ()=>{
+  $('#content').on('click', '#edit', async ()=>{
+    await window.loadSelect2()  // 編輯模式的 Select2 editor 需要，確保 chunk 已就緒
     $('.addRow').prop('disabled', !canEdit())
     $('#deleteRow').prop('disabled', canEdit())
 
@@ -3965,7 +3985,8 @@ function getYTlatest(){
 }
 
   //--- Batch Editor Event Handlers ---
-  $('#generateBatchTable').on('click', function() {
+  $('#generateBatchTable').on('click', async function() {
+    await window.loadTabulator()
     const startTrack = parseInt($('#batchStartTrack').val()) || 1
     const totalSongs = parseInt($('#batchTotalSongs').val()) || 20
     const segment = parseInt($('#batchSegment').val()) || 1
