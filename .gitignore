@@ -24,3 +24,5 @@ scripts/timestamps/
 .claude/skills/traffic-report/dbip-country-lite.mmdb.gz
 .claude/skills/traffic-report/package-lock.json
 
+newdbpass.txt
+newrootpass.txt
