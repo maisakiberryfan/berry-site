@@ -6,6 +6,7 @@
 
 import { handle } from 'hono/aws-lambda'
 import app, { handleCronTrigger } from './src/app.js'
+import { compressLambdaResult } from './src/utils/lambda-compress.js'
 
 const honoHandler = handle(app)
 
@@ -70,5 +71,6 @@ export const handler = async (event, context) => {
   }
 
   // API Gateway HTTP API event → Hono
-  return honoHandler(event, context)
+  const result = await honoHandler(event, context)
+  return compressLambdaResult(result, event)
 }
