@@ -3,13 +3,21 @@
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title></title>
+	<title>苺咲べりぃ非公式倉庫 | Maisaki Berry Unofficial Archive</title>
 	<link rel="stylesheet" href="/assets/dist/tool.css">
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 	<link rel="icon" type="image/x-icon" href="/favicon.ico">
 	<script type="module" defer src="/assets/dist/tool.js"></script>
 	<base target="_blank">
 	<meta name="description" content="An Unofficial fansite about 苺咲べりぃ(Maisaki Berry).Main content are singing data.">
+	<!-- Open Graph / Twitter card：Discord、X 等分享預覽 -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="苺咲べりぃ非公式倉庫">
+	<meta property="og:title" content="苺咲べりぃ非公式倉庫 | Maisaki Berry Unofficial Archive">
+	<meta property="og:description" content="苺咲べりぃ(Maisaki Berry) 非公式ファンサイト。歌枠セットリスト・楽曲データベース / Singing stream setlists &amp; song database.">
+	<meta property="og:url" content="https://m-b.win/">
+	<meta property="og:image" content="https://m-b.win/img/profile/mainlogo.webp">
+	<meta name="twitter:card" content="summary_large_image">
 	<style>
 		/* Select2 dark theme fixes */
 		.select2-results__option, .select2-selection__choice, .select2-selection__clear {
@@ -45,14 +53,37 @@
 			color: black !important;
 		}
 
+		/* label-value 對齊格（profile 基本資料、clothes 詳細資訊卡共用） */
+		.facts-grid {
+			display: grid;
+			grid-template-columns: auto 1fr;
+			gap: 0.4rem 1rem;
+			align-items: baseline;
+		}
+
+		/* 衣裝頁：Grid 自動排列（響應式免 media query），最後一列不再孤零零靠左 */
+		#pic {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(min(324px, 100%), 1fr));
+			gap: 1rem 0.5rem;
+		}
 		.figure-cloth {
-			width: 324px;
 			max-width: 100%;
-			height: 726px;
-			margin: 3px
+			margin: 0;
+			text-align: center;
+			border-radius: 8px;
+			transition: background-color 0.15s;
+		}
+		.figure-cloth:hover {
+			background-color: rgba(255, 255, 255, 0.06);
+		}
+		.figure-cloth img {
+			max-width: 100%;
+			height: auto;
 		}
 		.card {
 			width: 480px;
+			max-width: 100%;
 		}
 
 		/* Context Menu Styles */
