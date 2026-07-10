@@ -1,0 +1,17 @@
+outlier 31 筆最終裁決（用戶互動表單，2026-07-06）
+結論：28 筆記錄正確不動、3 筆修正已入庫
+
+修正 3 筆：
+  mSW8udr7HBU#1  打上花火        186~445 → 162~443（實聽 2:42~7:23）
+  yhA3tGc7EbQ#10 瞳をとじて      et 5674 → 5662（實聽 1:34:22）
+  EutC-F8Tse4#9  大好きだよ。    st 4901 → 4889（實聽 1:21:29）
+
+教訓：音訊雙端偵測誤報率 28/31——start 偵測未經 PoC 驗證，僅可當人工篩選器。
+
+記錄對（28 筆）：
+qwShk9BlFKQ_1_11 ZM5QGzC_Nxo_1_15 -HtiLkMky18_1_4 MdkpQGWPT3E_1_8 rjD963YEr9s_1_13
+q7luWSH8Pj0_1_6 aEJvkEArIKQ_1_16 uxl_7J96WKI_1_17 3XyjOkeArbA_1_19 PgOgP_UJYKw_1_3
+MymHcZ6a29o_1_2 4eBbbpqWb34_1_8 fGHQHRjXDLo_1_3 J_IOIckEb14_1_3 v2a6XxSLF_0_1_15
+lXR1ZKi-E9c_1_11 ERk8mXLE6UY_1_10 3KmSIILrjXk_1_8 tW7JIZcx5J8_1_15 ksOXpzMdD7Q_1_3
+WHclPvp6PJQ_1_3 2fUTpPtVIEs_1_5 CVgjUAz7Vpg_1_13 sPYPxU3SWR0_1_3 s_VpsRb34mo_1_6
+lfPDD4Ae1xo_1_16 ukkqGAh_kdc_1_75 qKG0MIBc6F4_1_12
