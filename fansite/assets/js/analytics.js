@@ -12,17 +12,14 @@
  */
 
 // Import DuckDB-WASM from jsDelivr CDN
+//（唯一保留的 CDN 依賴：WASM bundle 數 MB，self-host 吃 S3 流量不划算）
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0/+esm';
 
-// Import dayjs for timezone handling (same as streamlist)
-import dayjs from 'https://cdn.jsdelivr.net/npm/dayjs@1.11.10/+esm';
-import utc from 'https://cdn.jsdelivr.net/npm/dayjs@1.11.10/plugin/utc.js/+esm';
+// dayjs 復用 tool.js bundle 掛的全域（UTC plugin 已 extend），不再走 CDN
+const dayjs = window.dayjs;
 
 // Import API config for Worker URL
 import { API_CONFIG } from '../../config.js';
-
-// Extend dayjs with UTC plugin (required for timezone conversion)
-dayjs.extend(utc);
 
 // ============ Configuration ============
 const PARQUET_FILE_URL = 'https://sqldata.m-b.win/berry-data.parquet';
@@ -220,6 +217,9 @@ const QUERY_DEFINITIONS = {
 
 export async function initAnalytics() {
   console.log('[Analytics] Initializing...');
+
+  // Tabulator 已改動態 chunk（tool.js code splitting），結果表建立前先確保載入
+  await window.loadTabulator();
 
   // Initialize UI elements
   initUIElements();
