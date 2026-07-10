@@ -276,6 +276,26 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       console.error(`[WIKI] 驗證失敗（非致命）: ${wikiError.message}`)
     }
 
+    // Step 8: 近 14 天縮圖兜底重刷（每日 CRON 限定）——VT 換圖不一定伴隨
+    // 標題變更（PubSub）或直播結束（polling），這裡兜住「幾天後才慢慢換圖」型。
+    // saveThumbnail 內建 hash 比對：未變更零成本，變更才上傳＋invalidate
+    if (triggerType === 'CRON') {
+      try {
+        const recent = await db.query(
+          'SELECT streamID FROM streamlist WHERE time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)'
+        )
+        let refreshed = 0
+        for (const row of recent) {
+          try {
+            if (await saveThumbnail(row.streamID, env)) refreshed++
+          } catch { /* 單支失敗不擋其餘 */ }
+        }
+        if (refreshed > 0) console.log(`[THUMBNAIL] 近 14 天兜底重刷: ${refreshed}/${recent.length} 支有更新`)
+      } catch (thumbError) {
+        console.warn(`[THUMBNAIL] 縮圖兜底失敗（非致命）: ${thumbError.message}`)
+      }
+    }
+
   } catch (error) {
     console.error(`[CRON] 自動更新失敗: ${error.message}`)
     result.errors.push(error.message)
@@ -413,6 +433,13 @@ export async function runPollingCheck(env) {
           result.parsedSetlists++
 
           console.log(`[POLLING] 歌單解析成功: ${parseResult.items.length} 首歌 (${stream.id})`)
+
+          // 直播結束＝VT 換正式縮圖的高峰時點，重刷一次（hash 比對，有變才上傳＋清快取）
+          try {
+            await saveThumbnail(stream.id, env)
+          } catch (thumbError) {
+            console.warn(`[THUMBNAIL] 結束後重刷失敗（非致命）: ${stream.id} - ${thumbError.message}`)
+          }
 
           /* MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
           // 發送歌單留言到 Discord

@@ -14,6 +14,11 @@ Parameters:
   DomainName:
     Type: String
     Default: m-b.win
+  # 縮圖換圖後的 CloudFront invalidation 用。不能 !Ref CloudFrontDistribution：
+  # Function→Distribution→HttpApi→Function 會循環引用，故以參數固定（id 非機密且不變）
+  CfDistributionId:
+    Type: String
+    Default: E2J83LAK96PIJH
   DbHost:
     Type: String
   DbPort:
@@ -81,11 +86,18 @@ Resources:
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
           GITHUB_TOKEN: !Ref GithubToken
           THUMBNAIL_BUCKET: !Ref ThumbnailBucket
+          CLOUDFRONT_DISTRIBUTION_ID: !Ref CfDistributionId
       Policies:
         - Statement:
+            # 縮圖上傳＋hash 比對（HeadObject 需 GetObject 權限）＋換圖後清 edge 快取
             - Effect: Allow
-              Action: s3:PutObject
+              Action:
+                - s3:PutObject
+                - s3:GetObject
               Resource: !Sub "${ThumbnailBucket.Arn}/*"
+            - Effect: Allow
+              Action: cloudfront:CreateInvalidation
+              Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CfDistributionId}"
             # webhook 非同步化：self-invoke（固定函數名避免循環引用）
             - Effect: Allow
               Action: lambda:InvokeFunction
