@@ -115,10 +115,11 @@ const QUERY_DEFINITIONS = {
 
       if (params.dateRange) {
         // params.dateRange format: { start: '2025-12-03', end: '2025-12-04' }
-        const startUTC = dayjs(params.dateRange.start).startOf('day').utc().format('YYYY-MM-DD HH:mm:ss');
-        const endUTC = dayjs(params.dateRange.end).startOf('day').utc().format('YYYY-MM-DD HH:mm:ss');
-        console.log('[BuildSQL] Date range converted:', { startUTC, endUTC });
-        conditions.push(`time >= '${startUTC}' AND time < '${endUTC}'`);
+        // berry_data.time 已於建表時轉為本地時區，日期直接比對、不再轉 UTC
+        const start = dayjs(params.dateRange.start).startOf('day').format('YYYY-MM-DD HH:mm:ss');
+        const end = dayjs(params.dateRange.end).endOf('day').format('YYYY-MM-DD HH:mm:ss');
+        console.log('[BuildSQL] Date range (local):', { start, end });
+        conditions.push(`time >= '${start}' AND time <= '${end}'`);
       } else {
         console.log('[BuildSQL] No date range provided, skipping WHERE condition');
       }
@@ -143,27 +144,13 @@ const QUERY_DEFINITIONS = {
         title: `First Performance (${dayjs().format('Z')})`,
         field: 'firstPerformance',
         width: 180,
-        mutator: (value) => {
-          if (!value) return '';
-          if (typeof value === 'bigint') {
-            const ms = Number(value) / 1000;
-            return dayjs.utc(ms).local().format('YYYY/MM/DD HH:mm');
-          }
-          return dayjs.utc(value).local().format('YYYY/MM/DD HH:mm');
-        }
+        mutator: (value) => formatTimestamp(value)
       },
       {
         title: `Last Performance (${dayjs().format('Z')})`,
         field: 'lastPerformance',
         width: 180,
-        mutator: (value) => {
-          if (!value) return '';
-          if (typeof value === 'bigint') {
-            const ms = Number(value) / 1000;
-            return dayjs.utc(ms).local().format('YYYY/MM/DD HH:mm');
-          }
-          return dayjs.utc(value).local().format('YYYY/MM/DD HH:mm');
-        }
+        mutator: (value) => formatTimestamp(value)
       },
     ],
   },
@@ -196,11 +183,9 @@ const QUERY_DEFINITIONS = {
       const limit = params.limit || 20;
 
       // Calculate date range automatically (recent N days)
-      const endDate = dayjs().format('YYYY-MM-DD');
-      const startDate = dayjs().subtract(days, 'days').format('YYYY-MM-DD');
-
-      const startUTC = dayjs(startDate).startOf('day').utc().format('YYYY-MM-DD HH:mm:ss');
-      const endUTC = dayjs(endDate).endOf('day').utc().format('YYYY-MM-DD HH:mm:ss');
+      // berry_data.time 已是本地時區，直接用本地日期
+      const start = dayjs().subtract(days, 'days').startOf('day').format('YYYY-MM-DD HH:mm:ss');
+      const end = dayjs().endOf('day').format('YYYY-MM-DD HH:mm:ss');
 
       return `
         SELECT
@@ -210,7 +195,7 @@ const QUERY_DEFINITIONS = {
           COUNT(*) as performanceCount,
           MAX(time) as lastPerformance
         FROM berry_data
-        WHERE time >= '${startUTC}' AND time <= '${endUTC}'
+        WHERE time >= '${start}' AND time <= '${end}'
         GROUP BY songID, songName, artist
         ORDER BY performanceCount DESC
         LIMIT ${limit}
@@ -225,14 +210,7 @@ const QUERY_DEFINITIONS = {
         title: `Last Performance (${dayjs().format('Z')})`,
         field: 'lastPerformance',
         width: 180,
-        mutator: (value) => {
-          if (!value) return '';
-          if (typeof value === 'bigint') {
-            const ms = Number(value) / 1000;
-            return dayjs.utc(ms).local().format('YYYY/MM/DD HH:mm');
-          }
-          return dayjs.utc(value).local().format('YYYY/MM/DD HH:mm');
-        }
+        mutator: (value) => formatTimestamp(value)
       },
     ],
   },
@@ -344,6 +322,17 @@ function setupEventListeners() {
 
   // Advanced Mode
   UI.btnRunSQL.addEventListener('click', handleRunSQL);
+
+  // 活範例：帶字面本地日期（time 已是當地時區），使用者點開即見可模仿的日期寫法
+  const thisYearBtn = document.getElementById('exampleThisYear');
+  if (thisYearBtn) {
+    thisYearBtn.dataset.query = `SELECT songName, artist, COUNT(*) as c FROM berry_data WHERE time >= '${dayjs().startOf('year').format('YYYY-MM-DD')}' GROUP BY songName, artist ORDER BY c DESC LIMIT 10`;
+  }
+  const last30dBtn = document.getElementById('exampleLast30d');
+  if (last30dBtn) {
+    last30dBtn.dataset.query = `SELECT songName, artist, time FROM berry_data WHERE time >= '${dayjs().subtract(30, 'days').format('YYYY-MM-DD')}' ORDER BY time DESC`;
+  }
+
   UI.exampleQueries.forEach(btn => {
     btn.addEventListener('click', (e) => {
       const query = e.currentTarget.dataset.query;
@@ -447,11 +436,14 @@ async function loadParquetData() {
     await db.registerFileBuffer('berry-data.parquet', new Uint8Array(arrayBuffer));
 
     // Create a table from the Parquet file (async query)
-    // Note: time field in Parquet is stored as UTC (MariaDB UTC+0)
-    // We need to treat it as UTC and let JavaScript handle local timezone conversion
+    // Parquet 的 time 為 UTC（MariaDB UTC+0）。建表時直接 shift 成瀏覽器時區，
+    // 讓使用者與 AI 寫 SQL 時 time 就是當地時間（WHERE time >= '2026-01-01' 即本地 1/1），
+    // 不再需要任何 UTC 轉換。註：位移量取「現在」的 offset，台灣/日本無 DST 完全準確。
+    const tzOffsetMinutes = -new Date().getTimezoneOffset(); // 台灣 = +480
     await conn.query(`
       CREATE OR REPLACE TABLE berry_data AS
-      SELECT * FROM read_parquet('berry-data.parquet')
+      SELECT * REPLACE (time + INTERVAL '${tzOffsetMinutes}' MINUTE AS time)
+      FROM read_parquet('berry-data.parquet')
     `);
 
     // Verify data loaded (async query)
@@ -656,9 +648,30 @@ async function handleRunQuery() {
   await executeQuery(sql, queryDef.columns);
 }
 
+// 呼叫 text-to-sql API（retryContext 帶上一次失敗的 SQL 與錯誤訊息時，AI 會修正重出）
+async function fetchAiSQL(query, retryContext = null) {
+  const response = await fetch(`${API_CONFIG.BASE_URL}/api/text-to-sql`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      localDate: dayjs().format('YYYY-MM-DD'),  // 使用者本地日期，供 AI 計算「今年/上個月」等相對時間
+      ...(retryContext ? { failedSql: retryContext.sql, errorMessage: retryContext.error } : {})
+    })
+  });
+  return response.json();
+}
+
 async function handleAiQuery() {
   const query = UI.aiQueryInput.value.trim();
   if (!query) return;
+
+  // 資料未載入完成時 conn 尚為 null，直接執行會誤判為 SQL 錯誤並白燒一次 AI 修復
+  if (!dataLoaded) {
+    UI.aiHelperError.textContent = '資料載入中，請稍候再試';
+    UI.aiHelperError.classList.remove('d-none');
+    return;
+  }
 
   // Show loading, hide error
   UI.aiHelperLoading.classList.remove('d-none');
@@ -666,28 +679,44 @@ async function handleAiQuery() {
   UI.btnSubmitAiQuery.disabled = true;
 
   try {
-    const response = await fetch(`${API_CONFIG.BASE_URL}/api/text-to-sql`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query })
-    });
-
-    const data = await response.json();
-
-    if (data.success) {
-      // Fill SQL editor with generated SQL
-      UI.sqlEditor.value = data.sql;
-      // Close modal
-      const modal = window.bootstrap.Modal.getInstance(UI.aiHelperModal);
-      modal?.hide();
-      // Show success message
-      showMessage('SQL 已生成！點擊「執行 SQL」查看結果', 'success');
-      console.log('[AI] Generated SQL:', data.sql, 'Usage:', data.usage);
-    } else {
-      // Show error in modal
+    let data = await fetchAiSQL(query);
+    if (!data.success) {
       UI.aiHelperError.textContent = data.error || '生成失敗';
       UI.aiHelperError.classList.remove('d-none');
+      return;
     }
+
+    let sql = data.sql;
+    // Fill SQL editor with generated SQL
+    UI.sqlEditor.value = sql;
+    // Close modal
+    const modal = window.bootstrap.Modal.getInstance(UI.aiHelperModal);
+    modal?.hide();
+
+    // 直接執行並顯示（單次執行）；失敗時帶錯誤請 AI 修一次再執行
+    let run = await executeQuery(sql, null);
+    if (!run.ok) {
+      console.warn('[AI] 生成的 SQL 執行失敗，自動修復中:', run.error);
+      const retryData = await fetchAiSQL(query, { sql, error: run.error });
+      // AI 回傳相同 SQL 時重跑注定同錯，直接跳過
+      if (retryData.success && retryData.sql !== sql) {
+        const retryRun = await executeQuery(retryData.sql, null);
+        if (retryRun.ok) {
+          sql = retryData.sql;
+          UI.sqlEditor.value = sql;
+          run = retryRun;
+          console.log('[AI] 修復成功');
+        }
+      }
+    }
+
+    if (run.ok) {
+      showMessage('SQL 已生成並執行完成', 'success');
+    } else {
+      // 兩次都失敗：SQL 已在編輯器中（executeQuery 已顯示錯誤詳情），提示使用者手動調整
+      showMessage(`AI 生成的 SQL 執行失敗（已嘗試自動修復）：${run.error}`, 'warning');
+    }
+    console.log('[AI] Generated SQL:', sql);
   } catch (error) {
     console.error('[AI] Error:', error);
     UI.aiHelperError.textContent = '連線失敗，請稍後再試';
@@ -762,14 +791,7 @@ async function executeQuery(sql, predefinedColumns = null) {
               field.name.toLowerCase().includes('performance') ||
               field.name.toLowerCase().includes('date')) {
             column.title = `${field.name} (${dayjs().format('Z')})`;
-            column.mutator = (value) => {
-              if (!value) return '';
-              if (typeof value === 'bigint') {
-                const ms = Number(value) / 1000;
-                return dayjs.utc(ms).local().format('YYYY/MM/DD HH:mm');
-              }
-              return dayjs.utc(value).local().format('YYYY/MM/DD HH:mm');
-            };
+            column.mutator = (value) => formatTimestamp(value);
           }
 
           return column;
@@ -783,10 +805,12 @@ async function executeQuery(sql, predefinedColumns = null) {
     displayResults(data, columns, queryTime);
 
     showLoading(false);
+    return { ok: true };
   } catch (error) {
     showLoading(false);
     console.error('[Query] Execution failed:', error);
     showError(`Query failed: ${error.message}`);
+    return { ok: false, error: error.message };
   }
 }
 
@@ -821,16 +845,10 @@ function displayResults(data, columns, queryTime) {
 }
 
 // ============ Helper: Format Timestamp ============
-// Time Zone Handling (using dayjs, same approach as streamlist):
-// - Parquet stores TIMESTAMP in UTC (MariaDB UTC+0)
-// - DuckDB reads as TIMESTAMP (Apache Arrow returns BigInt microseconds since Unix epoch in UTC)
-// - dayjs interprets the timestamp as UTC and converts to browser's local timezone
-// - format() displays in user's local timezone
-//
-// Example:
-// - Database: 2025-11-03 13:00:00 UTC
-// - Taiwan user (UTC+8): displays as 2025/11/03 21:00
-// - Japan user (UTC+9): displays as 2025/11/03 22:00
+// Time Zone Handling:
+// - berry_data.time 已於建表時 shift 成瀏覽器時區（見 loadParquetData），
+//   查詢結果的 timestamp 即本地牆鐘時間
+// - 因此這裡用 dayjs.utc() 解析（不再 .local() 位移），format 輸出的就是本地時間
 
 function formatTimestamp(value) {
   if (!value) return '';
@@ -838,13 +856,12 @@ function formatTimestamp(value) {
   try {
     let timestamp;
 
-    // Handle BigInt (Apache Arrow TIMESTAMP in microseconds since Unix epoch, UTC)
+    // Handle BigInt (Apache Arrow TIMESTAMP in microseconds since Unix epoch)
     if (typeof value === 'bigint') {
       // DuckDB/Apache Arrow TIMESTAMP is in microseconds
       // Convert microseconds to milliseconds for dayjs
       const ms = Number(value) / 1000;
-      // IMPORTANT: Use dayjs.utc() to parse as UTC, then convert to local
-      timestamp = dayjs.utc(ms).local();
+      timestamp = dayjs.utc(ms);
 
       // Debug: log if timestamp seems wrong (year < 1970 or > 2100)
       if (timestamp.year() < 1970 || timestamp.year() > 2100) {
@@ -856,15 +873,15 @@ function formatTimestamp(value) {
       // Check if this looks like seconds or milliseconds
       if (value < 10000000000) {
         // Likely seconds, convert to milliseconds
-        timestamp = dayjs.utc(value * 1000).local();
+        timestamp = dayjs.utc(value * 1000);
       } else {
         // Likely milliseconds
-        timestamp = dayjs.utc(value).local();
+        timestamp = dayjs.utc(value);
       }
     }
     // Handle string or Date object - parse as UTC then convert to local
     else {
-      timestamp = dayjs.utc(value).local();
+      timestamp = dayjs.utc(value);
     }
 
     // Verify timestamp is valid
@@ -1244,14 +1261,14 @@ function handleDateRangeChange() {
   }
 
   try {
-    // Convert local datetime to UTC (preserve time if datetime-local, otherwise start of day)
-    const startUTC = dayjs(startDate).utc().format('YYYY-MM-DD HH:mm:ss');
-    const endUTC = dayjs(endDate).utc().format('YYYY-MM-DD HH:mm:ss');
+    // berry_data.time 已是本地時區：選什麼時間就插什麼時間，所見即所得、無轉換
+    const start = dayjs(startDate).format('YYYY-MM-DD HH:mm:ss');
+    const end = dayjs(endDate).format('YYYY-MM-DD HH:mm:ss');
 
-    UI.utcRangeOutput.value = `time >= '${startUTC}' AND time < '${endUTC}'`;
+    UI.utcRangeOutput.value = `time >= '${start}' AND time < '${end}'`;
     UI.btnInsertRange.disabled = false;
 
-    console.log('[Timezone] Date range:', startDate, '~', endDate, '→ UTC:', startUTC, '~', endUTC);
+    console.log('[DateRange] Local range:', start, '~', end);
   } catch (error) {
     console.error('[Timezone] Date range conversion error:', error);
     UI.utcRangeOutput.value = 'Invalid date range';

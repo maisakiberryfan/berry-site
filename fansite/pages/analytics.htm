@@ -118,13 +118,13 @@
               <span data-lang="ja" class="d-none">利用可能なカラムを表示</span>
             </button>
             <button class="btn btn-sm btn-link p-0 ms-3" type="button" data-bs-toggle="collapse" data-bs-target="#timezoneConverter">
-              <i class="bi bi-clock-history"></i>
-              <span data-lang="zh">時間轉換</span>
-              <span data-lang="en" class="d-none">Timezone</span>
-              <span data-lang="ja" class="d-none">時間変換</span>
+              <i class="bi bi-calendar-range"></i>
+              <span data-lang="zh">日期範圍</span>
+              <span data-lang="en" class="d-none">Date Range</span>
+              <span data-lang="ja" class="d-none">日付範囲</span>
             </button>
             <i class="bi bi-question-circle text-muted" data-bs-toggle="tooltip" data-bs-placement="top"
-               data-bs-title="資料庫時間為 UTC，此工具可將本地時間轉換後插入查詢"></i>
+               data-bs-title="time 欄位已是你的當地時間，選好範圍一鍵插入查詢條件"></i>
             <span class="text-muted small ms-1">(<span id="userTimezone">...</span> <code id="userTimezoneOffset">...</code>)</span>
           </div>
           <div class="collapse" id="columnReference">
@@ -159,9 +159,9 @@
                       <button type="button" class="btn btn-link p-0 text-start column-insert" data-column="time">
                         <code>time</code>
                       </button> -
-                      <span data-lang="zh">直播時間</span>
-                      <span data-lang="en" class="d-none">Stream Time</span>
-                      <span data-lang="ja" class="d-none">配信時間</span>
+                      <span data-lang="zh">直播時間（你的當地時間）</span>
+                      <span data-lang="en" class="d-none">Stream Time (your local time)</span>
+                      <span data-lang="ja" class="d-none">配信時間（現地時間）</span>
                       (TIMESTAMP)
                       <br><small class="text-muted">
                         <span data-lang="zh">範例：</span>
@@ -319,7 +319,7 @@
               </div>
             </div>
             <div class="mt-2">
-              <input type="text" id="utcRangeOutput" class="form-control form-control-sm font-monospace" readonly placeholder="UTC 時間範圍">
+              <input type="text" id="utcRangeOutput" class="form-control form-control-sm font-monospace" readonly placeholder="時間範圍條件（你的當地時間）">
             </div>
           </div>
         </div>
@@ -358,6 +358,16 @@
             <span data-lang="zh">類型分類</span>
             <span data-lang="en" class="d-none">Genre</span>
             <span data-lang="ja" class="d-none">ジャンル</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-info example-query me-1 mb-1" id="exampleThisYear" data-query="">
+            <span data-lang="zh">今年 Top 10</span>
+            <span data-lang="en" class="d-none">This Year Top 10</span>
+            <span data-lang="ja" class="d-none">今年 TOP 10</span>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-info example-query me-1 mb-1" id="exampleLast30d" data-query="">
+            <span data-lang="zh">最近30天</span>
+            <span data-lang="en" class="d-none">Last 30 Days</span>
+            <span data-lang="ja" class="d-none">直近30日</span>
           </button>
           <button id="btnSaveQuery" class="btn btn-sm btn-outline-warning me-1 mb-1">
             <i class="bi bi-bookmark"></i>

@@ -399,6 +399,11 @@ $(()=>{
       const tip = bootstrap.Tooltip.getInstance(this)
       if (tip) tip.dispose()
     })
+    // 頁面私有 modal（如 clothes 詳細視圖）開啟時換頁（popstate），modal 節點隨 #content
+    // 清除但 backdrop 掛在 body 上會殘留鎖死頁面——換頁前先關閉所有開啟中的 modal。
+    // Fancybox overlay 掛在 body 上同理（開圖時按返回鍵換頁會殘留全螢幕蓋板）
+    document.querySelectorAll('.modal.show').forEach(m => bootstrap.Modal.getInstance(m)?.hide())
+    window.Fancybox?.close?.(true)
     const audio = document.getElementById('bgmPlayer')
     if (audio) { audio.pause(); audio.removeAttribute('src'); audio.load() }
 
@@ -503,6 +508,13 @@ $(()=>{
     }
     // For other content (markdown, HTML), use $.ajax() to fetch content
     else {
+      // 首頁 API 資料與 main.md 並行抓取（不等 main.md done），縮短最新影片卡出現時間。
+      // catch 在建立時就掛上（resolve 成空字串）：main.md 失敗走 .fail 分支時
+      // done 內的 handler 不會執行，否則 rejection 無人接
+      const isMainPage = (url == 'pages/main.md')
+      const ytLatestPromise = isMainPage ? getYTlatest().catch(() => '') : null
+      const dataUpdatesPromise = isMainPage ? getDataUpdates().catch(() => '') : null
+      const changelogPromise = isMainPage ? getChangelog().catch(() => '') : null
       $.ajax({
         url:url,
         // 附加 _=ts 穿透瀏覽器快取（含部署前的存量快取）；
@@ -531,16 +543,19 @@ $(()=>{
           $("#content").empty().append(c)
 
           //append latest video info / update info
-          if(url == 'pages/main.md'){
+          if(isMainPage){
             $("#content").append(`
               <div class="row mt-3">
                 <div class="col-lg-6 col-md-12 mb-3" id="yt-slot"></div>
                 <div class="col-lg-6 col-md-12" id="info-slot"></div>
               </div>
             `)
-            getYTlatest().then(html => $("#yt-slot").html(html)).catch(()=>{})
-            getDataUpdates().then(html => $("#info-slot").prepend(html)).catch(()=>{})
-            getChangelog().then(html => $("#info-slot").append(html)).catch(()=>{})
+            // SWR：先用上次快取秒開，API 回來後替換（API 失敗/無資料/內容相同時保留現狀）
+            const cachedYT = getCache('ytlatest')
+            if (cachedYT?.data?.videoId) $("#yt-slot").html(renderYTlatestHTML(cachedYT.data))
+            ytLatestPromise.then(html => { if (html) $("#yt-slot").html(html) })
+            dataUpdatesPromise.then(html => { if (html) $("#info-slot").prepend(html) })
+            changelogPromise.then(html => { if (html) $("#info-slot").append(html) })
           }
 
           //if data is remote, tell the source
@@ -2202,7 +2217,8 @@ $(()=>{
       selectableRowsRangeMode:"click",
       clipboard:true,
       addRowPos:"top",
-      downloadRowRange:'all'
+      downloadRowRange:'all',
+      placeholder: t('無資料', 'No data', 'データなし')
     }
 
     // 如果有快取，使用快取資料初始化（秒開）
@@ -2215,6 +2231,25 @@ $(()=>{
     }
 
     jsonTable = new Tabulator("#tb", tabulatorConfig)
+
+    // API 載入失敗：無快取時顯示錯誤（否則使用者只看到空表格誤以為沒資料）。
+    // 錯誤 alert 插在 #tb 之前而非覆寫其內容——覆寫會摧毀 Tabulator 內部 DOM，
+    // 之後「重新載入」的 setData 會寫進 detached 節點、表格永遠無法恢復
+    jsonTable.on("dataLoadError", (error) => {
+      console.error(`[Table] ${p} 載入失敗:`, error)
+      if (!hasCachedData) {
+        $('#tbLoadError').remove()
+        $('#tb').before(`<div id="tbLoadError" class="alert alert-danger my-3">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>${t('資料載入失敗，請稍後重試或按「重新載入」。', 'Failed to load data. Please try again or press "Reload Data".', 'データの読み込みに失敗しました。しばらくしてから再試行してください。')}
+        </div>`)
+        showConnectionError(String(error))
+      }
+    })
+
+    // 載入成功（含重新載入恢復）時清掉先前的錯誤提示
+    jsonTable.on("dataProcessed", () => {
+      $('#tbLoadError').remove()
+    })
 
     // 如果使用快取載入，背景更新 API 資料
     if (hasCachedData) {
@@ -2233,6 +2268,9 @@ $(()=>{
         const result = await response.json()
         const freshData = result.data || result
 
+        // 背景更新成功：清掉先前失敗留下的警示
+        $('#setTableMsg').removeClass('text-bg-warning')
+
         // 比較資料是否有變化
         const cachedData = getCache(tableType)?.data || []
         if (!isDataEqual(cachedData, freshData)) {
@@ -2248,7 +2286,8 @@ $(()=>{
         }
       } catch (error) {
         console.error(`[Cache] 背景更新 ${tableType} 失敗:`, error)
-        // 快取載入成功但背景更新失敗時，不影響用戶體驗
+        // 快取已顯示、操作不中斷，但提示使用者目前看到的是快取資料
+        $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
       }
     }
 
@@ -2482,7 +2521,7 @@ $(()=>{
       // Show brief notification
       $('#setTableMsg').text(t({ zh: '資料已從表格移除', en: 'Data removed from table', ja: 'データがテーブルから削除されました' })).addClass('text-bg-info')
       setTimeout(() => {
-        $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+        $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
       }, 2000)
     })
   }
@@ -2703,7 +2742,7 @@ $(()=>{
   $('#content').on('click', '#clearSearch', () => {
     jsonTable.clearFilter(true)
     $('.search-value').val('')
-    $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+    $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
   // Enter 鍵觸發搜尋
@@ -2719,7 +2758,7 @@ $(()=>{
     jsonTable.deselectRow()
     // 清除進階搜尋的輸入值
     $('.search-value').val('')
-    $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+    $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
   $('#content').on('click', '#edit', ()=>{
@@ -2858,7 +2897,7 @@ $(()=>{
       //tell user editing completed
       $('#setTableMsg').text(t({ zh: '編輯完成', en: 'Edit complete', ja: '編集完了' })).addClass('text-bg-info')
       setTimeout(()=>{
-        $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+        $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
       },5000)
     }
   })
@@ -3891,6 +3930,21 @@ function getDataUpdates(){
 }
 
 //get berry latest stream from DB
+function renderYTlatestHTML(v){
+  // 標題含 <、& 等字元（如「歌枠<3」）會被當 HTML 解析弄壞卡片，插入前轉義
+  const escTitle = String(v.title || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+  return `
+  <div id='YTlatest' class='card'>
+    <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="/tb/${v.videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg'" class="card-img-top"></a>
+    <div class="card-body">
+      <h5 class="card-title">Latest Stream</h5>
+      <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
+      <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link">${escTitle}</a>
+    </div>
+  </div>
+  `
+}
+
 function getYTlatest(){
   return new Promise((resolve, reject)=>{
     $.ajax({
@@ -3899,17 +3953,12 @@ function getYTlatest(){
     .done((d)=>{
       if (!d.success || !d.data) { resolve(''); return }
       const v = d.data
-      let html =`
-      <div id='YTlatest' class='card'>
-        <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="/tb/${v.videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg'" class="card-img-top"></a>
-        <div class="card-body">
-          <h5 class="card-title">Latest Stream</h5>
-          <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
-          <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link">${v.title}</a>
-        </div>
-      </div>
-      `
-      resolve(html)
+      // 與快取相同就不重新渲染（避免縮圖重載閃爍）；快取秒開已顯示同樣內容。
+      // time 也要比：預約時間被修正（scheduled→actual）時卡片要更新
+      const cached = getCache('ytlatest')
+      if (cached?.data?.videoId === v.videoId && cached?.data?.title === v.title && cached?.data?.time === v.time) { resolve(''); return }
+      setCache('ytlatest', v)
+      resolve(renderYTlatestHTML(v))
     })
     .fail((err)=>{reject(err)});
   })

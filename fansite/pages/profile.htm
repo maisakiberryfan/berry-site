@@ -1,25 +1,40 @@
 <div class="fs-5 m-2">
-    <div class="row">
-      <div class="col-sm text-end">
-        <img src="img/profile/profile.webp" width="544" height="544">
+    <div class="row align-items-center">
+      <div class="col-sm text-center">
+        <!-- 換圖方式：直接覆蓋 profile.webp（原圖 git 歷史可回溯），不需改代碼 -->
+        <img src="img/profile/profile.webp" width="544" height="544" class="img-fluid rounded" alt="苺咲べりぃ">
       </div>
       <div class="col-sm">
-        <div>誕生日／Birthday：08/15</div>
-        <div id="debutRow" data-debut="2020-09-05"></div>
-        <div>身長／Height：153cm</div>
-        <div>年齢／Age：(10)15</div>
-        <div>血液型／Blood Type：Ｂ</div>
-        <div>出身地／Nationality：いちごの国</div>
-        <div class="py-2">ハッシュタグ／hashtag<br>
-            &nbsp;一般／General：<a href="https://x.com/search?q=%23%E8%8B%BA%E5%92%B2%E3%81%B9%E3%82%8A%E3%81%83">#苺咲べりぃ</a><br>
-            &nbsp;生放送／Live stream：<a href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%AA%E3%81%BE">#べりなま</a><br>
-            &nbsp;ファンネーム／Fan：<a href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%83%9E%E3%83%8D">#べりマネ</a><br>
-            &nbsp;ファンアート／Fan art：<a href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%82%E3%83%BC%E3%81%A8">#べりあーと</a><br>
-            &nbsp;巡回用／For Patrol：<a href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%83%E7%9B%A3%E8%A6%96%E4%B8%AD">#べりぃ監視中</a><br>
-            &nbsp;飯テロ／Food Temptation：<a href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%83%E3%81%A1%E3%82%83%E3%82%93%E7%97%A9%E3%81%9B%E3%81%A6">#べりぃちゃん痩せて</a><br>
+        <div class="facts-grid">
+          <span class="text-body-secondary text-end"><span data-lang="zh">生日</span><span data-lang="en" class="d-none">Birthday</span><span data-lang="ja" class="d-none">誕生日</span></span>
+          <span>08/15</span>
+          <span class="text-body-secondary text-end"><span data-lang="zh">出道</span><span data-lang="en" class="d-none">Debut</span><span data-lang="ja" class="d-none">活動開始</span></span>
+          <span id="debutRow" data-debut="2020-09-05"><!-- JS 由 data-debut 填入日期＋活動時長 --></span>
+          <span class="text-body-secondary text-end"><span data-lang="zh">身高</span><span data-lang="en" class="d-none">Height</span><span data-lang="ja" class="d-none">身長</span></span>
+          <span>153cm</span>
+          <span class="text-body-secondary text-end"><span data-lang="zh">年齡</span><span data-lang="en" class="d-none">Age</span><span data-lang="ja" class="d-none">年齢</span></span>
+          <span>(10)15</span>
+          <span class="text-body-secondary text-end"><span data-lang="zh">血型</span><span data-lang="en" class="d-none">Blood Type</span><span data-lang="ja" class="d-none">血液型</span></span>
+          <span>Ｂ</span>
+          <span class="text-body-secondary text-end"><span data-lang="zh">出身</span><span data-lang="en" class="d-none">Nationality</span><span data-lang="ja" class="d-none">出身地</span></span>
+          <span>いちごの国</span>
+        </div>
+
+        <div class="mt-4">
+          <div class="text-body-secondary mb-2"><span data-lang="zh">標籤</span><span data-lang="en" class="d-none">Hashtags</span><span data-lang="ja" class="d-none">ハッシュタグ</span></div>
+          <div class="d-flex flex-wrap gap-2">
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E8%8B%BA%E5%92%B2%E3%81%B9%E3%82%8A%E3%81%83"><span data-lang="zh">一般</span><span data-lang="en" class="d-none">General</span><span data-lang="ja" class="d-none">一般</span> #苺咲べりぃ</a>
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%AA%E3%81%BE"><span data-lang="zh">直播</span><span data-lang="en" class="d-none">Live</span><span data-lang="ja" class="d-none">生放送</span> #べりなま</a>
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%83%9E%E3%83%8D"><span data-lang="zh">粉絲名</span><span data-lang="en" class="d-none">Fans</span><span data-lang="ja" class="d-none">ファンネーム</span> #べりマネ</a>
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%82%E3%83%BC%E3%81%A8"><span data-lang="zh">粉絲繪</span><span data-lang="en" class="d-none">Fan art</span><span data-lang="ja" class="d-none">ファンアート</span> #べりあーと</a>
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%83%E7%9B%A3%E8%A6%96%E4%B8%AD"><span data-lang="zh">巡回用</span><span data-lang="en" class="d-none">For Patrol</span><span data-lang="ja" class="d-none">巡回用</span> #べりぃ監視中</a>
+            <a class="badge rounded-pill text-bg-secondary text-decoration-none fs-6 fw-normal" href="https://x.com/search?q=%23%E3%81%B9%E3%82%8A%E3%81%83%E3%81%A1%E3%82%83%E3%82%93%E7%97%A9%E3%81%9B%E3%81%A6"><span data-lang="zh">飯テロ</span><span data-lang="en" class="d-none">Food</span><span data-lang="ja" class="d-none">飯テロ</span> #べりぃちゃん痩せて</a>
+          </div>
         </div>
       </div>
     </div>
+
+    <hr class="my-4 opacity-25">
 
     <div id="intro" class="text-center my-4">
         <h2>Introduction</h2>
@@ -43,6 +58,8 @@
         </div>
     </div>
 
+    <hr class="my-4 opacity-25">
+
     <div id="logo" class="mt-4">
         <h2 class="text-center">Logo</h2>
         <div class="row">
@@ -56,33 +73,31 @@
             </figure>
         </div>
     </div>
-    <!-- bgm -->
+
+    <hr class="my-4 opacity-25">
 
     <div id="BGM" class="text-center mt-4">
         <h2>BGM</h2>
 
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="bgm" id="bgm1" value="1">
-            <label class="form-check-label" for="bgm1" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="作曲 / ねぎとろ。">BGM1</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="bgm" id="bgm2" value="2">
-            <label class="form-check-label" for="bgm2" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="作曲 / ねぎとろ。">BGM2</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="bgm" id="bgm3" value="3">
-            <label class="form-check-label" for="bgm3" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="作曲 / 菅原ショウ">BGM3</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="bgm" id="bgm4" value="4">
-            <label class="form-check-label" for="bgm4" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="作曲 / 司/19G">BGM4</label>
-        </div>
-        <div class="form-check form-check-inline">
-            <input class="form-check-input" type="radio" name="bgm" id="bgm5" value="5">
-            <label class="form-check-label" for="bgm5" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-title="作曲 / 司/19G">BGM5</label>
+        <div class="btn-group flex-wrap" role="group" aria-label="BGM select">
+            <input type="radio" class="btn-check" name="bgm" id="bgm1" value="1" data-composer="ねぎとろ。">
+            <label class="btn btn-outline-secondary" for="bgm1">BGM1</label>
+            <input type="radio" class="btn-check" name="bgm" id="bgm2" value="2" data-composer="ねぎとろ。">
+            <label class="btn btn-outline-secondary" for="bgm2">BGM2</label>
+            <input type="radio" class="btn-check" name="bgm" id="bgm3" value="3" data-composer="菅原ショウ">
+            <label class="btn btn-outline-secondary" for="bgm3">BGM3</label>
+            <input type="radio" class="btn-check" name="bgm" id="bgm4" value="4" data-composer="司/19G">
+            <label class="btn btn-outline-secondary" for="bgm4">BGM4</label>
+            <input type="radio" class="btn-check" name="bgm" id="bgm5" value="5" data-composer="司/19G">
+            <label class="btn btn-outline-secondary" for="bgm5">BGM5</label>
         </div>
 
-        <div class="mt-4">
+        <!-- 播放中曲目與作曲者（原 tooltip 手機無 hover 看不到，改常駐顯示） -->
+        <div id="bgmNowPlaying" class="mt-3 text-body-secondary fs-6" style="display: none;">
+            ♪ <span id="bgmNowName"></span>｜<span data-lang="zh">作曲</span><span data-lang="en" class="d-none">Composer</span><span data-lang="ja" class="d-none">作曲</span>：<span id="bgmNowComposer"></span>
+        </div>
+
+        <div class="mt-3">
             <audio id="bgmPlayer" class="w-100" style="max-width:500px;" controls preload="none"></audio>
         </div>
     </div>
@@ -91,16 +106,18 @@
 
 <script>
     $(()=>{
-        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]')
-        const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl))
-
         const player = document.getElementById('bgmPlayer')
 
         $('input[name="bgm"]').on('change', ()=>{
-            const val = $('input[name="bgm"]:checked').val()
+            const $checked = $('input[name="bgm"]:checked')
+            const val = $checked.val()
             if(!val) return
             player.src = `img/profile/bgm/${val}.mp3`
             player.play().catch(() => {})
+            // 顯示播放中曲目與作曲者
+            $('#bgmNowName').text(`BGM${val}`)
+            $('#bgmNowComposer').text($checked.data('composer') || '')
+            $('#bgmNowPlaying').show()
         })
 
         // 計算出道時間（年月日）
@@ -119,7 +136,7 @@
         } else {
             durationText = `${years}年${months}個月${days}天`
         }
-        $('#debutRow').text(`活動開始／Debut：${debutDate}（${durationText}）`)
+        $('#debutRow').text(`${debutDate}（${durationText}）`)
     })
 
 </script>
