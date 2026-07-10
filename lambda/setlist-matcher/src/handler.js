@@ -95,6 +95,21 @@ function extractJpEn(text) {
   return { jp, en }
 }
 
+// Split on "slash followed by whitespace" like /\s*\/\s+/, but only at
+// parenthesis depth 0 so reading-guide parens are never cut in half.
+function splitSlashOutsideParens(s) {
+  let depth = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === '(') depth++
+    else if (c === ')') depth = Math.max(0, depth - 1)
+    else if (c === '/' && depth === 0 && /\s/.test(s[i + 1] || '')) {
+      return [s.slice(0, i).trimEnd(), s.slice(i + 1).trim()]
+    }
+  }
+  return [s]
+}
+
 function timeToSeconds(str) {
   const parts = str.split(':').map(Number)
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
@@ -156,13 +171,20 @@ function parseSetlistLine(line) {
   const minLen = startSec !== null ? 1 : 3
   if (!cleaned || cleaned.length < minLen) return null
 
+  // 去戳去序後整行只剩「(xxx)」＝時刻註記而非曲名（「25:04 (big dream)」曾被建成垃圾新曲）；
+  // 真實曲名不會整個包在括號裡
+  if (/^\([^()]*\)$/.test(cleaned)) return null
+
   // Filter noise lines (talk segments, emoji dividers, loading, 感言)
   if (isNoiseLine(cleaned)) return null
 
   let songPart = ''
   let artistPart = ''
 
-  const separators = ['|', '｜', ' - ', '/', '  ', '\t']
+  // 主分隔的斜線要求兩側空格（「曲名 / 歌手」格式）：裸 '/' 會把「ハロ/ハワユ」等
+  // 含斜線曲名、或括號內含斜線的無 | 行從斜線處切爆（split 限 2 段還會丟棄餘文）；
+  // 不匹配時整行交給下游 splitSlashOutsideParens（括號感知）處理
+  const separators = ['|', '｜', ' - ', ' / ', '  ', '\t']
 
   for (const sep of separators) {
     if (cleaned.includes(sep)) {
@@ -182,10 +204,12 @@ function parseSetlistLine(line) {
   // 「歌名 / 羅馬字 | 歌手」三段格式：主分隔（|）切完後 song 段內殘留的
   // 「日文 / 非日文」是日英對照而非歌手，需在此切開（否則整串比對必失敗）。
   // 斜線前可無空格（「ウィーアー！/ We Are!」）、後必有空格（保護「1/6」等歌名）；
+  // 切分點必須在括號外 ——「ハロ/ハワユ(Hello/ how are you)」的斜線+空格在
+  // 括號內，曾被從括號中間切開（jp=「ハロ/ハワユ(Hello」）導致整行判成新曲；
   // 右側判定用「不含假名/漢字」而非純 ASCII（羅馬字常含 ☆ 等符號）
   let song
   const hasJa = s => /[぀-ヿ一-鿿]/.test(s)
-  const slashSplit = songPart.split(/\s*\/\s+/, 2)
+  const slashSplit = splitSlashOutsideParens(songPart)
   if (slashSplit.length === 2) {
     const [jpSide, enSide] = slashSplit.map(s => s.trim())
     if (jpSide && enSide && hasJa(jpSide) && !hasJa(enSide)) {
