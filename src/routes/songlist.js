@@ -1,30 +1,29 @@
 import { validateRequired, successResponse } from "../utils/middleware.js";
 import { createErrorResponse } from "../utils/database.js";
-import { generateETag, checkETagMatch, CACHE_CONFIG } from "../utils/cache.js";
+import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "../utils/cache.js";
 
-// GET /songlist - Get all songs (no KV cache, ETag only)
+// GET /songlist - Get all songs (meta ETag：304 路徑免查全量)
 export async function getSonglist(c) {
   try {
     const db = c.get("db");
     const ifNoneMatch = c.req.header('If-None-Match');
 
-    // Always fetch from database
-    const songs = await db.query(`
-      SELECT songID, songName, songNameEn, artist, artistEn, genre, tieup, songNote, updatedAt
-      FROM songlist
-      ORDER BY songID DESC
-    `);
-
-    // Generate ETag
-    const etag = await generateETag(songs);
-
-    // Check ETag for 304 Not Modified
+    const meta = await db.first(
+      `SELECT COUNT(*) AS c, MAX(updatedAt) AS m FROM songlist`
+    );
+    const etag = generateMetaETag(ETAG_VERSION.songlist, meta);
     if (checkETagMatch(ifNoneMatch, etag)) {
       return c.body(null, 304, {
         'ETag': etag,
         'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
       });
     }
+
+    const songs = await db.query(`
+      SELECT songID, songName, songNameEn, artist, artistEn, genre, tieup, songNote, updatedAt
+      FROM songlist
+      ORDER BY songID DESC
+    `);
 
     return c.json(successResponse(songs), 200, {
       'ETag': etag,

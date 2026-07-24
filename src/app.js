@@ -29,7 +29,7 @@ import {
   bulkUpdateCategories, getPendingStreams, getLatestStream
 } from './routes/streamlist.js'
 import {
-  getSetlist, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry
+  getSetlist, getSetlistManifest, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry
 } from './routes/setlist.js'
 import aliasesApp from './routes/aliases.js'
 
@@ -139,6 +139,7 @@ api.delete('/streamlist/:streamID', deleteStream)
 api.patch('/streamlist/bulk-categories', bulkUpdateCategories)
 
 // Setlist
+api.get('/setlist/manifest', getSetlistManifest)
 api.get('/setlist', getSetlist)
 api.post('/setlist', createSetlistEntry)
 api.put('/setlist/:streamID/:segmentNo/:trackNo', updateSetlistEntry)

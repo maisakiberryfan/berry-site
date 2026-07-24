@@ -8,15 +8,25 @@ import {
   successResponse,
 } from "../utils/middleware.js";
 import { createErrorResponse } from "../utils/database.js";
-import { generateETag, checkETagMatch, CACHE_CONFIG } from "../utils/cache.js";
+import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "../utils/cache.js";
 
-// GET /streamlist - Get all streams (no KV cache, ETag only)
+// GET /streamlist - Get all streams (meta ETag：304 路徑免查全量)
 export async function getStreamlist(c) {
   try {
     const db = c.get("db");
     const ifNoneMatch = c.req.header('If-None-Match');
 
-    // Always fetch from database
+    const meta = await db.first(
+      `SELECT COUNT(*) AS c, MAX(updatedAt) AS m FROM streamlist`
+    );
+    const etag = generateMetaETag(ETAG_VERSION.streamlist, meta);
+    if (checkETagMatch(ifNoneMatch, etag)) {
+      return c.body(null, 304, {
+        'ETag': etag,
+        'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
+      });
+    }
+
     const streams = await db.query(`
       SELECT streamID, title, time, categories, note, setlistComplete
       FROM streamlist
@@ -32,17 +42,6 @@ export async function getStreamlist(c) {
           ? JSON.parse(stream.categories)
           : stream.categories,
     }));
-
-    // Generate ETag
-    const etag = await generateETag(formattedStreams);
-
-    // Check ETag for 304 Not Modified
-    if (checkETagMatch(ifNoneMatch, etag)) {
-      return c.body(null, 304, {
-        'ETag': etag,
-        'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
-      });
-    }
 
     return c.json(successResponse(formattedStreams), 200, {
       'ETag': etag,

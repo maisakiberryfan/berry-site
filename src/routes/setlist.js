@@ -4,59 +4,157 @@ import {
   mysqlToISO8601,
 } from "../utils/middleware.js";
 import { createErrorResponse } from "../utils/database.js";
-import { generateETag, checkETagMatch, CACHE_CONFIG } from "../utils/cache.js";
+import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "../utils/cache.js";
 
-// GET /setlist - Get all setlist entries with song details (supports filtering, no KV cache, ETag only)
+// setlist VIEW = setlist_ori JOIN songlist JOIN streamlist：
+// 三表任一變更都會反映在各自的 updatedAt / COUNT（FK 為 ON DELETE RESTRICT，
+// 刪除必先動引用 row；UPDATE CASCADE 情境由來源表自身 updatedAt 捕捉）
+async function getSetlistMeta(db) {
+  return db.first(`SELECT
+    (SELECT COUNT(*) FROM setlist_ori) AS c1, (SELECT MAX(updatedAt) FROM setlist_ori) AS m1,
+    (SELECT COUNT(*) FROM streamlist)  AS c2, (SELECT MAX(updatedAt) FROM streamlist)  AS m2,
+    (SELECT COUNT(*) FROM songlist)    AS c3, (SELECT MAX(updatedAt) FROM songlist)    AS m3`);
+}
+
+// 'YYYY-MM' → 'YYYY-MM-01'；無效格式回 null
+function monthStart(ym) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(ym) ? `${ym}-01` : null;
+}
+
+// 'YYYY-MM' 的次月首日（exclusive 上界）
+function nextMonthStart(ym) {
+  const y = parseInt(ym.slice(0, 4), 10);
+  const m = parseInt(ym.slice(5, 7), 10);
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+}
+
+// GET /setlist - Get all setlist entries with song details
+// 支援：?streamID=（單場）、?from=YYYY-MM&to=YYYY-MM（月度區段，配合 manifest 增量更新）、
+// 無參數（全量，meta ETag 304 短路）
 export async function getSetlist(c) {
   try {
     const db = c.get("db");
     const streamID = c.req.query("streamID");  // Optional filter parameter
+    const from = c.req.query("from");
+    const to = c.req.query("to");
     const ifNoneMatch = c.req.header('If-None-Match');
 
-    // Always fetch from database
-    let setlist;
+    // 單場查詢（viewSetlist modal / 解析流程用）：行為不變
     if (streamID) {
-      setlist = await db.query(`
+      const setlist = await db.query(`
         SELECT *
         FROM setlist
         WHERE streamID = ?
         ORDER BY segmentNo ASC, trackNo ASC
       `, [streamID]);
-    } else {
-      setlist = await db.query(`
-        SELECT *
-        FROM setlist
-        ORDER BY time DESC, segmentNo ASC, trackNo ASC
-      `);
+      return c.json(successResponse(setlist.map((entry) => ({
+        ...entry,
+        time: mysqlToISO8601(entry.time),
+      }))));
     }
 
-    // Convert time format for each entry
+    // 月度區段（from/to 皆含）：前端由 manifest 判斷抓哪些月，此端點不做 ETag。
+    // 特殊值 none：不留檔場（streamID 為佔位符、無對應 stream、VIEW time 為 NULL）bucket
+    if (from || to) {
+      if (from === "none" || to === "none") {
+        const rows = await db.query(`
+          SELECT *
+          FROM setlist
+          WHERE time IS NULL
+          ORDER BY streamID ASC, segmentNo ASC, trackNo ASC
+        `);
+        return c.json(successResponse(rows), 200, {
+          'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
+        });
+      }
+      const lower = monthStart(from || "1970-01");
+      const upper = to ? (monthStart(to) && nextMonthStart(to)) : "9999-01-01";
+      if (!lower || !upper) {
+        return c.json(createErrorResponse("VALIDATION_ERROR", "from/to must be YYYY-MM"), 400);
+      }
+      const rows = await db.query(`
+        SELECT *
+        FROM setlist
+        WHERE time >= ? AND time < ?
+        ORDER BY time DESC, segmentNo ASC, trackNo ASC
+      `, [lower, upper]);
+      return c.json(successResponse(rows.map((entry) => ({
+        ...entry,
+        time: mysqlToISO8601(entry.time),
+      }))), 200, {
+        'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
+      });
+    }
+
+    // 全量：先以輕量 meta 查詢生成 ETag，304 路徑完全免查 15k+ 筆
+    const meta = await getSetlistMeta(db);
+    const etag = generateMetaETag(ETAG_VERSION.setlist, meta);
+    if (checkETagMatch(ifNoneMatch, etag)) {
+      return c.body(null, 304, {
+        'ETag': etag,
+        'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
+      });
+    }
+
+    const setlist = await db.query(`
+      SELECT *
+      FROM setlist
+      ORDER BY time DESC, segmentNo ASC, trackNo ASC
+    `);
     const formattedSetlist = setlist.map((entry) => ({
       ...entry,
       time: mysqlToISO8601(entry.time),
     }));
 
-    // Generate ETag (only for full dataset)
-    if (!streamID) {
-      const etag = await generateETag(formattedSetlist);
+    return c.json(successResponse(formattedSetlist), 200, {
+      'ETag': etag,
+      'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
+    });
+  } catch (error) {
+    console.error("Get setlist failed:", error);
+    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+  }
+}
 
-      // Check ETag for 304 Not Modified
-      if (checkETagMatch(ifNoneMatch, etag)) {
-        return c.body(null, 304, {
-          'ETag': etag,
-          'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
-        });
-      }
+// GET /setlist/manifest - 每月 {month, count, maxUpdated} 清單（前端月度增量更新的比對依據）
+// per-month 指紋含三表 updatedAt 的 GREATEST：歌名修正、直播時間修改、歌單編輯
+// 都會讓「受影響月份」的指紋前進，前端只重抓那些月。
+// ETag 與全量端點共用同一組 meta——manifest 304 = 整個資料集沒變。
+export async function getSetlistManifest(c) {
+  try {
+    const db = c.get("db");
+    const ifNoneMatch = c.req.header('If-None-Match');
 
-      return c.json(successResponse(formattedSetlist), 200, {
+    const meta = await getSetlistMeta(db);
+    const etag = generateMetaETag(ETAG_VERSION.setlist, meta);
+    if (checkETagMatch(ifNoneMatch, etag)) {
+      return c.body(null, 304, {
         'ETag': etag,
-        'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
+        'Cache-Control': CACHE_CONFIG.HEADERS.NOT_MODIFIED
       });
     }
 
-    return c.json(successResponse(formattedSetlist));
+    // LEFT JOIN streamlist：不留檔場（佔位 streamID 無對應 stream）歸入 month='none'
+    // bucket，否則月度增量會漏掉這批 rows（全量 VIEW 為 LEFT JOIN、含它們）。
+    // 排序讓 none 殿後，前端「最近 N 月」邏輯拿到的都是真月份。
+    const months = await db.query(`
+      SELECT COALESCE(DATE_FORMAT(s.time, '%Y-%m'), 'none') AS month, COUNT(*) AS count,
+             MAX(GREATEST(o.updatedAt, COALESCE(s.updatedAt, '1970-01-01'), COALESCE(g.updatedAt, '1970-01-01'))) AS maxUpdated
+      FROM setlist_ori o
+      LEFT JOIN streamlist s ON o.streamID = s.streamID
+      LEFT JOIN songlist g ON o.songID = g.songID
+      GROUP BY month
+      ORDER BY (month = 'none') ASC, month DESC
+    `);
+
+    // version 隨 ETAG_VERSION bump：前端把它摻進 per-month 指紋，
+    // 版本升級（輸出格式變更）時所有月份視為變更、觸發全量重抓
+    return c.json(successResponse({ version: ETAG_VERSION.setlist, months }), 200, {
+      'ETag': etag,
+      'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
+    });
   } catch (error) {
-    console.error("Get setlist failed:", error);
+    console.error("Get setlist manifest failed:", error);
     return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
   }
 }
