@@ -29,6 +29,13 @@ try {
   }
 } catch { /* 無 .env 時仰賴外部環境變數 */ }
 
+// 防呆：dev server 預期連 mbdb_test（DB 測試規範）；沒 override 時 .env 的正式庫
+// 參考值會被讀入——大聲警告避免對正式庫誤寫
+if (process.env.DB_NAME !== 'mbdb_test') {
+  console.warn(`⚠️  [entry-dev] DB_NAME=${process.env.DB_NAME || '(未設定)'} 不是 mbdb_test！`)
+  console.warn('⚠️  寫入測試請用：DB_HOST=127.0.0.1 DB_PORT=13307 DB_NAME=mbdb_test node entry-dev.js')
+}
+
 const indexHtml = readFileSync(new URL('./fansite/index.html', import.meta.url), 'utf8')
 
 const dev = new Hono()

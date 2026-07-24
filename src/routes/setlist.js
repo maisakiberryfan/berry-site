@@ -10,10 +10,16 @@ import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "..
 // 三表任一變更都會反映在各自的 updatedAt / COUNT（FK 為 ON DELETE RESTRICT，
 // 刪除必先動引用 row；UPDATE CASCADE 情境由來源表自身 updatedAt 捕捉）
 async function getSetlistMeta(db) {
+  // cols：setlist VIEW 的欄位清單——VIEW 定義由 DB 端管理（repo 無 migration），
+  // ALTER VIEW 增減欄位時自動反映在 ETag，不依賴人工 bump ETAG_VERSION
+  //（欄位不變、格式變的情形仍需 bump）
   return db.first(`SELECT
     (SELECT COUNT(*) FROM setlist_ori) AS c1, (SELECT MAX(updatedAt) FROM setlist_ori) AS m1,
     (SELECT COUNT(*) FROM streamlist)  AS c2, (SELECT MAX(updatedAt) FROM streamlist)  AS m2,
-    (SELECT COUNT(*) FROM songlist)    AS c3, (SELECT MAX(updatedAt) FROM songlist)    AS m3`);
+    (SELECT COUNT(*) FROM songlist)    AS c3, (SELECT MAX(updatedAt) FROM songlist)    AS m3,
+    (SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION)
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'setlist') AS cols`);
 }
 
 // 'YYYY-MM' → 'YYYY-MM-01'；無效格式回 null
@@ -21,11 +27,14 @@ function monthStart(ym) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(ym) ? `${ym}-01` : null;
 }
 
-// 'YYYY-MM' 的次月首日（exclusive 上界）
+// 'YYYY-MM' 的次月首日（exclusive 上界）。年份 padStart 防前導零遺失被 MariaDB
+// 依二位年規則重詮釋（'69-01-01'→2069）；9999-12 clamp 在 DATETIME 值域內
 function nextMonthStart(ym) {
   const y = parseInt(ym.slice(0, 4), 10);
   const m = parseInt(ym.slice(5, 7), 10);
-  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  if (y >= 9999 && m === 12) return "9999-12-31 23:59:59.999999";
+  const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  return `${String(ny).padStart(4, "0")}-${String(nm).padStart(2, "0")}-01`;
 }
 
 // GET /setlist - Get all setlist entries with song details
@@ -61,7 +70,7 @@ export async function getSetlist(c) {
           SELECT *
           FROM setlist
           WHERE time IS NULL
-          ORDER BY streamID ASC, segmentNo ASC, trackNo ASC
+          ORDER BY segmentNo ASC, trackNo ASC, streamID ASC
         `);
         return c.json(successResponse(rows), 200, {
           'Cache-Control': CACHE_CONFIG.HEADERS.CACHEABLE
@@ -139,7 +148,7 @@ export async function getSetlistManifest(c) {
     // 排序讓 none 殿後，前端「最近 N 月」邏輯拿到的都是真月份。
     const months = await db.query(`
       SELECT COALESCE(DATE_FORMAT(s.time, '%Y-%m'), 'none') AS month, COUNT(*) AS count,
-             MAX(GREATEST(o.updatedAt, COALESCE(s.updatedAt, '1970-01-01'), COALESCE(g.updatedAt, '1970-01-01'))) AS maxUpdated
+             MAX(GREATEST(COALESCE(o.updatedAt, '1970-01-01'), COALESCE(s.updatedAt, '1970-01-01'), COALESCE(g.updatedAt, '1970-01-01'))) AS maxUpdated
       FROM setlist_ori o
       LEFT JOIN streamlist s ON o.streamID = s.streamID
       LEFT JOIN songlist g ON o.songID = g.songID

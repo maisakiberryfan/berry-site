@@ -251,7 +251,14 @@ cd fansite && npm run build:js
 - **任何改變 API 輸出形狀的修改（setlist VIEW 定義、SELECT 欄位增減、格式轉換、
   manifest 語意）都必須 bump `ETAG_VERSION` 對應項**，否則帶舊 ETag 的客戶端
   會一直拿 304 看不到新格式
-- 回填／維護腳本**禁止**顯式 `SET updatedAt = 舊值`（會抑制自動刷新、令 ETag 漏判）
+- 回填／維護腳本**禁止**：顯式 `SET updatedAt = 舊值`（抑制自動刷新）、寫入 `updatedAt = NULL`
+  （欄位 nullable）、TRUNCATE 後重灌保留原 updatedAt 的 dump——三者都讓變更對 ETag 隱形。
+  大量修改後最保險的做法：任挑一筆 row 觸碰一下（如 `UPDATE ... SET note=note` 不行——值沒變
+  不刷新；要 `SET updatedAt=CURRENT_TIMESTAMP(6)`）強制推進 MAX
+- Hyperdrive 的 **query cache 必須保持關閉**——重開會讓 meta 查詢命中快取、產生 TTL 窗口的
+  stale 304（與上方 Hyperdrive 節的既有規則同源，但這裡是正確性依賴不只是新鮮度）
+- setlist VIEW 欄位清單已自動摻入 ETag（ALTER VIEW 增減欄位免 bump）；欄位不變、
+  格式變（如 mysqlToISO8601 修改）仍需人工 bump
 - setlist 前端為月度快取（localStorage v2）：manifest 比對 → 只重抓指紋變更的月份；
   不留檔場（佔位 streamID、time NULL）走 `none` bucket
 

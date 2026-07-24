@@ -405,32 +405,52 @@ $(()=>{
   }
 
   // 延遲顯示的同步指示（304 在 1.5s 內完成則永不出現；真的要抓資料才會亮）
-  function startSyncIndicator() {
+  // owner：發起同步時的頁面——回調觸發或清除時使用者已換頁就不觸碰 #setTableMsg
+  function startSyncIndicator(owner) {
     let shown = false
     const timer = setTimeout(() => {
+      if (getProcess() !== owner) return
       shown = true
       $('#setTableMsg').html(`<span class="spinner-border spinner-border-sm me-2"></span>${t('資料更新中…', 'Updating data…', 'データ更新中…')}`).addClass('text-bg-info')
     }, 1500)
     return () => {
       clearTimeout(timer)
-      if (shown) $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+      if (shown && getProcess() === owner) $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
     }
   }
 
   // setlist 同步主流程：manifest 比對 → 差異月抓取 → 快取與表格更新。
   // 開頁背景驗證、首訪漸進載入、reload 按鈕、編輯後刷新統一走這條路徑。
-  async function syncSetlistTable(apiUrl) {
-    const endIndicator = startSyncIndicator()
+  // opts.forceRender：即使 304／指紋無變化也用快取重繪表格（reload 按鈕恢復髒狀態用）
+  let _setlistSyncBusy = false
+  async function syncSetlistTable(apiUrl, opts = {}) {
+    if (_setlistSyncBusy) {
+      console.log('[Sync] setlist 同步進行中，跳過重複觸發')
+      return
+    }
+    _setlistSyncBusy = true
+    const endIndicator = startSyncIndicator('setlist')
     try {
       const cached = getCache('setlist')
       const hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
+
+      // 表格重繪的統一入口：structuredClone 隔離表格與快取——Tabulator 的 time 欄
+      // mutator 會就地改 row 物件（轉為本地顯示格式），共享參照會讓後續 setCache
+      // 存進污染的 time、下次 monthKeyOf 歸月全錯
+      const renderRows = (months) => {
+        if (getProcess() !== 'setlist' || !jsonTable) return
+        _skipFilterClear = true
+        jsonTable.replaceData(structuredClone(flattenMonths(months)))
+        _skipFilterClear = false
+      }
 
       const headers = (hasCache && cached.etag) ? { 'If-None-Match': cached.etag } : {}
       const maniRes = await fetch(`${apiUrl}/manifest`, { cache: 'no-store', headers })
       if (maniRes.status === 304) {
         endIndicator()
         console.log('[Sync] setlist 無變更 (304)')
-        $('#setTableMsg').removeClass('text-bg-warning')
+        if (getProcess() === 'setlist') $('#setTableMsg').removeClass('text-bg-warning')
+        if (opts.forceRender && hasCache) renderRows(cached.data.months)
         return
       }
       if (!maniRes.ok) throw new Error(`HTTP ${maniRes.status}`)
@@ -459,14 +479,10 @@ $(()=>{
 
       const monthsDict = { ...(cached?.data?.months || {}) }
       removed.forEach(k => delete monthsDict[k])
-
-      // 換頁防護：sync 期間使用者可能已離開 setlist 頁——快取照更新，表格不碰
-      const tableAlive = () => getProcess() === 'setlist' && jsonTable
-      const render = () => {
-        if (!tableAlive()) return
-        _skipFilterClear = true
-        jsonTable.replaceData(flattenMonths(monthsDict))
-        _skipFilterClear = false
+      const setMsg = (html, cls) => {
+        if (getProcess() !== 'setlist') return
+        $('#setTableMsg').html(html).removeClass('text-bg-info text-bg-warning')
+        if (cls) $('#setTableMsg').addClass(cls)
       }
 
       if (!hasCache) {
@@ -474,20 +490,35 @@ $(()=>{
         const recent = monthKeys.slice(0, 12)
         const rest = monthKeys.slice(12)
         endIndicator()  // 首訪用自己的常駐提示，不用延遲 indicator
+        // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時
+        // 由當時的表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
+        const rebuildHeaderFilters = () => {
+          if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(jsonTable.getColumnDefinitions())
+        }
+        if (recent.length === 0) {
+          // 無任何真月份（空庫或只有不留檔場）
+          if (maniSet.has('none')) await fetchNoneInto(monthsDict)
+          setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
+          renderRows(monthsDict)
+          rebuildHeaderFilters()
+          console.log('[Sync] setlist 首次載入完成（無月份資料）')
+          return
+        }
         await fetchMonthsInto(monthsDict, apiUrl, recent[recent.length - 1], recent[0])
-        render()
+        renderRows(monthsDict)
         if (rest.length || maniSet.has('none')) {
-          $('#setTableMsg').html(`<span class="spinner-border spinner-border-sm me-2"></span>${t(
+          setMsg(`<span class="spinner-border spinner-border-sm me-2"></span>${t(
             `歷史資料載入中…（已顯示最近 ${recent.length} 個月，共 ${monthKeys.length} 個月）`,
             `Loading history… (showing latest ${recent.length} of ${monthKeys.length} months)`,
             `過去データ読み込み中…（直近 ${recent.length}/${monthKeys.length} ヶ月表示中）`
-          )}`).addClass('text-bg-info')
+          )}`, 'text-bg-info')
           if (rest.length) await fetchMonthsInto(monthsDict, apiUrl, rest[rest.length - 1], rest[0])
           if (maniSet.has('none')) await fetchNoneInto(monthsDict)
-          render()
-          $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+          renderRows(monthsDict)
+          setMsg('&emsp;')
         }
         setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
+        rebuildHeaderFilters()
         console.log(`[Sync] setlist 首次載入完成，${monthKeys.length} 個月`)
         return
       }
@@ -509,26 +540,33 @@ $(()=>{
       }
 
       endIndicator()
-      $('#setTableMsg').removeClass('text-bg-warning')
+      if (getProcess() === 'setlist') $('#setTableMsg').removeClass('text-bg-warning')
       setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
       if (changedAll.length > 0 || removed.length > 0) {
-        render()
+        renderRows(monthsDict)
       } else {
         console.log('[Sync] setlist 指紋無變化（僅更新 etag）')
+        if (opts.forceRender) renderRows(monthsDict)
       }
     } catch (error) {
       endIndicator()
       console.error('[Sync] setlist 同步失敗:', error)
-      const hasCache = !!(getCache('setlist')?.data?.months)
-      if (hasCache) {
-        $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
-      } else if (getProcess() === 'setlist') {
+      if (getProcess() !== 'setlist') return  // 已換頁：不觸碰 UI（快取狀態不變，下次開頁重新同步）
+      // 清掉可能殘留的首訪常駐 spinner，再依「表格是否已有資料」分級提示
+      $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+      const hasPartialData = !!(jsonTable && jsonTable.getData().length > 0)
+      if (hasPartialData) {
+        // 快取顯示中，或首訪已渲染部分月份：降級為警示列，不蓋全損 alert
+        $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示的資料可能不完整，請按「重新載入」重試', 'Update failed — data shown may be incomplete, press "Reload Data" to retry', '更新失敗、表示中のデータは不完全な可能性があります。「リロード」で再試行してください')}`).addClass('text-bg-warning')
+      } else {
         $('#tbLoadError').remove()
         $('#tb').before(`<div id="tbLoadError" class="alert alert-danger my-3">
           <i class="bi bi-exclamation-triangle-fill me-2"></i>${t('資料載入失敗，請稍後重試或按「重新載入」。', 'Failed to load data. Please try again or press "Reload Data".', 'データの読み込みに失敗しました。しばらくしてから再試行してください。')}
         </div>`)
         showConnectionError(String(error))
       }
+    } finally {
+      _setlistSyncBusy = false
     }
   }
 
@@ -2482,7 +2520,7 @@ $(()=>{
 
     // 背景 fetch API 並更新表格（304 = 資料沒變，零 parse 零重繪）
     async function backgroundFetchAndUpdate(apiUrl, tableType) {
-      const endIndicator = startSyncIndicator()
+      const endIndicator = startSyncIndicator(tableType)
       try {
         console.log(`[Cache] 背景更新 ${tableType}...`)
         const cachedEtag = getCache(tableType)?.etag
@@ -2493,7 +2531,7 @@ $(()=>{
         if (response.status === 304) {
           endIndicator()
           console.log(`[Cache] ${tableType} 無變化 (304)`)
-          $('#setTableMsg').removeClass('text-bg-warning')
+          if (getProcess() === tableType) $('#setTableMsg').removeClass('text-bg-warning')
           return
         }
         if (!response.ok) {
@@ -2504,27 +2542,32 @@ $(()=>{
         const freshData = result.data || result
         endIndicator()
 
+        // 快取無論如何更新；表格與 UI 只在使用者仍停留在此表頁時才觸碰
+        // （慢回應完成時已換頁的話，replaceData 會把別表資料灌進當前表格）
+        const cachedData = getCache(tableType)?.data || []
+        const dataChanged = !isDataEqual(cachedData, freshData)
+        setCache(tableType, freshData, etag)
+        if (getProcess() !== tableType) return
+
         // 背景更新成功：清掉先前失敗留下的警示
         $('#setTableMsg').removeClass('text-bg-warning')
 
-        // 比較資料是否有變化（無 ETag 的端點如 aliases 永遠 200，靠這層避免無謂重繪）
-        const cachedData = getCache(tableType)?.data || []
-        if (!isDataEqual(cachedData, freshData)) {
+        if (dataChanged) {
           console.log(`[Cache] ${tableType} 資料已更新，重新載入表格`)
-          setCache(tableType, freshData, etag)
           // 更新表格（replaceData 保留 filter/sort 狀態）
           _skipFilterClear = true
           jsonTable.replaceData(freshData)
           _skipFilterClear = false
         } else {
           console.log(`[Cache] ${tableType} 資料無變化`)
-          setCache(tableType, freshData, etag)  // 內容相同也補存 etag，下次可 304
         }
       } catch (error) {
         endIndicator()
         console.error(`[Cache] 背景更新 ${tableType} 失敗:`, error)
         // 快取已顯示、操作不中斷，但提示使用者目前看到的是快取資料
-        $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
+        if (getProcess() === tableType) {
+          $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
+        }
       }
     }
 
@@ -2740,8 +2783,13 @@ $(()=>{
         }
 
         // 更新快取（不重載表格，避免全部 row 重新渲染導致閃爍）
+        // setlist 例外：快取是月度結構，getData() 的扁平陣列會摧毀它；
+        // 且 getData() 的 time 已被 mutator 改為顯示格式，不可入快取。
+        // 編輯已同步 API，快取留舊值，下次 manifest sync 以指紋差異自動修正該月。
         const currentProcess = getProcess()
-        setCache(currentProcess, jsonTable.getData())
+        if (currentProcess !== 'setlist') {
+          setCache(currentProcess, jsonTable.getData())
+        }
 
       } catch (error) {
         console.error('Error syncing cell edit:', error)
@@ -2991,8 +3039,9 @@ $(()=>{
 
   $('#content').on('click', '#reloadBtn', ()=>{
     if (getProcess() === 'setlist') {
-      // setlist 走 manifest 增量路徑（沒變 0.8s 內確認、有變只抓差異月）
-      syncSetlistTable(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist)
+      // setlist 走 manifest 增量路徑（沒變 0.8s 內確認、有變只抓差異月）；
+      // forceRender：reload 的語意是「強制刷新」——304 也用快取重繪，恢復本地髒狀態
+      syncSetlistTable(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist, { forceRender: true })
     } else {
       jsonTable.setData()
     }
@@ -4074,8 +4123,8 @@ $(()=>{
 //--- json table ---
 
 function getProcess(){
-  //get what page the user in
-  let p = location.pathname.slice(1)
+  //get what page the user in（去尾斜線：/setlist/ 與 /setlist 同頁）
+  let p = location.pathname.slice(1).replace(/\/$/, '')
   return (p.length==0? null:p)
 }
 
