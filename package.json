@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev -e dev",
+    "dev:node": "node entry-dev.js",
     "dev:fansite": "cd fansite && npm run dev",
     "build:fansite": "cd fansite && npm run build",
     "deploy:cf": "wrangler deploy",
@@ -26,6 +27,7 @@
     "mysql2": "^3.6.0"
   },
   "devDependencies": {
+    "@hono/node-server": "^2.0.11",
     "esbuild": "^0.27.4",
     "wrangler": "^4.26.0"
   },

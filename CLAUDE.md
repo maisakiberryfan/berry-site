@@ -99,7 +99,8 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/api/streamlist` | 直播 CRUD |
 | `/api/streamlist/latest` | 最新直播 |
 | `/api/streamlist/pending` | 待解析歌枠 |
-| `/api/setlist` | 歌單 CRUD（composite key: streamID/segmentNo/trackNo） |
+| `/api/setlist` | 歌單 CRUD（composite key: streamID/segmentNo/trackNo）；GET 支援 `?from=YYYY-MM&to=YYYY-MM` 月度區段、`from=none`＝不留檔場 bucket |
+| `/api/setlist/manifest` | 每月 {month, count, maxUpdated} 清單（前端月度增量比對用，與全量端點共用 meta ETag） |
 | `/api/aliases` | 別名管理 |
 | `/api/yt?id={videoId}` | 單一影片資訊 |
 | `/api/yt/latest` | 最新影片（從 DB） |
@@ -217,6 +218,10 @@ Push 到 `main` 自動觸發：
 # CF 路徑（含靜態檔案 + API）
 npm run dev                    # wrangler dev → http://localhost:8787
 
+# Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑——workerd 連不上自簽 TLS DB）
+# 先開 tunnel：ssh -N -L 13307:127.0.0.1:8081 rsshub.kat-ani.win
+DB_HOST=127.0.0.1 DB_PORT=13307 DB_NAME=mbdb_test node entry-dev.js   # → http://localhost:8788
+
 # AWS 路徑（API only）
 sam build && sam local start-api --port 3001 --env-vars .env.json
 
@@ -238,6 +243,17 @@ cd fansite && npm run build:js
 - 使用 `connection.query()` 替代 `connection.execute()`（COM_STMT_PREPARE 限制）
 - 必須保留 `disableEval: true`
 - Query cache 已關閉（避免編輯後顯示舊資料）
+
+### Meta ETag（⚠️ ETAG_VERSION 紀律）
+- setlist/songlist/streamlist 的 GET 全量端點以「三表 COUNT + MAX(updatedAt)」生成 ETag
+  （`src/utils/cache.js`），304 路徑不查全量；正確性依賴 `updatedAt` 為
+  `ON UPDATE CURRENT_TIMESTAMP(6)`（2026-07-24 已實測，`scripts/verify-timestamp-semantics.cjs`）
+- **任何改變 API 輸出形狀的修改（setlist VIEW 定義、SELECT 欄位增減、格式轉換、
+  manifest 語意）都必須 bump `ETAG_VERSION` 對應項**，否則帶舊 ETag 的客戶端
+  會一直拿 304 看不到新格式
+- 回填／維護腳本**禁止**顯式 `SET updatedAt = 舊值`（會抑制自動刷新、令 ETag 漏判）
+- setlist 前端為月度快取（localStorage v2）：manifest 比對 → 只重抓指紋變更的月份；
+  不留檔場（佔位 streamID、time NULL）走 `none` bucket
 
 ### Select2 IME
 - 必須使用 **4.1.0-rc.0**（非 4.0.13）
