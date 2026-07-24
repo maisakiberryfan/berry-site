@@ -289,10 +289,26 @@ $(()=>{
   // localStorage 快取工具函數
   // ============================================
   const CACHE_PREFIX = 'tableCache_'
-  const CACHE_VERSION = 'v1'
+  // v2：setlist 改月度結構 { months, fingerprints }＋各表快取帶 etag
+  const CACHE_VERSION = 'v2'
 
   function getCacheKey(tableType) {
     return `${CACHE_PREFIX}${tableType}_${CACHE_VERSION}`
+  }
+
+  // 啟動時清掉舊版本的表格快取（結構不相容，留著只佔 localStorage 空間）
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const key = localStorage.key(i)
+    if (key && key.startsWith(CACHE_PREFIX) && !key.endsWith(`_${CACHE_VERSION}`)) {
+      localStorage.removeItem(key)
+    }
+  }
+
+  // 快取筆數（陣列＝整包；物件＝setlist 月度結構）
+  function cacheRowCount(data) {
+    if (Array.isArray(data)) return data.length
+    if (data?.months) return Object.values(data.months).reduce((s, rows) => s + rows.length, 0)
+    return 0
   }
 
   function getCache(tableType) {
@@ -301,7 +317,7 @@ $(()=>{
       const cached = localStorage.getItem(key)
       if (!cached) return null
       const parsed = JSON.parse(cached)
-      console.log(`[Cache] 讀取 ${tableType} 快取，${parsed.data?.length || 0} 筆資料`)
+      console.log(`[Cache] 讀取 ${tableType} 快取，${cacheRowCount(parsed.data)} 筆資料`)
       return parsed
     } catch (e) {
       console.error('[Cache] 讀取快取失敗:', e)
@@ -318,7 +334,7 @@ $(()=>{
         timestamp: Date.now()
       }
       localStorage.setItem(key, JSON.stringify(cacheData))
-      console.log(`[Cache] 儲存 ${tableType} 快取，${data?.length || 0} 筆資料`)
+      console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料`)
     } catch (e) {
       console.error('[Cache] 儲存快取失敗:', e)
       // localStorage 可能已滿，嘗試清除舊快取
@@ -342,6 +358,178 @@ $(()=>{
     if (!data1 || !data2) return false
     if (data1.length !== data2.length) return false
     return JSON.stringify(data1) === JSON.stringify(data2)
+  }
+
+  // ============================================
+  // setlist 月度增量同步
+  // 後端 /api/setlist/manifest 回每月 {month, count, maxUpdated}，
+  // 前端按月存快取、只重抓指紋變更的月份（整月替換，刪除/舊資料回改都被涵蓋）
+  // ============================================
+
+  // row 歸屬月份：time 為 ISO8601（DB naive datetime + Z），前 7 碼即後端
+  // DATE_FORMAT(s.time, '%Y-%m') 的同一年月；time NULL（不留檔場）歸 'none' bucket
+  const monthKeyOf = (row) => (row.time || '').slice(0, 7) || 'none'
+
+  // 月份 dict → 表格陣列（月 key 降序、none 殿後；月內維持 API 回傳順序）
+  // 與全量端點 ORDER BY time DESC（NULL 排最後）一致
+  function flattenMonths(months) {
+    const keys = Object.keys(months).filter(k => k !== 'none').sort().reverse()
+    if (months.none) keys.push('none')
+    return keys.flatMap(k => months[k])
+  }
+
+  // 'YYYY-MM' 起訖（含）之間的所有月份 key
+  function listMonths(from, to) {
+    const out = []
+    let [y, m] = from.split('-').map(Number)
+    const [ty, tm] = to.split('-').map(Number)
+    while (y < ty || (y === ty && m <= tm)) {
+      out.push(`${y}-${String(m).padStart(2, '0')}`)
+      m++; if (m > 12) { m = 1; y++ }
+    }
+    return out
+  }
+
+  // 抓月度區段 rows，並以「先清範圍內全部月份、再按 row 歸月重建」寫回 dict
+  // （清掉再填才能正確處理範圍內變空／筆數減少的月份）
+  async function fetchMonthsInto(monthsDict, apiUrl, from, to) {
+    const res = await fetch(`${apiUrl}?from=${from}&to=${to}`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const rows = (await res.json()).data || []
+    listMonths(from, to).forEach(k => delete monthsDict[k])
+    for (const row of rows) {
+      const k = monthKeyOf(row)
+      ;(monthsDict[k] ||= []).push(row)
+    }
+    return rows.length
+  }
+
+  // 延遲顯示的同步指示（304 在 1.5s 內完成則永不出現；真的要抓資料才會亮）
+  function startSyncIndicator() {
+    let shown = false
+    const timer = setTimeout(() => {
+      shown = true
+      $('#setTableMsg').html(`<span class="spinner-border spinner-border-sm me-2"></span>${t('資料更新中…', 'Updating data…', 'データ更新中…')}`).addClass('text-bg-info')
+    }, 1500)
+    return () => {
+      clearTimeout(timer)
+      if (shown) $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+    }
+  }
+
+  // setlist 同步主流程：manifest 比對 → 差異月抓取 → 快取與表格更新。
+  // 開頁背景驗證、首訪漸進載入、reload 按鈕、編輯後刷新統一走這條路徑。
+  async function syncSetlistTable(apiUrl) {
+    const endIndicator = startSyncIndicator()
+    try {
+      const cached = getCache('setlist')
+      const hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
+
+      const headers = (hasCache && cached.etag) ? { 'If-None-Match': cached.etag } : {}
+      const maniRes = await fetch(`${apiUrl}/manifest`, { cache: 'no-store', headers })
+      if (maniRes.status === 304) {
+        endIndicator()
+        console.log('[Sync] setlist 無變更 (304)')
+        $('#setTableMsg').removeClass('text-bg-warning')
+        return
+      }
+      if (!maniRes.ok) throw new Error(`HTTP ${maniRes.status}`)
+
+      const etag = maniRes.headers.get('ETag')
+      const mani = (await maniRes.json()).data
+      const version = mani.version || 'v1'
+      const fp = (m) => `${version}|${m.count}|${m.maxUpdated}`
+      // 真月份（後端已降序）；'none'（不留檔場 bucket）分離處理，不能進範圍抓取
+      const monthKeys = mani.months.map(m => m.month).filter(k => k !== 'none')
+
+      const oldFp = cached?.data?.fingerprints || {}
+      const newFp = Object.fromEntries(mani.months.map(m => [m.month, fp(m)]))
+      const changedAll = mani.months.filter(m => oldFp[m.month] !== fp(m)).map(m => m.month)
+      const changed = changedAll.filter(k => k !== 'none')
+      const changedNone = changedAll.includes('none')
+      const maniSet = new Set(mani.months.map(m => m.month))
+      const removed = Object.keys(cached?.data?.months || {}).filter(k => !maniSet.has(k))
+
+      // 不留檔場 bucket：整包抓取替換
+      const fetchNoneInto = async (dict) => {
+        const res = await fetch(`${apiUrl}?from=none&to=none`, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        dict.none = (await res.json()).data || []
+      }
+
+      const monthsDict = { ...(cached?.data?.months || {}) }
+      removed.forEach(k => delete monthsDict[k])
+
+      // 換頁防護：sync 期間使用者可能已離開 setlist 頁——快取照更新，表格不碰
+      const tableAlive = () => getProcess() === 'setlist' && jsonTable
+      const render = () => {
+        if (!tableAlive()) return
+        _skipFilterClear = true
+        jsonTable.replaceData(flattenMonths(monthsDict))
+        _skipFilterClear = false
+      }
+
+      if (!hasCache) {
+        // 首訪／清快取：先抓最近 12 個月渲染（~1.5s 可互動），其餘背景補齊
+        const recent = monthKeys.slice(0, 12)
+        const rest = monthKeys.slice(12)
+        endIndicator()  // 首訪用自己的常駐提示，不用延遲 indicator
+        await fetchMonthsInto(monthsDict, apiUrl, recent[recent.length - 1], recent[0])
+        render()
+        if (rest.length || maniSet.has('none')) {
+          $('#setTableMsg').html(`<span class="spinner-border spinner-border-sm me-2"></span>${t(
+            `歷史資料載入中…（已顯示最近 ${recent.length} 個月，共 ${monthKeys.length} 個月）`,
+            `Loading history… (showing latest ${recent.length} of ${monthKeys.length} months)`,
+            `過去データ読み込み中…（直近 ${recent.length}/${monthKeys.length} ヶ月表示中）`
+          )}`).addClass('text-bg-info')
+          if (rest.length) await fetchMonthsInto(monthsDict, apiUrl, rest[rest.length - 1], rest[0])
+          if (maniSet.has('none')) await fetchNoneInto(monthsDict)
+          render()
+          $('#setTableMsg').html('&emsp;').removeClass('text-bg-info')
+        }
+        setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
+        console.log(`[Sync] setlist 首次載入完成，${monthKeys.length} 個月`)
+        return
+      }
+
+      if (changed.length > 0 || changedNone) {
+        console.log('[Sync] setlist 變更月份:', changedAll.join(', '))
+        if (changed.length > 8) {
+          // 大範圍變更（如後端版本升級）→ 一發範圍抓取（涵蓋未變月也無害，整段重建）
+          await fetchMonthsInto(monthsDict, apiUrl, changed[changed.length - 1], changed[0])
+        } else if (changed.length > 0) {
+          // 常態：1~2 個月，逐月並行、整月替換
+          await Promise.all(changed.map(async (m) => {
+            const res = await fetch(`${apiUrl}?from=${m}&to=${m}`, { cache: 'no-store' })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            monthsDict[m] = (await res.json()).data || []
+          }))
+        }
+        if (changedNone) await fetchNoneInto(monthsDict)
+      }
+
+      endIndicator()
+      $('#setTableMsg').removeClass('text-bg-warning')
+      setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
+      if (changedAll.length > 0 || removed.length > 0) {
+        render()
+      } else {
+        console.log('[Sync] setlist 指紋無變化（僅更新 etag）')
+      }
+    } catch (error) {
+      endIndicator()
+      console.error('[Sync] setlist 同步失敗:', error)
+      const hasCache = !!(getCache('setlist')?.data?.months)
+      if (hasCache) {
+        $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
+      } else if (getProcess() === 'setlist') {
+        $('#tbLoadError').remove()
+        $('#tb').before(`<div id="tbLoadError" class="alert alert-danger my-3">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>${t('資料載入失敗，請稍後重試或按「重新載入」。', 'Failed to load data. Please try again or press "Reload Data".', 'データの読み込みに失敗しました。しばらくしてから再試行してください。')}
+        </div>`)
+        showConnectionError(String(error))
+      }
+    }
   }
 
   // Set marked options
@@ -1390,10 +1578,15 @@ $(()=>{
   let _skipFilterClear = false
 
   // Mutation 後統一重抓表格資料 + 更新 localStorage
+  // setlist 走 manifest 增量（編輯後只重抓受影響月份）；其他表維持全量
   async function reloadTable() {
     const currentProcess = getProcess()
     const endpoint = API_CONFIG.ENDPOINTS[currentProcess]
     if (!endpoint || !jsonTable) return
+    if (currentProcess === 'setlist') {
+      await syncSetlistTable(API_CONFIG.BASE_URL + endpoint)
+      return
+    }
     try {
       const freshData = await apiRequest('GET', endpoint)
       _skipFilterClear = true
@@ -2213,20 +2406,16 @@ $(()=>{
 
     // ============================================
     // localStorage 快取優先載入機制
+    // setlist：月度結構（manifest 增量更新，見 syncSetlistTable）
+    // 其他表：整包 + ETag（304 短路，見 backgroundFetchAndUpdate）
     // ============================================
+    const isSetlist = (p === 'setlist')
     const cached = getCache(p)
-    const hasCachedData = cached && cached.data && cached.data.length > 0
+    const hasCachedData = isSetlist
+      ? !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
+      : !!(cached?.data?.length > 0)
 
-    // Tabulator 配置（總是設定 ajaxURL 供後續 setData() 使用）
     const tabulatorConfig = {
-      ajaxURL: u,
-      ajaxConfig: { cache: 'no-store' },
-      ajaxResponse: function(url, params, response) {
-        const data = response.data || response
-        // 儲存到快取
-        setCache(p, data)
-        return data
-      },
       height:700,
       columnDefaults:{
         headerFilter:"input",
@@ -2240,11 +2429,24 @@ $(()=>{
       placeholder: t('無資料', 'No data', 'データなし')
     }
 
+    // setlist 由 syncSetlistTable 手動管理資料（要讀 response header 的 ETag，
+    // Tabulator 的 ajax 拿不到）；其他表維持 ajaxURL 供 reloadBtn 的 setData() 使用
+    if (!isSetlist) {
+      tabulatorConfig.ajaxURL = u
+      tabulatorConfig.ajaxConfig = { cache: 'no-store' }
+      tabulatorConfig.ajaxResponse = function(url, params, response) {
+        const data = response.data || response
+        // 儲存到快取（此路徑拿不到 ETag header；下次背景更新 200 時補上）
+        setCache(p, data)
+        return data
+      }
+    }
+
     // 如果有快取，使用快取資料初始化（秒開）
-    // Tabulator 會優先使用 data 選項，ajaxURL 會被保留供後續 setData() 使用
     if (hasCachedData) {
-      console.log(`[Cache] 使用快取資料初始化 ${p}，共 ${cached.data.length} 筆`)
-      tabulatorConfig.data = cached.data
+      const rowCount = isSetlist ? null : cached.data.length
+      tabulatorConfig.data = isSetlist ? flattenMonths(cached.data.months) : cached.data
+      console.log(`[Cache] 使用快取資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
     } else {
       console.log(`[Cache] 無快取，從 API 載入 ${p}`)
     }
@@ -2270,40 +2472,56 @@ $(()=>{
       $('#tbLoadError').remove()
     })
 
-    // 如果使用快取載入，背景更新 API 資料
-    if (hasCachedData) {
+    // 背景同步：setlist 走 manifest 增量（含無快取的首訪漸進載入）；
+    // 其他表有快取時做 If-None-Match 背景驗證（無快取時 Tabulator ajaxURL 已在抓）
+    if (isSetlist) {
+      syncSetlistTable(u)
+    } else if (hasCachedData) {
       backgroundFetchAndUpdate(u, p)
     }
 
-    // Mutation 後統一重抓表格資料 + 更新 localStorage
-    // 背景 fetch API 並更新表格
+    // 背景 fetch API 並更新表格（304 = 資料沒變，零 parse 零重繪）
     async function backgroundFetchAndUpdate(apiUrl, tableType) {
+      const endIndicator = startSyncIndicator()
       try {
         console.log(`[Cache] 背景更新 ${tableType}...`)
-        const response = await fetch(apiUrl, { cache: 'no-store' })
+        const cachedEtag = getCache(tableType)?.etag
+        const response = await fetch(apiUrl, {
+          cache: 'no-store',
+          headers: cachedEtag ? { 'If-None-Match': cachedEtag } : {}
+        })
+        if (response.status === 304) {
+          endIndicator()
+          console.log(`[Cache] ${tableType} 無變化 (304)`)
+          $('#setTableMsg').removeClass('text-bg-warning')
+          return
+        }
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`)
         }
+        const etag = response.headers.get('ETag')
         const result = await response.json()
         const freshData = result.data || result
+        endIndicator()
 
         // 背景更新成功：清掉先前失敗留下的警示
         $('#setTableMsg').removeClass('text-bg-warning')
 
-        // 比較資料是否有變化
+        // 比較資料是否有變化（無 ETag 的端點如 aliases 永遠 200，靠這層避免無謂重繪）
         const cachedData = getCache(tableType)?.data || []
         if (!isDataEqual(cachedData, freshData)) {
           console.log(`[Cache] ${tableType} 資料已更新，重新載入表格`)
-          // 更新快取
-          setCache(tableType, freshData)
+          setCache(tableType, freshData, etag)
           // 更新表格（replaceData 保留 filter/sort 狀態）
           _skipFilterClear = true
           jsonTable.replaceData(freshData)
           _skipFilterClear = false
         } else {
           console.log(`[Cache] ${tableType} 資料無變化`)
+          setCache(tableType, freshData, etag)  // 內容相同也補存 etag，下次可 304
         }
       } catch (error) {
+        endIndicator()
         console.error(`[Cache] 背景更新 ${tableType} 失敗:`, error)
         // 快取已顯示、操作不中斷，但提示使用者目前看到的是快取資料
         $('#setTableMsg').html(`<i class="bi bi-wifi-off me-1"></i>${t('更新失敗，目前顯示快取資料', 'Update failed, showing cached data', '更新失敗、キャッシュを表示中')}`).addClass('text-bg-warning')
@@ -2772,7 +2990,12 @@ $(()=>{
   })
 
   $('#content').on('click', '#reloadBtn', ()=>{
-    jsonTable.setData()
+    if (getProcess() === 'setlist') {
+      // setlist 走 manifest 增量路徑（沒變 0.8s 內確認、有變只抓差異月）
+      syncSetlistTable(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist)
+    } else {
+      jsonTable.setData()
+    }
     jsonTable.clearFilter(true)
     jsonTable.deselectRow()
     // 清除進階搜尋的輸入值
@@ -4414,8 +4637,8 @@ function getYTlatest(){
       // Check if we're still on setlist page
       if (getProcess() === 'setlist') {
         console.log('Song may have been added, reloading setlist table')
-        // Reload table to refresh songlist data in Select2
-        jsonTable.setData(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist)
+        // manifest 增量路徑：新歌未入任何 setlist row 時只更新 etag，不重抓
+        syncSetlistTable(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist)
       }
     })
   })
