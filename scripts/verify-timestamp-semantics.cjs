@@ -24,7 +24,7 @@ async function main() {
   console.log('--- 正式表 schema 檢查（mbdb） ---')
   for (const t of ['streamlist', 'setlist_ori', 'songlist']) {
     const [rows] = await conn.query(
-      `SELECT COLUMN_TYPE, EXTRA FROM information_schema.COLUMNS
+      `SELECT COLUMN_TYPE, EXTRA, IS_NULLABLE FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = 'mbdb' AND TABLE_NAME = ? AND COLUMN_NAME = 'updatedAt'`,
       [t],
     )
@@ -32,12 +32,16 @@ async function main() {
       check(`${t}.updatedAt 存在`, false, '欄位不存在')
       continue
     }
-    const { COLUMN_TYPE, EXTRA } = rows[0]
+    const { COLUMN_TYPE, EXTRA, IS_NULLABLE } = rows[0]
     check(
       `${t}.updatedAt 掛 ON UPDATE`,
       /on update current_timestamp/i.test(EXTRA),
       `${COLUMN_TYPE}, EXTRA=${EXTRA || '(空)'}`,
     )
+    // nullable 本身不擋（現況如此），但 NULL 值會被 manifest 的 COALESCE 兜住；
+    // 這裡檢查的是「實際不存在 NULL 值」——維護腳本寫入 NULL 是紅線
+    const [[{ n }]] = await conn.query(`SELECT COUNT(*) AS n FROM mbdb.\`${t}\` WHERE updatedAt IS NULL`)
+    check(`${t}.updatedAt 無 NULL 值（nullable=${IS_NULLABLE}）`, n === 0, `NULL rows=${n}`)
   }
 
   // --- 2) 行為實測（mbdb_test.songlist，與正式表同構；berry_app 無 CREATE/DROP 權限，
