@@ -1,29 +1,40 @@
 // Cache management utilities for Hyperdrive API
 
 /**
- * Generate ETag based on content hash
- * Uses SHA-256 hash of serialized data
+ * Meta ETag：以表的 COUNT(*) + MAX(updatedAt) 生成輕量指紋，
+ * 讓 304 路徑完全跳過全量查詢（setlist 實測 2.7s → ~0.8s）。
  *
- * @param {Array} rows - Array of data rows
- * @returns {Promise<string>} ETag value (e.g., "a1b2c3d4")
+ * 正確性前提（2026-07-24 已於 production DB 實測，scripts/verify-timestamp-semantics.cjs）：
+ * 三表 updatedAt 均為 ON UPDATE CURRENT_TIMESTAMP(6)——任何欄位值真的變更即自動刷新、
+ * 設相同值不刷新；COUNT 補「刪 row 不動 MAX」的盲點。
+ *
+ * ⚠️ ETAG_VERSION 紀律：metadata 指紋偵測不到「資料沒動但輸出變了」的代碼層變更。
+ * 任何改變 API 輸出形狀的修改（setlist VIEW 定義、SELECT 欄位增減、格式轉換），
+ * 都必須 bump 對應版本，否則帶舊 ETag 的客戶端會一直拿 304 看不到新格式。
  */
-export async function generateETag(rows) {
-  if (!rows || rows.length === 0) {
-    // Empty dataset - use current timestamp
-    return `"${Date.now().toString(36)}"`
+export const ETAG_VERSION = {
+  setlist: 'v1',
+  songlist: 'v1',
+  streamlist: 'v1',
+}
+
+// FNV-1a 32-bit（同步、零依賴；用途是相鄰狀態的變更偵測，碰撞率 2^-32 足夠）
+function fnv1a(str) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
   }
+  return h.toString(16).padStart(8, '0')
+}
 
-  // Serialize full row data for accurate change detection
-  const content = JSON.stringify(rows)
-
-  // Calculate SHA-256 hash
-  const msgUint8 = new TextEncoder().encode(content)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-
-  // Use first 8 characters (same length as current ETag)
-  return `"${hashHex.substring(0, 8)}"`
+/**
+ * @param {string} version - ETAG_VERSION 對應項
+ * @param {object} meta - counts + max timestamps（dateStrings 字串，序列化穩定）
+ * @returns {string} ETag，如 "mv1-1a2b3c4d"
+ */
+export function generateMetaETag(version, meta) {
+  return `"m${version}-${fnv1a(JSON.stringify(meta))}"`
 }
 
 /**
