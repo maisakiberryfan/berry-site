@@ -60,6 +60,9 @@ jobs:
       - run: sam build
 
       # Deploy Lambda + API Gateway + CloudFront
+      # DiscordSetlistWebhookUrl 已於 2026-05-02 移轉至 yt-setlist-discord，故不傳入
+      # ⚠️ --parameter-overrides 的續行序列中絕不可插入 `#` 註解：shell 會在該行結束續行，
+      #    其後的參數變成獨立賦值語句、靜默不送出，SAM 對未 override 的參數則沿用 stack 現值
       - run: |
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
@@ -73,7 +76,6 @@ jobs:
               YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
               AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
-              # MIGRATED to yt-setlist-discord (2026-05-02): DiscordSetlistWebhookUrl removed
               TriggerToken=${{ secrets.TRIGGER_TOKEN }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
               PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \
