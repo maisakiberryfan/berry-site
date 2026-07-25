@@ -1,5 +1,7 @@
 import {
   validateRequired,
+  validateLength,
+  FIELD_LIMITS,
   successResponse,
   mysqlToISO8601,
 } from "../utils/middleware.js";
@@ -213,6 +215,13 @@ export async function createSetlistEntry(c) {
         );
       }
 
+      // note is a TEXT column and a batch carries up to 200 of them, so cap each one
+      const noteError = validateLength(entry.note, "note", FIELD_LIMITS.setlistNote);
+      if (noteError) {
+        await db.execute("ROLLBACK");
+        return c.json(createErrorResponse("VALIDATION_ERROR", noteError), 400);
+      }
+
       uniqueStreamIDs.add(entry.streamID);
       if (entry.songID) {
         uniqueSongIDs.add(Number(entry.songID)); // Convert to number for consistent type checking
@@ -376,6 +385,12 @@ export async function updateSetlistEntry(c) {
   }
 
   const { songID, note } = body;
+
+  const noteError = validateLength(note, "note", FIELD_LIMITS.setlistNote);
+  if (noteError) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", noteError), 400);
+  }
+
   const updates = [];
   const params = [];
 

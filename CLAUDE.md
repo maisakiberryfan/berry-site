@@ -106,7 +106,7 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/api/yt/latest` | 最新影片（從 DB） |
 | `/api/yt/newvideos` | 多頻道新影片查詢 |
 | `/api/yt/live-details?id={videoId}` | 直播狀態（isLive, isEnded） |
-| `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher） |
+| `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher）；需 token（同 `/trigger-*`） |
 | `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
 | `/api/stats/last-updated` | 各表最後更新時間 |
 

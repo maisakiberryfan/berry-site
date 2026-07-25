@@ -1,6 +1,17 @@
-import { validateRequired, successResponse } from "../utils/middleware.js";
+import { validateRequired, validateLengths, FIELD_LIMITS, successResponse } from "../utils/middleware.js";
 import { createErrorResponse } from "../utils/database.js";
 import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "../utils/cache.js";
+
+// Length caps shared by POST and PUT (7 string columns)
+const SONG_FIELD_LIMITS = {
+  songName: FIELD_LIMITS.songName,
+  songNameEn: FIELD_LIMITS.songNameEn,
+  artist: FIELD_LIMITS.artist,
+  artistEn: FIELD_LIMITS.artistEn,
+  genre: FIELD_LIMITS.genre,
+  tieup: FIELD_LIMITS.tieup,
+  songNote: FIELD_LIMITS.songNote,
+};
 
 // GET /songlist - Get all songs (meta ETag：304 路徑免查全量)
 export async function getSonglist(c) {
@@ -78,6 +89,11 @@ export async function createSong(c) {
     );
   }
 
+  const lengthError = validateLengths(body, SONG_FIELD_LIMITS);
+  if (lengthError) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", lengthError), 400);
+  }
+
   const { songName, songNameEn, artist, artistEn, genre, tieup, songNote } =
     body;
 
@@ -114,6 +130,11 @@ export async function updateSong(c) {
   );
   if (!existingSong) {
     return c.json(createErrorResponse("NOT_FOUND", "Song not found"), 404);
+  }
+
+  const lengthError = validateLengths(body, SONG_FIELD_LIMITS);
+  if (lengthError) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", lengthError), 400);
   }
 
   const { songName, songNameEn, artist, artistEn, genre, tieup, songNote } =

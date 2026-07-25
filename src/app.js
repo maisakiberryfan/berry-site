@@ -258,8 +258,10 @@ api.get('/yt/live-details', async (c) => {
   }
 })
 
-// Parse setlist
+// Parse setlist（debug 端點：會實際寫入 songlist/setlist，比照 /trigger-* 需 token）
 api.post('/parse-setlist', async (c) => {
+  if (!validateTriggerToken(c)) return c.json({ error: 'Forbidden' }, 403)
+
   try {
     const { youtubeUrl } = await c.req.json()
     if (!youtubeUrl) return c.json({ error: 'YouTube URL 為必填項目' }, 400)

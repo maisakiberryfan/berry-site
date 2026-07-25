@@ -19,7 +19,7 @@ import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.28.0
 const dayjs = window.dayjs;
 
 // Import API config for Worker URL
-import { API_CONFIG } from '../../config.js';
+import { API_CONFIG, escapeHtml } from '../../config.js';
 
 // ============ Configuration ============
 const PARQUET_FILE_URL = 'https://sqldata.m-b.win/berry-data.parquet';
@@ -714,7 +714,7 @@ async function handleAiQuery() {
       showMessage('SQL 已生成並執行完成', 'success');
     } else {
       // 兩次都失敗：SQL 已在編輯器中（executeQuery 已顯示錯誤詳情），提示使用者手動調整
-      showMessage(`AI 生成的 SQL 執行失敗（已嘗試自動修復）：${run.error}`, 'warning');
+      showMessage(`AI 生成的 SQL 執行失敗（已嘗試自動修復）：${escapeHtml(run.error)}`, 'warning');
     }
     console.log('[AI] Generated SQL:', sql);
   } catch (error) {
@@ -931,7 +931,7 @@ function handleExportXLSX() {
     showMessage(`成功匯出檔案：<code>${filename}</code><br>File exported successfully`, 'success');
   } catch (error) {
     console.error('[Export] XLSX export failed:', error);
-    showMessage(`匯出失敗 / Export failed<br><small>${error.message}</small>`, 'error');
+    showMessage(`匯出失敗 / Export failed<br><small>${escapeHtml(error.message)}</small>`, 'error');
   }
 }
 
@@ -1012,13 +1012,13 @@ function handleSaveQuery() {
     localStorage.setItem('berry_analytics_queries', JSON.stringify(savedQueries));
 
     console.log('[Save] Query saved:', queryData);
-    showMessage(`成功儲存查詢：<strong>${queryData.name}</strong><br>Query saved successfully`, 'success');
+    showMessage(`成功儲存查詢：<strong>${escapeHtml(queryData.name)}</strong><br>Query saved successfully`, 'success');
 
     // 更新已儲存查詢列表
     renderSavedQueries();
   } catch (error) {
     console.error('[Save] Failed to save query:', error);
-    showMessage(`儲存失敗 / Save failed<br><small>${error.message}</small>`, 'error');
+    showMessage(`儲存失敗 / Save failed<br><small>${escapeHtml(error.message)}</small>`, 'error');
   }
 }
 
@@ -1069,11 +1069,11 @@ function renderSavedQueries() {
           <div class="flex-grow-1">
             <h6 class="mb-1">
               <i class="bi ${query.mode === 'simple' ? 'bi-lightning-fill' : 'bi-code-slash'} me-2"></i>
-              ${query.name}
+              ${escapeHtml(query.name)}
             </h6>
             <small class="text-muted">
               ${createdDate}
-              ${query.mode === 'simple' ? `· ${query.queryName}` : ''}
+              ${query.mode === 'simple' ? `· ${escapeHtml(query.queryName)}` : ''}
             </small>
           </div>
           <div class="btn-group">
@@ -1148,7 +1148,7 @@ function loadSavedQuery(index) {
         }
 
         // 自動執行查詢
-        showMessage(`成功載入查詢：<strong>${query.name}</strong><br>正在執行查詢...<br>Query loaded successfully, executing...`, 'info');
+        showMessage(`成功載入查詢：<strong>${escapeHtml(query.name)}</strong><br>正在執行查詢...<br>Query loaded successfully, executing...`, 'info');
         setTimeout(() => handleRunQuery(), 100);
       }, 100);
     } else {
@@ -1160,12 +1160,12 @@ function loadSavedQuery(index) {
       UI.sqlEditor.value = query.sql;
 
       // 自動執行查詢
-      showMessage(`成功載入查詢：<strong>${query.name}</strong><br>正在執行查詢...<br>Query loaded successfully, executing...`, 'info');
+      showMessage(`成功載入查詢：<strong>${escapeHtml(query.name)}</strong><br>正在執行查詢...<br>Query loaded successfully, executing...`, 'info');
       setTimeout(() => handleRunSQL(), 100);
     }
   } catch (error) {
     console.error('[Load] Failed to load query:', error);
-    showMessage(`載入失敗 / Load failed<br><small>${error.message}</small>`, 'error');
+    showMessage(`載入失敗 / Load failed<br><small>${escapeHtml(error.message)}</small>`, 'error');
   }
 }
 
@@ -1194,13 +1194,13 @@ function deleteSavedQuery(index) {
     localStorage.setItem('berry_analytics_queries', JSON.stringify(savedQueries));
 
     console.log('[Delete] Query deleted:', query);
-    showMessage(`成功刪除查詢：<strong>${query.name}</strong><br>Query deleted successfully`, 'success');
+    showMessage(`成功刪除查詢：<strong>${escapeHtml(query.name)}</strong><br>Query deleted successfully`, 'success');
 
     // 重新渲染列表
     renderSavedQueries();
   } catch (error) {
     console.error('[Delete] Failed to delete query:', error);
-    showMessage(`刪除失敗 / Delete failed<br><small>${error.message}</small>`, 'error');
+    showMessage(`刪除失敗 / Delete failed<br><small>${escapeHtml(error.message)}</small>`, 'error');
   }
 }
 

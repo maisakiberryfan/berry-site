@@ -3,6 +3,8 @@ import {
   validateStreamID,
   validateCategories,
   validateDateTime,
+  validateLengths,
+  FIELD_LIMITS,
   iso8601ToMySQL,
   mysqlToISO8601,
   successResponse,
@@ -120,6 +122,15 @@ export async function createStream(c) {
     );
   }
 
+  // Validate field lengths
+  const lengthError = validateLengths(body, {
+    title: FIELD_LIMITS.title,
+    note: FIELD_LIMITS.note,
+  });
+  if (lengthError) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", lengthError), 400);
+  }
+
   // Validate datetime
   const dateTimeError = validateDateTime(time);
   if (dateTimeError) {
@@ -178,6 +189,16 @@ export async function updateStream(c) {
   }
 
   const { title, time, categories, note, setlistComplete } = body;
+
+  // Validate field lengths
+  const lengthError = validateLengths(body, {
+    title: FIELD_LIMITS.title,
+    note: FIELD_LIMITS.note,
+  });
+  if (lengthError) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", lengthError), 400);
+  }
+
   const updates = [];
   const params = [];
 
