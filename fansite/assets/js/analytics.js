@@ -901,10 +901,14 @@ function formatTimestamp(value) {
 
 // ============ Export ============
 
-function handleExportXLSX() {
+async function handleExportXLSX() {
   if (!resultsTable) return;
 
   try {
+    // CSP 前置：xlsx vendor script 改由 tool.js 的 window.loadXLSX() 動態載入
+    // （原本 jQuery 插入 <script src> 會同步 fetch+eval，這裡改成需要時才等待）
+    await window.loadXLSX();
+
     // Get data from Tabulator
     const data = resultsTable.getData();
 

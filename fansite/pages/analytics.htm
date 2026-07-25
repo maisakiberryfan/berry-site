@@ -514,7 +514,9 @@
 </div>
 
 <!-- SheetJS for XLSX export（self-host：官方 npm 已停更，從 cdn.sheetjs.com 0.20.3 落地） -->
-<script src="/assets/vendor/xlsx.full.min.js"></script>
+<!-- CSP 前置：改由 tool.js 的 window.loadXLSX() 動態建立真正的 <script src> 元素載入。
+     jQuery 對動態插入內容裡的 script[src] 走 _evalUrl（同步 XHR fetch 後 eval），
+     CSP script-src 'self' 會把這視同 inline 一律擋下，故不能再用 HTML <script> 標籤 -->
 
 <!-- Note: analytics.js module is dynamically loaded by tool.js when this page is loaded -->
 <!-- jQuery doesn't execute <script type="module"> tags in dynamic content -->

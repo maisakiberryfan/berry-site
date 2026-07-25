@@ -49,6 +49,25 @@ window.loadTabulator = async () => {
   return tabulatorPromise
 }
 
+// XLSX vendor script（SheetJS UMD build，非 npm 套件，不進 esbuild bundle）。
+// 用真正的 <script src> 元素載入——jQuery 對動態插入內容裡的 script[src] 走
+// _evalUrl（同步 XHR fetch 後 eval），CSP script-src 'self' 視同 inline 一律擋下，
+// 必須改成瀏覽器原生 <script> 標籤載入才能通過
+let xlsxPromise
+window.loadXLSX = async () => {
+  if (window.XLSX) return window.XLSX
+  if (!xlsxPromise) {
+    xlsxPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = '/assets/vendor/xlsx.full.min.js'
+      script.onload = () => resolve(window.XLSX)
+      script.onerror = () => reject(new Error('Failed to load xlsx.full.min.js'))
+      document.head.appendChild(script)
+    })
+  }
+  return xlsxPromise
+}
+
 // Load select2 after jQuery is set on window (plugin expects global jQuery)。
 // 不 await：splitting 下 top-level await 會讓首屏串行等這顆 chunk；改背景載入，
 // 使用點全在互動之後（進頁→點編輯的間隔遠大於 chunk 載入時間），編輯模式入口另有 await 保險
@@ -256,6 +275,16 @@ $(()=>{
   // Global Modal shown event - update language for all modals
   document.addEventListener('shown.bs.modal', () => {
     updatePageLang()
+  })
+
+  // 靜態 shell 裡兩個重複使用的錯誤 alert 關閉鈕（不可用 data-bs-dismiss：
+  // 那會把節點整個移除，這兩個 div 後續還要被 .show()/.hide() 重複使用）
+  document.getElementById('addStreamRowErrorClose').addEventListener('click', () => {
+    document.getElementById('addStreamRowError').style.display = 'none'
+  })
+  document.getElementById('quickAddErrorClose').addEventListener('click', () => {
+    document.getElementById('quickAddError').style.display = 'none'
+    document.getElementById('quickAddErrorMsg').innerHTML = ''
   })
 
   // Render nav and attach events (must be inside jQuery ready to access setContent)
@@ -767,9 +796,28 @@ $(()=>{
           $("#content").empty().append(d)
           updatePageLang()  // Update language for page content
 
-          // Dynamically load analytics module when analytics.htm is loaded
-          // (jQuery doesn't execute <script type="module"> tags in dynamic content)
+          // Dynamically load page-specific module when the corresponding .htm is loaded
+          // (jQuery doesn't execute <script type="module"> tags in dynamic content;
+          //  CSP 前置：三頁 inline script 已外抽為獨立檔，改走 dynamic import 載入)
+          if(url.includes('profile.htm')) {
+            import('/assets/js/profile.js').then(module => {
+              module.initProfile()
+            }).catch(err => {
+              console.error('[Profile] Failed to load module:', err)
+            })
+          }
+          if(url.includes('clothes.htm')) {
+            import('/assets/js/clothes.js').then(module => {
+              module.initClothes()
+            }).catch(err => {
+              console.error('[Clothes] Failed to load module:', err)
+            })
+          }
           if(url.includes('analytics.htm')) {
+            // xlsx vendor script 與 analytics.js module 平行載入（原本 jQuery eval 亦是頁面插入即觸發）
+            window.loadXLSX().catch(err => {
+              console.error('[Analytics] Failed to load XLSX vendor script:', err)
+            })
             import('/assets/js/analytics.js').then(module => {
               module.initAnalytics()
             }).catch(err => {
@@ -792,8 +840,8 @@ $(()=>{
             `)
             // SWR：先用上次快取秒開，API 回來後替換（API 失敗/無資料/內容相同時保留現狀）
             const cachedYT = getCache('ytlatest')
-            if (cachedYT?.data?.videoId) $("#yt-slot").html(renderYTlatestHTML(cachedYT.data))
-            ytLatestPromise.then(html => { if (html) $("#yt-slot").html(html) })
+            if (cachedYT?.data?.videoId) { $("#yt-slot").html(renderYTlatestHTML(cachedYT.data)); attachYTlatestFallback() }
+            ytLatestPromise.then(html => { if (html) { $("#yt-slot").html(html); attachYTlatestFallback() } })
             dataUpdatesPromise.then(html => { if (html) $("#info-slot").prepend(html) })
             changelogPromise.then(html => { if (html) $("#info-slot").append(html) })
           }
@@ -4256,7 +4304,7 @@ function renderYTlatestHTML(v){
   const escTitle = escapeHtml(v.title || '')
   return `
   <div id='YTlatest' class='card'>
-    <a href="https://www.youtube.com/watch?v=${videoId}" class="card-link"><img src="/tb/${videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${videoId}/mqdefault.jpg'" class="card-img-top"></a>
+    <a href="https://www.youtube.com/watch?v=${videoId}" class="card-link"><img src="/tb/${videoId}.jpg" data-video-id="${videoId}" class="card-img-top"></a>
     <div class="card-body">
       <h5 class="card-title">Latest Stream</h5>
       <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
@@ -4264,6 +4312,15 @@ function renderYTlatestHTML(v){
     </div>
   </div>
   `
+}
+
+// CSP 禁 inline onerror：卡片插入 DOM 後補綁縮圖 fallback（同 imageLink 的 once 防迴圈模式）
+function attachYTlatestFallback(){
+  const img = document.querySelector('#YTlatest img[data-video-id]')
+  if (!img) return
+  img.addEventListener('error', () => {
+    img.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(img.dataset.videoId) + '/mqdefault.jpg'
+  }, { once: true })
 }
 
 function getYTlatest(){
