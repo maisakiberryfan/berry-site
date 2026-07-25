@@ -180,10 +180,15 @@ export const loadingManager = new LoadingManager()
 export function showError(message, type = 'danger') {
   const alertDiv = document.createElement('div')
   alertDiv.className = `alert alert-${type} alert-dismissible fade show`
-  alertDiv.innerHTML = `
-    ${message}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-  `
+  // message may carry API-returned content; write it as plain text.
+  // The close button is assembled via DOM so Bootstrap dismiss still works.
+  alertDiv.textContent = message
+
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'btn-close'
+  closeBtn.dataset.bsDismiss = 'alert'
+  alertDiv.appendChild(closeBtn)
 
   const container = document.getElementById('setTableMsg') || document.getElementById('content')
   if (container) {
@@ -196,4 +201,15 @@ export function showError(message, type = 'danger') {
       }
     }, 5000)
   }
+}
+
+// Escape user-controlled values before HTML interpolation (& < > " ')
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]))
 }

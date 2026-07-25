@@ -5,8 +5,18 @@
  */
 
 import { Hono } from 'hono'
+import { validateLengths, FIELD_LIMITS } from '../utils/middleware.js'
 
 const app = new Hono()
+
+// Length caps for the alias write paths.
+// canonicalName/aliasValue are varchar(512); note is TEXT and the batch endpoint
+// accepts up to 100 records per request, so the program-level cap is the only bound.
+const ALIAS_FIELD_LIMITS = {
+  canonicalName: FIELD_LIMITS.canonicalName,
+  aliasValue: FIELD_LIMITS.aliasValue,
+  note: FIELD_LIMITS.aliasNote
+}
 
 /**
  * GET /aliases
@@ -147,6 +157,20 @@ app.post('/quick-add', async (c) => {
           error: {
             message: 'Missing required fields',
             details: 'canonicalName and aliasValue are required'
+          }
+        },
+        400
+      )
+    }
+
+    const lengthError = validateLengths(body, ALIAS_FIELD_LIMITS)
+    if (lengthError) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: 'Invalid input',
+            details: lengthError
           }
         },
         400
@@ -392,6 +416,19 @@ app.post('/batch', async (c) => {
           400
         )
       }
+      const lengthError = validateLengths(alias, ALIAS_FIELD_LIMITS)
+      if (lengthError) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              message: `Invalid input at index ${i}`,
+              details: lengthError
+            }
+          },
+          400
+        )
+      }
     }
 
     // Batch insert with transaction
@@ -502,6 +539,20 @@ app.put('/:aliasID', async (c) => {
           }
         },
         404
+      )
+    }
+
+    const lengthError = validateLengths(body, ALIAS_FIELD_LIMITS)
+    if (lengthError) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: 'Invalid input',
+            details: lengthError
+          }
+        },
+        400
       )
     }
 

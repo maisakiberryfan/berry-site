@@ -15,7 +15,7 @@ import '@fancyapps/ui/dist/fancybox/fancybox.css'
 import '../css/tabulator-bootstrap5-custom.css'
 
 // API configuration
-import { API_CONFIG, apiRequest, loadingManager, showError } from '../../config.js'
+import { API_CONFIG, apiRequest, loadingManager, showError, escapeHtml } from '../../config.js'
 
 // Expose globals for libraries expecting window bindings
 window.$ = window.jQuery = $
@@ -1307,7 +1307,7 @@ $(()=>{
   // Custom formatter to display "songName - artist" even though cell stores songID
   const songDisplayFormatter = function(cell) {
     const rowData = cell.getRow().getData()
-    return rowData.songDisplay || ''
+    return escapeHtml(rowData.songDisplay || '')
   }
 
   // --- View Setlist Modal ---
@@ -1349,7 +1349,7 @@ $(()=>{
     // Set modal title
     const dateStr = streamData.time || ''
     const title = streamData.title || ''
-    $('#modalTitleViewSetlist').html(`🎵 ${dateStr} ${title}`)
+    $('#modalTitleViewSetlist').text(`🎵 ${dateStr} ${title}`)
 
     // Show loading state
     $('#viewSetlistKL').val(t('載入中...', 'Loading...', '読み込み中...'))
@@ -1708,7 +1708,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.songName || '';
         const en = row.songNameEn || '';
-        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${ja}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${en}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -1733,7 +1733,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.artist || '';
         const en = row.artistEn || '';
-        return `<div style="line-height: 1.5;"><div>${ja}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${en}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -1811,7 +1811,7 @@ $(()=>{
         if (!Array.isArray(categories)) return '';
 
         // Display categories with line breaks for better readability
-        return categories.map(cat => cat).join('<br>');
+        return categories.map(cat => escapeHtml(cat)).join('<br>');
       })
     },
     {title:t('備註', 'note', 'メモ'), field:"note"},
@@ -1909,7 +1909,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.songName || '';
         const en = row.songNameEn || '';
-        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${ja}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${en}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -1929,7 +1929,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.artist || '';
         const en = row.artistEn || '';
-        return `<div style="line-height: 1.5;"><div>${ja}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${en}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {title:t('曲風', 'Genre', 'ジャンル'), field:"genre", headerFilter:"input"},
@@ -1956,13 +1956,25 @@ $(()=>{
     cell.getElement().style.whiteSpace ='pre-line'  //set multi line
     const data = cell.getData()
     const id = data.id || data.streamID  // Support both old and new field names
-    return "<a href='https://www.youtube.com/watch?v=" + id + "'>"+ cell.getValue() +"</a>"
+    // Build via DOM so values land in properties, not in an HTML attribute context
+    const a = document.createElement('a')
+    a.href = 'https://www.youtube.com/watch?v=' + encodeURIComponent(id)
+    a.textContent = cell.getValue()
+    return a
   }
 
   function imageLink(cell){
     const data = cell.getData()
     const id = data.id || data.streamID  // Support both old and new field names
-    return `<img src='/tb/${id}.jpg' onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${id}/mqdefault.jpg'" width="160" height="90">`
+    const img = document.createElement('img')
+    img.width = 160   // keep placeholder size so row height stays stable while loading
+    img.height = 90
+    // fire at most once — same loop guard as the old this.onerror=null pattern
+    img.addEventListener('error', () => {
+      img.src = 'https://i.ytimg.com/vi/' + encodeURIComponent(id) + '/mqdefault.jpg'
+    }, { once: true })
+    img.src = '/tb/' + encodeURIComponent(id) + '.jpg'
+    return img
   }
 
   function canEdit(){
@@ -1972,7 +1984,15 @@ $(()=>{
   function dateWithYTLink(cell){
     let d = cell.getData()
     const dateValue = d.date || d.time  // Support both old and new field names
-    return `<a href="${d.YTLink}">${dayjs(dateValue).format('YYYY/MM/DD')}</a>`
+    const dateText = dayjs(dateValue).format('YYYY/MM/DD')
+    // scheme 白名單：非 https:// 開頭者只渲染日期純文字、不產生連結
+    if (typeof d.YTLink !== 'string' || !d.YTLink.startsWith('https://')) {
+      return document.createTextNode(dateText)
+    }
+    const a = document.createElement('a')
+    a.href = d.YTLink
+    a.textContent = dateText
+    return a
   }
 
 
@@ -3369,7 +3389,7 @@ $(()=>{
         <div class="text-center">
           <div class="spinner-border text-danger mb-3" role="status"></div>
           <p class="mb-2">正在刪除 ${i + 1} / ${selectedRows.length} ...</p>
-          <p class="small text-muted">${rowData.title || rowData.songName || rowData.streamID || ''}</p>
+          <p class="small text-muted">${escapeHtml(rowData.title || rowData.songName || rowData.streamID || '')}</p>
         </div>
       `)
 
@@ -3421,7 +3441,7 @@ $(()=>{
       const failedRows = results.filter(r => !r.success)
       const errorDetails = failedRows.map(r => {
         const name = r.data?.title || r.data?.songName || r.data?.streamID || 'Unknown'
-        return `<li><strong>${name}</strong>: ${r.error}</li>`
+        return `<li><strong>${escapeHtml(name)}</strong>: ${escapeHtml(r.error)}</li>`
       }).join('')
 
       $('#modalMsg').html(`
@@ -3673,13 +3693,13 @@ $(()=>{
         let errorDetail = ''
 
         if (errorMsg.includes('already exists') || errorMsg.includes('Conflict')) {
-          errorDetail = `此直播已存在<br><small>StreamID "<strong>${streamID}</strong>" 已在資料庫中，請使用其他影片</small>`
+          errorDetail = `此直播已存在<br><small>StreamID "<strong>${escapeHtml(streamID)}</strong>" 已在資料庫中，請使用其他影片</small>`
         } else if (errorMsg.includes('400') || errorMsg.includes('VALIDATION')) {
           errorDetail = `資料格式錯誤<br><small>請檢查必填欄位是否填寫完整</small>`
         } else if (errorMsg.includes('timeout') || errorMsg.includes('NetworkError')) {
           errorDetail = `網路連線錯誤<br><small>請檢查網路連線或 Hyperdrive 服務是否啟動</small>`
         } else {
-          errorDetail = `${errorMsg}<br><small>請檢查輸入資料或聯繫管理員</small>`
+          errorDetail = fallbackErrorDetail(errorMsg, '請檢查輸入資料或聯繫管理員')
         }
 
         // 在 Modal 內顯示錯誤訊息
@@ -3919,7 +3939,7 @@ $(()=>{
       }
 
       // Show success message
-      showQuickAliasAlert(`✅ 別名新增成功 (Alias added successfully)<br><br><strong>類型:</strong> ${aliasType}<br><strong>標準名稱:</strong> ${canonicalName}<br><strong>別名:</strong> ${aliasValue}`, 'success')
+      showQuickAliasAlert(`✅ 別名新增成功 (Alias added successfully)<br><br><strong>類型:</strong> ${escapeHtml(aliasType)}<br><strong>標準名稱:</strong> ${escapeHtml(canonicalName)}<br><strong>別名:</strong> ${escapeHtml(aliasValue)}`, 'success')
 
       // Clear form for next entry
       $('#quickCanonicalName').val('').trigger('change')
@@ -3928,7 +3948,7 @@ $(()=>{
 
     } catch (error) {
       console.error('Error adding alias:', error)
-      showQuickAliasAlert(`❌ 新增失敗 (Failed to add alias): ${error.message}`, 'danger')
+      showQuickAliasAlert(`❌ 新增失敗 (Failed to add alias): ${escapeHtml(error.message)}`, 'danger')
     } finally {
       $('#saveQuickAlias').prop('disabled', false).html('<i class="bi bi-plus-circle"></i> Add')
     }
@@ -4093,12 +4113,12 @@ $(()=>{
         for (const match of data.matches) {
           html += `
             <div class="list-group-item">
-              <h6 class="mb-2"><strong>${match.canonicalName}</strong></h6>
+              <h6 class="mb-2"><strong>${escapeHtml(match.canonicalName)}</strong></h6>
               <div class="ms-3">
                 ${match.aliases.map(a => `
                   <div class="small">
-                    • ${a.value}
-                    ${a.note ? `<span class="text-muted">(${a.note})</span>` : ''}
+                    • ${escapeHtml(a.value)}
+                    ${a.note ? `<span class="text-muted">(${escapeHtml(a.note)})</span>` : ''}
                   </div>
                 `).join('')}
               </div>
@@ -4119,6 +4139,12 @@ $(()=>{
     }
   })
 
+
+// API error text is untrusted; escape it before HTML interpolation.
+// hint is a fixed in-app string and may contain markup.
+function fallbackErrorDetail(errorMsg, hint){
+  return `${escapeHtml(errorMsg)}<br><small>${hint}</small>`
+}
 
 //--- json table ---
 
@@ -4223,15 +4249,18 @@ function getDataUpdates(){
 
 //get berry latest stream from DB
 function renderYTlatestHTML(v){
+  // skip rendering the card unless videoId looks like a real YouTube id (9-11 of [A-Za-z0-9_-])
+  const videoId = String(v.videoId || '')
+  if (!/^[A-Za-z0-9_-]{9,11}$/.test(videoId)) return ''
   // 標題含 <、& 等字元（如「歌枠<3」）會被當 HTML 解析弄壞卡片，插入前轉義
-  const escTitle = String(v.title || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+  const escTitle = escapeHtml(v.title || '')
   return `
   <div id='YTlatest' class='card'>
-    <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link"><img src="/tb/${v.videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg'" class="card-img-top"></a>
+    <a href="https://www.youtube.com/watch?v=${videoId}" class="card-link"><img src="/tb/${videoId}.jpg" onerror="this.onerror=null;this.src='https://i.ytimg.com/vi/${videoId}/mqdefault.jpg'" class="card-img-top"></a>
     <div class="card-body">
       <h5 class="card-title">Latest Stream</h5>
       <h6 class="card-subtitle mb-2 text-body-secondary">${dayjs(v.time).format('YYYY/MM/DD HH:mmZ')}</h6>
-      <a href="https://www.youtube.com/watch?v=${v.videoId}" class="card-link">${escTitle}</a>
+      <a href="https://www.youtube.com/watch?v=${videoId}" class="card-link">${escTitle}</a>
     </div>
   </div>
   `
@@ -4440,7 +4469,7 @@ function getYTlatest(){
       } else if (errorMsg.includes('400') || errorMsg.includes('VALIDATION')) {
         errorDetail = `資料格式錯誤<br><small>請檢查 StreamID 是否有效</small>`
       } else {
-        errorDetail = `${errorMsg}<br><small>請聯繫管理員或稍後再試</small>`
+        errorDetail = fallbackErrorDetail(errorMsg, '請聯繫管理員或稍後再試')
       }
 
       // 在 Modal 內顯示錯誤訊息
@@ -4525,8 +4554,8 @@ function getYTlatest(){
       const listItem = $(`
         <div class="border-bottom pb-1 mb-1">
           <small>
-            <strong>Track ${quickCurrentTrack}:</strong> ${songDisplay}
-            ${note ? `<span class="text-muted">(${note})</span>` : ''}
+            <strong>Track ${quickCurrentTrack}:</strong> ${escapeHtml(songDisplay)}
+            ${note ? `<span class="text-muted">(${escapeHtml(note)})</span>` : ''}
           </small>
         </div>
       `)
@@ -4571,7 +4600,7 @@ function getYTlatest(){
       } else if (errorMsg.includes('Foreign key constraint')) {
         errorDetail = `資料庫錯誤<br><small>StreamID 或 SongID 不存在於資料庫中</small>`
       } else {
-        errorDetail = `${errorMsg}<br><small>請聯繫管理員或稍後再試</small>`
+        errorDetail = fallbackErrorDetail(errorMsg, '請聯繫管理員或稍後再試')
       }
 
       // 在 Modal 內顯示錯誤訊息
