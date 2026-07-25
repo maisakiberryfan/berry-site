@@ -123,7 +123,7 @@ export async function getSetlist(c) {
     });
   } catch (error) {
     console.error("Get setlist failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -166,7 +166,7 @@ export async function getSetlistManifest(c) {
     });
   } catch (error) {
     console.error("Get setlist manifest failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -357,7 +357,7 @@ export async function createSetlistEntry(c) {
       );
     }
 
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 

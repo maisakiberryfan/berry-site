@@ -1,50 +1,10 @@
-import { createErrorResponse } from "./database.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 
 dayjs.extend(utc);
 
-// Error handling middleware
-export async function errorHandler(c, next) {
-  try {
-    await next();
-  } catch (error) {
-    console.error("API Error:", error);
-
-    const isDevMode = c.env?.MODE === 'test' || c.env?.MODE === 'dev'
-    // In dev/test mode, include the actual error detail for debugging
-    const detail = isDevMode ? error.message : undefined
-
-    if (error.message.includes("FOREIGN KEY")) {
-      return c.json(
-        createErrorResponse(
-          "CONSTRAINT_VIOLATION",
-          "Cannot delete: record is still referenced",
-        ),
-        409,
-      );
-    }
-
-    if (error.message.includes("Duplicate entry")) {
-      return c.json(
-        createErrorResponse("DUPLICATE_ENTRY", "Record already exists"),
-        409,
-      );
-    }
-
-    if (error.message.includes("Database") || error.code?.startsWith?.('ER_') || error.errno) {
-      return c.json(
-        createErrorResponse("DATABASE_ERROR", detail || "Database operation failed"),
-        500,
-      );
-    }
-
-    return c.json(
-      createErrorResponse("INTERNAL_ERROR", detail || "Internal server error"),
-      500,
-    );
-  }
-}
+// 錯誤處理已遷移至 src/app.js 的 `app.onError`——掛成中介層時 Hono 的 compose
+// 會在更內層就把錯誤交給 onError 並吞掉，此處的 try/catch 永遠等不到錯誤。
 
 // Request validation helpers
 export function validateRequired(data, fields) {

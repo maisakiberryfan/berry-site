@@ -7,13 +7,13 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { CONFIG } from './config.js'
-import { Database } from './utils/database.js'
+import { Database, createErrorResponse } from './utils/database.js'
 import { getSecret } from './platform.js'
 import { extractVideoId } from './utils/url-helpers.js'
 import { sendDiscordNotification } from './utils/discord-notifier.js'
 // MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
 import { getVideoComments } from './utils/youtube-comments.js'
-import { errorHandler, mysqlToISO8601 } from './utils/middleware.js'
+import { mysqlToISO8601 } from './utils/middleware.js'
 import {
   getVideoInfo, getNewVideosFromChannels,
   getLiveDetails, preCategory, makeYouTubeAPIRequest
@@ -48,7 +48,53 @@ app.use('*', cors({
 
 app.options('*', (c) => c.text('', 204))
 
-app.use('*', errorHandler)
+// 全域錯誤處理。
+// 必須掛 onError 而非 `app.use('*', ...)` 中介層：Hono 的 compose 在每層 dispatch 都包
+// try/catch，捕到 Error 時直接交給 onError 且**不 re-throw**——錯誤在最靠近拋出點的那層
+// 就被吞掉，永遠到不了外層中介層。舊寫法實測從未生效（回應是內建 onError 的
+// text/plain "Internal Server Error"），分類與 409 語意等於沒有。
+app.onError((err, c) => {
+  // 自帶回應的錯誤（HTTPException 等）維持 Hono 內建語意——原本走內建 onError 時即如此，
+  // 覆寫後不處理會讓這類錯誤的狀態碼與 body 被吃掉
+  if (err && typeof err.getResponse === 'function') {
+    const res = err.getResponse()
+    return c.newResponse(res.body, res)
+  }
+
+  console.error('API Error:', err)
+
+  const message = String(err?.message ?? '')
+  // dev/test 環境才附上實際錯誤訊息（MODE 由 wrangler.toml / .env.json 注入，
+  // production 為 prod）；正式環境一律回泛化訊息，不外洩 DB 與內部細節
+  const isDevMode = c.env?.MODE === 'test' || c.env?.MODE === 'dev'
+  const detail = isDevMode ? message : undefined
+
+  if (message.includes('FOREIGN KEY')) {
+    return c.json(
+      createErrorResponse('CONSTRAINT_VIOLATION', 'Cannot delete: record is still referenced'),
+      409
+    )
+  }
+
+  if (message.includes('Duplicate entry')) {
+    return c.json(
+      createErrorResponse('DUPLICATE_ENTRY', 'Record already exists'),
+      409
+    )
+  }
+
+  if (message.includes('Database') || err?.code?.startsWith?.('ER_') || err?.errno) {
+    return c.json(
+      createErrorResponse('DATABASE_ERROR', detail || 'Database operation failed'),
+      500
+    )
+  }
+
+  return c.json(
+    createErrorResponse('INTERNAL_ERROR', detail || 'Internal server error'),
+    500
+  )
+})
 
 // Security response headers
 app.use('*', async (c, next) => {
@@ -82,17 +128,17 @@ function checkRateLimit(ip, tier, maxRequests) {
 
 // Rate limit: write endpoints 30/min, expensive endpoints 5/min
 app.use('/api/*', async (c, next) => {
-  // Cleanup stale entries on each request (lightweight, map is small)
-  const cleanupNow = Date.now()
-  for (const [key, entry] of rateLimits) {
-    if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
-  }
-
   const method = c.req.method
   const path = c.req.path
 
   // Skip rate limiting for read-only methods
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
+
+  // Cleanup stale entries on each request (lightweight, map is small)
+  const cleanupNow = Date.now()
+  for (const [key, entry] of rateLimits) {
+    if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
+  }
 
   const ip = c.req.header('cf-connecting-ip')
     || c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
@@ -167,7 +213,7 @@ api.get('/stats/last-updated', async (c) => {
     })
   } catch (error) {
     console.error('Get last updated failed:', error)
-    return c.json({ success: false, error: error.message }, 500)
+    return c.json({ success: false, error: 'Database operation failed' }, 500)
   }
 })
 
@@ -183,7 +229,8 @@ api.get('/yt', async (c) => {
     const result = await getVideoInfo(videoId, c.env)
     return c.json(result)
   } catch (error) {
-    return c.json({ error: '無法獲取影片資訊', details: error.message }, 500)
+    console.error('Get video info failed:', error)
+    return c.json({ error: '無法獲取影片資訊' }, 500)
   }
 })
 
@@ -211,7 +258,8 @@ api.get('/yt/latest', async (c) => {
       }
     })
   } catch (error) {
-    return c.json({ error: '無法獲取最新影片', details: error.message }, 500)
+    console.error('Get latest video failed:', error)
+    return c.json({ error: '無法獲取最新影片' }, 500)
   }
 })
 
@@ -240,7 +288,8 @@ api.get('/yt/newvideos', async (c) => {
       }
     })
   } catch (error) {
-    return c.json({ error: '無法獲取新影片資訊', details: error.message }, 500)
+    console.error('Get new videos failed:', error)
+    return c.json({ error: '無法獲取新影片資訊' }, 500)
   }
 })
 
@@ -254,7 +303,8 @@ api.get('/yt/live-details', async (c) => {
     if (!details) return c.json({ error: 'Video not found' }, 404)
     return c.json(details)
   } catch (error) {
-    return c.json({ error: 'Failed to get live details', details: error.message }, 500)
+    console.error('Get live details failed:', error)
+    return c.json({ error: 'Failed to get live details' }, 500)
   }
 })
 
@@ -432,6 +482,11 @@ api.post('/text-to-sql', async (c) => {
   const anthropicKey = getSecret(c.env, 'ANTHROPIC_API_KEY')
   if (!anthropicKey) return c.json({ error: 'AI service not configured' }, 503)
 
+  const db = c.get('db')
+  const dateKey = new Date().toISOString().slice(0, 10)
+  const HOLD = 0.005
+  let held = false, actualCost = 0
+
   try {
     const { query, localDate, failedSql, errorMessage } = await c.req.json()
     if (!query || query.trim().length === 0) return c.json({ error: '請輸入查詢問題' }, 400)
@@ -446,10 +501,6 @@ api.post('/text-to-sql', async (c) => {
     const safeLocalDate = /^\d{4}-\d{2}-\d{2}$/.test(localDate || '')
       ? localDate : new Date().toISOString().slice(0, 10)
 
-    // Budget check via DB
-    const db = c.get('db')
-    const dateKey = new Date().toISOString().slice(0, 10)
-
     // Ensure ai_usage table exists (first-time setup)
     try {
       await db.execute(`CREATE TABLE IF NOT EXISTS ai_usage (
@@ -460,12 +511,17 @@ api.post('/text-to-sql', async (c) => {
       )`)
     } catch { /* table already exists */ }
 
-    const usage = await db.first('SELECT cost, count FROM ai_usage WHERE dateKey = ?', [dateKey])
-    const todayCost = parseFloat(usage?.cost) || 0
-
-    if (todayCost >= AI_BUDGET_LIMIT) {
+    // Budget check + 原子預扣：INSERT IGNORE 確保 row 存在，UPDATE 用 WHERE cost < LIMIT
+    // 把「檢查額度」與「扣款」合成一次 DB 操作，取代原本 read-then-write 的競態窗口。
+    // HOLD 是預估上限，實際花費在 API 回應後算出，finally 統一結算（見下）
+    await db.execute('INSERT IGNORE INTO ai_usage (dateKey, cost, count) VALUES (?, 0, 0)', [dateKey])
+    const r = await db.execute(
+      'UPDATE ai_usage SET cost = cost + ?, count = count + 1 WHERE dateKey = ? AND cost < ?',
+      [HOLD, dateKey, AI_BUDGET_LIMIT])
+    if (r.meta.changes === 0) {
       return c.json({ success: false, error: '今日 AI 額度已用完，請明天再試' }, 429)
     }
+    held = true
 
     // 修復模式：前端試跑失敗後帶回失敗 SQL 與錯誤訊息，請 AI 修正（限制長度防濫用）
     const messages = [{ role: 'user', content: query }]
@@ -495,37 +551,39 @@ api.post('/text-to-sql', async (c) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error?.message || `API error: ${response.status}`)
+      throw new Error(errorData.error?.message || `API error: ${response.status}`)  // actualCost 維持 0，finally 全額退款
     }
 
     const result = await response.json()
     let sql = result.content?.[0]?.text || ''
     sql = sql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim()
 
+    // Calculate actual cost (Haiku 4.5: $1/MTok input, $5/MTok output)
+    // 必須放在下面「非 select」早退之前算出——API 已消耗 token，早退前不算會漏計費
+    const inputTokens = result.usage?.input_tokens || 0
+    const outputTokens = result.usage?.output_tokens || 0
+    actualCost = (inputTokens / 1_000_000) + (outputTokens / 1_000_000 * 5)
+
     if (!sql.toLowerCase().startsWith('select')) {
       return c.json({ success: false, error: '無法生成有效的 SQL 查詢', raw: sql })
     }
-
-    // Calculate and record cost (Haiku 4.5: $1/MTok input, $5/MTok output)
-    const inputTokens = result.usage?.input_tokens || 0
-    const outputTokens = result.usage?.output_tokens || 0
-    const cost = (inputTokens / 1_000_000) + (outputTokens / 1_000_000 * 5)
-
-    await db.execute(
-      `INSERT INTO ai_usage (dateKey, cost, count) VALUES (?, ?, 1)
-       ON DUPLICATE KEY UPDATE cost = cost + VALUES(cost), count = count + 1`,
-      [dateKey, cost]
-    )
 
     return c.json({
       success: true,
       sql,
       query,
-      usage: { inputTokens, outputTokens, cost: cost.toFixed(6), todayTotal: (todayCost + cost).toFixed(6) }
+      usage: { inputTokens, outputTokens, cost: actualCost.toFixed(6) }
     })
   } catch (error) {
     console.error('AI text-to-sql error:', error)
     return c.json({ success: false, error: 'AI processing failed' }, 500)
+  } finally {
+    // 結算：預扣的 HOLD 換成實際花費（actualCost 未賦值到的路徑維持 0，等同全額退款）。
+    // 結算本身失敗只記錄不重試——寧可多扣 HOLD 不少扣，方向對安全側有利
+    if (held) {
+      await db.execute('UPDATE ai_usage SET cost = cost + ? WHERE dateKey = ?',
+        [actualCost - HOLD, dateKey]).catch(e => console.error('AI 結算失敗（保留預扣）:', e.message))
+    }
   }
 })
 
@@ -652,7 +710,8 @@ api.get('/songlist.json', async (c) => {
     }
     return c.json({ data: songlistData })
   } catch (error) {
-    return c.json({ error: error.message }, 500)
+    console.error('Get songlist.json failed:', error)
+    return c.json({ error: 'Database operation failed' }, 500)
   }
 })
 

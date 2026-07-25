@@ -42,7 +42,7 @@ export async function getSonglist(c) {
     });
   } catch (error) {
     console.error("Get songlist failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -66,7 +66,7 @@ export async function getSongById(c) {
     return c.json(successResponse(song));
   } catch (error) {
     console.error("Get song by ID failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -248,7 +248,7 @@ export async function getArtists(c) {
     return c.json(successResponse(artists));
   } catch (error) {
     console.error("Get artists failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -285,6 +285,6 @@ export async function getSonglistOptimized(c) {
     return c.json(successResponse(optimizedSongs));
   } catch (error) {
     console.error("Get optimized songlist failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
