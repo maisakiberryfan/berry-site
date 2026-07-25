@@ -137,12 +137,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Detect matcher changes
         id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
-          if git diff --quiet HEAD^ HEAD -- lambda/setlist-matcher/ .github/workflows/deploy.yml 2>/dev/null; then
+          # push 事件 before..after 涵蓋整段推送範圍（而非僅 tip commit），
+          # 避免多 commit 推送中，中間 commit 改了 matcher 卻因只比對 tip 被跳過部署
+          # 注意：對完整 40 碼 hex，plain `--verify` 只驗語法不驗物件是否存在（git 已知行為，
+          # 曾實測 deadbeef...×5 這種語法合法但不存在的 SHA 會被判定「verify 成功」）；
+          # 需接 ^{commit} 強制檢查物件真實存在，否則 force-push 舊 tip 不可達等情境會漏判
+          if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify -q "${BEFORE_SHA}^{commit}" > /dev/null 2>&1; then
+            # before 不可用（新分支／force-push 等邊界情況）：安全預設視為有變更。
+            # sam deploy 具冪等性，多部署一次無害；漏部署才是要消除的失敗模式。
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE_SHA" "$GITHUB_SHA" -- lambda/setlist-matcher/ .github/workflows/deploy.yml 2>/dev/null; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
