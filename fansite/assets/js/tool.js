@@ -4103,8 +4103,8 @@ $(()=>{
         inputText
       })
 
-      // Display results
-      const data = result.data
+      // Display results（apiRequest 已解包 result.data，回傳值即為 { matches, matchCount, ... }）
+      const data = result
       if (data.matches.length === 0) {
         $('#testAliasResultsContent').html('<div class="alert alert-info">沒有找到匹配的別名 (No matches found)</div>')
       } else {
