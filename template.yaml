@@ -301,6 +301,50 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
+  # 靜態內容（S3Origin）的 security header。
+  # CSP 值與 entry-worker.js 的 CSP 常數**必須逐字一致**（唯一差異是 header 名稱：
+  # CF 備用站直接發正式 Content-Security-Policy，主站灰度期發 Report-Only），
+  # 各 source 的依據見 entry-worker.js 的註解。
+  SecurityHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${AWS::StackName}-security-headers"
+        Comment: Security headers for fansite static content
+        SecurityHeadersConfig:
+          # ContentSecurityPolicy 刻意留空：這個欄位只有 enforce 模式、沒有 Report-Only
+          # 變體，填下去就是直接強制執行。灰度期間改由下方 CustomHeadersConfig 發
+          # Content-Security-Policy-Report-Only。
+          # ⚠️ 收斂後切正式的做法：把下方 CustomHeadersConfig 的 Items 整段刪除，改在此處加
+          #   ContentSecurityPolicy:
+          #     ContentSecurityPolicy: "<與 entry-worker.js 相同的字串>"
+          #     Override: true
+          # （同一個 header 名稱不能同時出現在 SecurityHeadersConfig 與 CustomHeadersConfig）
+          ContentTypeOptions:
+            Override: true          # → X-Content-Type-Options: nosniff
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 31536000   # 1 年
+            # IncludeSubdomains 先不開：會連帶把 sqldata.m-b.win / bus.m-b.win 等
+            # 所有子網域鎖成 https，且瀏覽器端無法即時回退，需另行確認後再啟用
+            IncludeSubdomains: false
+            Preload: false
+            Override: true
+          XSSProtection:
+            # false → X-XSS-Protection: 0（現代建議值：關閉舊版 XSS auditor，防護交給 CSP）
+            Protection: false
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Content-Security-Policy-Report-Only
+              Value: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://sqldata.m-b.win; media-src 'self'; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+              Override: true
+
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -351,6 +395,7 @@ Resources:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          ResponseHeadersPolicyId: !Ref SecurityHeadersPolicy
           Compress: true
           FunctionAssociations:
             - EventType: viewer-request
