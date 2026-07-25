@@ -119,7 +119,14 @@ cd fansite && npm run build:js   # esbuild bundle → assets/dist/
 | `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`）需 token |
 | `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true`）需 token |
 
-所有 `/trigger-*` 端點需帶 `?token=xxx` 或 `X-Trigger-Token` header，由 `TRIGGER_TOKEN` 環境變數驗證。
+所有 `/trigger-*` 端點（與 `/api/parse-setlist`）需帶 `X-Trigger-Token` header，由 `TRIGGER_TOKEN`
+環境變數驗證。**不支援 `?token=` query**（query string 會留在存取日誌與瀏覽器歷史中）：
+
+```bash
+curl -s -H "X-Trigger-Token: $TOKEN" "https://m-b.win/trigger-setlist-parse?streamID=xxx"
+curl -s -X POST -H "X-Trigger-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mode":"recent"}' "https://m-b.win/trigger-update"
+```
 
 ### Cron Triggers
 

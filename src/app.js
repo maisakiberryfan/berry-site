@@ -564,16 +564,19 @@ app.post('/webhook/youtube', async (c) => {
   //（手動重訂閱完成＋renewPubSubSubscription 自動續訂亦帶），無簽名＝偽造來源，一律拒絕
   const signature = c.req.header('X-Hub-Signature')
   const secret = getSecret(c.env, 'TRIGGER_TOKEN')
-  if (secret) {
-    if (!signature) {
-      console.warn('[PUBSUB] 拒絕無簽名通知（訂閱已全面帶 hub.secret）')
-      return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
-    }
-    const expected = 'sha1=' + await hmacSha1Hex(secret, body)
-    if (!timingSafeEqualStr(signature, expected)) {
-      console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
-      return c.text('OK', 200)
-    }
+  // 無 secret 時無從驗證來源，一律不處理（fail-closed）；三個部署環境皆已設定此變數
+  if (!secret) {
+    console.error('[PUBSUB] TRIGGER_TOKEN 未設定，無法驗證簽名，不處理此通知')
+    return c.text('OK', 200) // 與下方分支同策略：回 200 避免 hub 重試轟炸
+  }
+  if (!signature) {
+    console.warn('[PUBSUB] 拒絕無簽名通知（訂閱已全面帶 hub.secret）')
+    return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
+  }
+  const expected = 'sha1=' + await hmacSha1Hex(secret, body)
+  if (!timingSafeEqualStr(signature, expected)) {
+    console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
+    return c.text('OK', 200)
   }
 
   // Parse Atom feed
@@ -668,8 +671,10 @@ function timingSafeEqualStr(a, b) {
   return diff === 0
 }
 
+// 只收 X-Trigger-Token header：query string 會被 CDN／API Gateway 存取日誌、
+// 瀏覽器歷史與 Referer 保留，不適合承載長期憑證
 function validateTriggerToken(c) {
-  const token = c.req.query('token') || c.req.header('X-Trigger-Token')
+  const token = c.req.header('X-Trigger-Token')
   const expected = getSecret(c.env, 'TRIGGER_TOKEN')
   if (!expected) return false  // 未設定時拒絕（fail closed）
   return timingSafeEqualStr(token || '', expected)
