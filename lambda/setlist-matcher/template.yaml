@@ -5,7 +5,7 @@ Description: Berry Setlist Matcher - Fuzzy matching service for setlist parsing
 Parameters:
   FunctionTimeout:
     Type: Number
-    Default: 60
+    Default: 29
     Description: Lambda function timeout in seconds
   FunctionMemory:
     Type: Number
