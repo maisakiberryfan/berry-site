@@ -154,6 +154,7 @@ AWS EventBridge 為主要排程。CF cron 已停用。
   - 無歌手行：純 titleScore、門檻 0.95（同名 dedup 兜底）
   - 序號感知（II/Ⅱ/2/弐）、日英欄位並比取最高、多段括號/三段式行解析
   - 無時間戳行過濾（≥3 行帶戳時視為雜訊）
+  - 輸入行數護欄（超限拒絕）；Lambda timeout 29s（配合 API Gateway 上限）
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
 - 部署：push 自動（CI `deploy-matcher` job）；手動 `sam build && sam deploy` 亦可（獨立 SAM stack）
 - 測試：`node test-fix.mjs` / `test-regression.mjs` / `test-history.mjs [N]` / `verify-corrections.mjs`
@@ -185,6 +186,10 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 | `/trigger-*` | ApiOrigin | CachingDisabled |
 | `/health` | ApiOrigin | CachingDisabled |
 | `*`（預設） | S3Origin | CachingOptimized + BotBlockerFunction |
+
+**SecurityHeadersPolicy**（ResponseHeadersPolicy）：掛在預設與 `/tb/*` behavior
+（nosniff／X-Frame-Options DENY／HSTS／CSP enforce 等）。
+⚠️ CSP 值必須與 `entry-worker.js` 的 CSP 常數**逐字一致**——改任一側必須同步另一側。
 
 **BotBlockerFunction**（CloudFront Function, viewer-request）：
 - 惡意路徑（`.php`, `/wp-*`, `/.env`）→ 404
@@ -319,6 +324,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
 | v3.3 | 2026-06-13 | 歌單辨識大修：挑留言防護（cooldown/佔比/熔斷）、matcher 精度（序號感知/EN 欄位/格式解析）、alias 綁 songID、webhook 驗證＋非同步化 |
 | v3.2 | 2026-03-22 | 安全強化：CORS、rate limiting、security headers、DB TLS |
 | v3.1 | 2026-03-21 | SPA 路由白名單、縮圖 S3 存儲、Polling 10 分鐘、CloudFront 存取日誌 |
@@ -327,4 +333,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-06-13
+**最後更新**：2026-07-25
