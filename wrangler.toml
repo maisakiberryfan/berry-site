@@ -7,6 +7,11 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "fansite"
 binding = "ASSETS"
+# 預設行為是「請求命中靜態檔案就由資產伺服器直接回傳、完全不執行 worker」，
+# 那條路徑上 entry-worker.js 的 security header 注入不會發生（實測：/ 與
+# /assets/dist/tool.js 無任何 header，只有走 SPA fallback 的 /profile 有）。
+# 設 true 讓所有請求都先進 worker，再由 worker 內的 env.ASSETS.fetch() 取檔並補 header。
+run_worker_first = true
 
 [observability]
 enabled = true
@@ -36,6 +41,7 @@ main = "entry-worker.js"
 [env.dev.assets]
 directory = "fansite"
 binding = "ASSETS"
+run_worker_first = true
 
 [env.dev.vars]
 MODE = "test"
