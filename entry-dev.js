@@ -39,7 +39,15 @@ if (process.env.DB_NAME !== 'mbdb_test') {
 const indexHtml = readFileSync(new URL('./fansite/index.html', import.meta.url), 'utf8')
 
 const dev = new Hono()
-dev.route('/', app)                                  // API（/api/*、/health、/webhook/*、/trigger-*）
+// 路徑切割對齊 production（entry-worker.js / CloudFront behaviors）：只有 API 前綴
+// 進 Hono app——否則 app 的 GET /（API 資訊 JSON）會攔住根路徑，首頁變成 JSON
+dev.use('*', async (c, next) => {
+  const p = new URL(c.req.url).pathname
+  if (p.startsWith('/api/') || p.startsWith('/webhook/') || p.startsWith('/trigger-') || p === '/health') {
+    return app.fetch(c.req.raw)
+  }
+  await next()
+})
 dev.use('*', serveStatic({ root: './fansite' }))     // 靜態檔案
 dev.get('*', (c) => {                                // SPA fallback（模仿 BotBlockerFunction 的 rewrite）
   const accept = c.req.header('Accept') || ''
