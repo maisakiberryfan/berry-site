@@ -1,5 +1,7 @@
 node_modules/
 .env
+.env.*
+!.env.example
 .env.json
 .dev.vars
 
@@ -24,5 +26,14 @@ scripts/timestamps/
 .claude/skills/traffic-report/dbip-country-lite.mmdb.gz
 .claude/skills/traffic-report/package-lock.json
 
-newdbpass.txt
-newrootpass.txt
+# 憑證檔一律不進 repo——這些 pattern 是最後防線，正確做法是把檔案放在 repo 外
+*.pem
+*.key
+*.p12
+*.pfx
+*pass*.txt
+*password*.txt
+*secret*.txt
+*token*.txt
+*credential*
+aws?env*.txt
