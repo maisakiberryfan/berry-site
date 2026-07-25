@@ -51,7 +51,7 @@ export async function getStreamlist(c) {
     });
   } catch (error) {
     console.error("Get streamlist failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -82,7 +82,7 @@ export async function getStreamById(c) {
     return c.json(successResponse(formattedStream));
   } catch (error) {
     console.error("Get stream by ID failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -416,7 +416,7 @@ export async function getPendingStreams(c) {
     return c.json(successResponse(formattedStreams));
   } catch (error) {
     console.error("Get pending streams failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }
 
@@ -441,6 +441,6 @@ export async function getLatestStream(c) {
     return c.json(successResponse({ time: formattedTime }));
   } catch (error) {
     console.error("Get latest stream failed:", error);
-    return c.json(createErrorResponse("DATABASE_ERROR", error.message), 500);
+    return c.json(createErrorResponse("DATABASE_ERROR", "Database operation failed"), 500);
   }
 }

@@ -47,8 +47,7 @@ app.get('/', async (c) => {
       {
         success: false,
         error: {
-          message: 'Failed to fetch aliases',
-          details: error.message
+          message: 'Failed to fetch aliases'
         }
       },
       500
@@ -114,8 +113,7 @@ app.get('/grouped', async (c) => {
       {
         success: false,
         error: {
-          message: 'Aliases API unavailable',
-          details: error.message
+          message: 'Aliases API unavailable'
         }
       },
       500
@@ -238,8 +236,7 @@ app.post('/quick-add', async (c) => {
       {
         success: false,
         error: {
-          message: 'Failed to add alias',
-          details: error.message
+          message: 'Failed to add alias'
         }
       },
       500
@@ -348,8 +345,7 @@ app.post('/test', async (c) => {
       {
         success: false,
         error: {
-          message: 'Failed to test alias',
-          details: error.message
+          message: 'Failed to test alias'
         }
       },
       500
@@ -462,10 +458,12 @@ app.post('/batch', async (c) => {
           updated++
         }
       } catch (error) {
+        // 逐筆失敗的實際原因只進 log（前端僅使用 errors.length）
+        console.error(`POST /aliases/batch item ${i} failed:`, error)
         errors.push({
           index: i,
           alias,
-          error: error.message
+          error: 'Insert failed'
         })
       }
     }
@@ -488,8 +486,7 @@ app.post('/batch', async (c) => {
       {
         success: false,
         error: {
-          message: 'Batch insert failed',
-          details: error.message
+          message: 'Batch insert failed'
         }
       },
       500
@@ -612,8 +609,7 @@ app.put('/:aliasID', async (c) => {
       {
         success: false,
         error: {
-          message: 'Failed to update alias',
-          details: error.message
+          message: 'Failed to update alias'
         }
       },
       500
@@ -679,8 +675,7 @@ app.delete('/:aliasID', async (c) => {
       {
         success: false,
         error: {
-          message: 'Failed to delete alias',
-          details: error.message
+          message: 'Failed to delete alias'
         }
       },
       500
