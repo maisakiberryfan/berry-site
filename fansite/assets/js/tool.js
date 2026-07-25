@@ -6,6 +6,9 @@ import * as bootstrap from 'bootstrap'
 import { marked } from 'marked'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
+// localStorage 表格快取的壓縮（UTF16 變體：localStorage 以 UTF-16 計費，
+// 用 compressToUTF16 才真的省到配額）
+import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
 
 // Local CSS imports (bundled)
 import 'bootstrap/dist/css/bootstrap.min.css'
@@ -319,16 +322,22 @@ $(()=>{
   // ============================================
   const CACHE_PREFIX = 'tableCache_'
   // v2：setlist 改月度結構 { months, fingerprints }＋各表快取帶 etag
-  const CACHE_VERSION = 'v2'
+  // v3：內容改存 lz-string compressToUTF16 壓縮字串（v2 未壓縮，setlist 全量
+  //     JSON ~5MB 已逼近 localStorage 5MB/origin 上限，寫別表就 QuotaExceeded）。
+  //     setlist（月度結構）另走「未壓縮信封 + 逐月壓縮字串」格式，見 MONTHLY_MAGIC
+  const CACHE_VERSION = 'v3'
+  // 配額吃緊時的保留表：setlist 快取是月度增量同步的基礎，清掉＝下次整包重抓 ~6MB，
+  // 不為了別表（小很多）的一次寫入犧牲它
+  const CACHE_KEEP_TABLE = 'setlist'
 
   function getCacheKey(tableType) {
     return `${CACHE_PREFIX}${tableType}_${CACHE_VERSION}`
   }
 
   // 啟動時清掉舊版本的表格快取（結構不相容，留著只佔 localStorage 空間）
-  for (let i = localStorage.length - 1; i >= 0; i--) {
-    const key = localStorage.key(i)
-    if (key && key.startsWith(CACHE_PREFIX) && !key.endsWith(`_${CACHE_VERSION}`)) {
+  // 先用 Object.keys 快照再刪——邊 localStorage.key(i) 列舉邊 removeItem 會位移索引漏刪
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(CACHE_PREFIX) && !key.endsWith(`_${CACHE_VERSION}`)) {
       localStorage.removeItem(key)
     }
   }
@@ -340,46 +349,273 @@ $(()=>{
     return 0
   }
 
+  // ── 月度結構（setlist）的逐月壓縮 ───────────────────────────────────────
+  // 整包壓縮 ~4.7M 字元要 ~1.8s 阻塞主執行緒，而 setCache('setlist') 在
+  // 「manifest 同步（含指紋無變化只更新 etag）」與「編輯後回寫」都會跑 → 不可接受。
+  // 改為逐月壓縮＋memo 重用：未變動的月份直接沿用上次的壓縮字串，
+  // 只有真正變動的月份重壓。信封本身不壓縮（440KB 已壓字串 JSON.stringify 僅數 ms）。
+  //
+  // 磁碟格式（key 仍是單一 tableCache_setlist_v3）：
+  //   {"etag":…,"timestamp":…,"fingerprints":{…},"cmonths":{"2026-07":"<壓縮字串>",…}}
+  // etag 固定為第一個鍵，讀取時以此前綴區分「月度信封」與「整包壓縮字串」
+  // （壓縮輸出是任意 UTF16 字元，撞上這 8 個字元的機率實質為 0）
+  const MONTHLY_MAGIC = '{"etag":'
+  // monthKey → { json, comp }。json 用來判斷內容是否真的變了（編輯是就地改陣列，
+  // 比對參照會漏掉變更），comp 是可重用的壓縮結果
+  const _monthMemo = new Map()
+  let _monthMemoTable = null   // memo 目前屬於哪個表（防未來有第二張月度表互相污染）
+  // 待執行的背景寫入：table → { cancel() }，同表新寫入進來就取消舊的（last-write-wins）
+  const _deferredWrites = new Map()
+  // 需重壓的月份多過這個數（首訪全新壓、或後端大範圍變更）才丟到 idle 分片做；
+  // 常態的 0~2 個月維持同步寫入，避免快取落地被無謂延後
+  const MONTHLY_SYNC_MAX = 3
+
+  const _idleRun = (cb) => (typeof requestIdleCallback === 'function'
+    ? requestIdleCallback(cb, { timeout: 2000 })
+    : setTimeout(() => cb({ timeRemaining: () => 0, didTimeout: true }), 0))
+  const _idleCancel = (h) => (typeof requestIdleCallback === 'function'
+    ? cancelIdleCallback(h) : clearTimeout(h))
+
+  const isMonthlyPayload = (data) =>
+    !!data && typeof data === 'object' && !Array.isArray(data) &&
+    !!data.months && typeof data.months === 'object'
+
+  function cancelDeferredWrite(tableType) {
+    const pendingWrite = _deferredWrites.get(tableType)
+    if (pendingWrite) {
+      pendingWrite.cancel()
+      _deferredWrites.delete(tableType)
+    }
+  }
+
   function getCache(tableType) {
+    const key = getCacheKey(tableType)
+    const t0 = performance.now()
     try {
-      const key = getCacheKey(tableType)
       const cached = localStorage.getItem(key)
       if (!cached) return null
-      const parsed = JSON.parse(cached)
-      console.log(`[Cache] 讀取 ${tableType} 快取，${cacheRowCount(parsed.data)} 筆資料`)
+      const parsed = cached.startsWith(MONTHLY_MAGIC)
+        ? readMonthlyEnvelope(tableType, cached)
+        : JSON.parse(decompressOrThrow(cached))
+      console.log(`[Cache] 讀取 ${tableType} 快取，${cacheRowCount(parsed.data)} 筆資料，${Math.round(performance.now() - t0)}ms`)
       return parsed
     } catch (e) {
-      console.error('[Cache] 讀取快取失敗:', e)
+      // 解壓/解析失敗＝快取損毀（含單月壞掉），整筆清掉讓上層走 API 重抓
+      if (_monthMemoTable === tableType) { _monthMemo.clear(); _monthMemoTable = null }
+      console.warn(`[Cache] 讀取 ${tableType} 快取失敗，已清除該筆:`, e)
+      try { localStorage.removeItem(key) } catch {}
       return null
     }
   }
 
-  function setCache(tableType, data, etag = null) {
-    try {
-      const key = getCacheKey(tableType)
-      const cacheData = {
-        data: data,
-        etag: etag,
-        timestamp: Date.now()
-      }
-      localStorage.setItem(key, JSON.stringify(cacheData))
-      console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料`)
-    } catch (e) {
-      console.error('[Cache] 儲存快取失敗:', e)
-      // localStorage 可能已滿，嘗試清除舊快取
-      clearOldCaches()
+  function decompressOrThrow(comp) {
+    const json = decompressFromUTF16(comp)
+    if (!json) throw new Error('decompress returned empty')
+    return json
+  }
+
+  // 月度信封 → 呼叫端看到的 { data: {months, fingerprints}, etag, timestamp }。
+  // 順便把每月的 json/comp 填回 memo：載入後的第一次寫入才不用整包重壓。
+  function readMonthlyEnvelope(tableType, raw) {
+    const env = JSON.parse(raw)
+    const months = {}
+    _monthMemo.clear()
+    _monthMemoTable = tableType
+    for (const [m, comp] of Object.entries(env.cmonths || {})) {
+      const json = decompressOrThrow(comp)
+      months[m] = JSON.parse(json)
+      _monthMemo.set(m, { json, comp })
+    }
+    return {
+      data: { months, fingerprints: env.fingerprints || {} },
+      etag: env.etag ?? null,
+      timestamp: env.timestamp
     }
   }
 
-  function clearOldCaches() {
-    // 清除所有表格快取
-    for (let i = localStorage.length - 1; i >= 0; i--) {
-      const key = localStorage.key(i)
-      if (key && key.startsWith(CACHE_PREFIX)) {
-        localStorage.removeItem(key)
+  function setCache(tableType, data, etag = null) {
+    const t0 = performance.now()
+    cancelDeferredWrite(tableType)   // 同表有更新的資料了，舊的背景寫入作廢
+    if (isMonthlyPayload(data)) {
+      setMonthlyCache(tableType, data, etag, t0)
+      return
+    }
+    let payload
+    try {
+      payload = compressToUTF16(JSON.stringify({
+        data: data,
+        etag: etag,
+        timestamp: Date.now()
+      }))
+    } catch (e) {
+      console.warn(`[Cache] ${tableType} 快取序列化失敗:`, e)
+      return
+    }
+    writeCacheEntry(tableType, payload, data, t0)
+  }
+
+  function setMonthlyCache(tableType, data, etag, t0) {
+    if (_monthMemoTable !== tableType) { _monthMemo.clear(); _monthMemoTable = tableType }
+    // 全部月份先 stringify（~4.7M 字元也只要十幾 ms），據此判斷哪些月真的變了
+    const jsons = new Map()
+    const stale = []
+    for (const [m, rows] of Object.entries(data.months)) {
+      const json = JSON.stringify(rows)
+      jsons.set(m, json)
+      const memo = _monthMemo.get(m)
+      if (!memo || memo.json !== json) stale.push(m)
+    }
+    for (const m of [..._monthMemo.keys()]) {          // 已不存在的月份不留在 memo 裡
+      if (!jsons.has(m)) _monthMemo.delete(m)
+    }
+
+    if (stale.length > MONTHLY_SYNC_MAX) {
+      scheduleMonthlyWrite(tableType, data, etag, jsons, stale)
+      return
+    }
+    for (const m of stale) {
+      const json = jsons.get(m)
+      _monthMemo.set(m, { json, comp: compressToUTF16(json) })
+    }
+    writeMonthlyEnvelope(tableType, data, etag, jsons, t0)
+  }
+
+  // 大量月份要壓（首訪 ~1.8s）：丟到 idle callback 分片做，每片至少壓一個月、
+  // 還有餘裕就繼續，全部壓完才寫入一次信封。期間有新寫入會 cancel 掉整批。
+  function scheduleMonthlyWrite(tableType, data, etag, jsons, stale) {
+    const queue = stale.slice()
+    const t0 = performance.now()
+    let slices = 0, maxSlice = 0
+    // 排程當下就把「本批要寫的每月壓縮結果」快照下來，之後只認這份。
+    // _monthMemo 是共享的，壓縮期間若有人重讀快取（SPA 切回本頁）會被舊信封重新填充，
+    // 屆時用它組信封會寫出「新 fingerprints ＋ 舊月份內容」——下次同步比對指紋認為
+    // 已是最新而不重抓，變成靜默的髒快取
+    // 只帶入「不用重壓」的月份：待壓月份留空，等 compressOne 填。這樣萬一日後有人加了
+    // 提前 finish 的路徑，writeMonthlyEnvelope 的缺件防呆會真的擋下來（而不是拿舊內容
+    // 配新 fingerprints 寫出去）
+    const staleSet = new Set(stale)
+    const snapshot = new Map()
+    for (const m of jsons.keys()) {
+      const memo = _monthMemo.get(m)
+      if (memo && !staleSet.has(m)) snapshot.set(m, memo)
+    }
+    const state = { handle: null, cancelled: false }
+    state.cancel = () => {
+      state.cancelled = true
+      if (state.handle !== null) _idleCancel(state.handle)
+    }
+    const compressOne = () => {
+      const m = queue.shift()
+      const json = jsons.get(m)
+      const entry = { json, comp: compressToUTF16(json) }
+      snapshot.set(m, entry)
+      _monthMemo.set(m, entry)   // 順便更新共享 memo，之後的同步寫入可直接重用
+    }
+    const finish = (how) => {
+      _deferredWrites.delete(tableType)
+      writeMonthlyEnvelope(tableType, data, etag, jsons, undefined, snapshot)
+      console.log(`[Cache] ${tableType} 背景壓縮完成（${how}）：${stale.length} 個月／${slices} 批，總耗時 ${Math.round(performance.now() - t0)}ms，單批最長 ${Math.round(maxSlice)}ms`)
+    }
+    const step = (deadline) => {
+      if (state.cancelled) return
+      const tSlice = performance.now()
+      do { compressOne() } while (queue.length > 0 && deadline.timeRemaining() > 8)
+      slices++
+      maxSlice = Math.max(maxSlice, performance.now() - tSlice)
+      if (queue.length > 0) {
+        state.handle = _idleRun(step)
+        return
+      }
+      finish('idle')
+    }
+    // 頁面切到背景時把剩下的月份一次壓完落地：分頁 hidden 後 requestIdleCallback
+    // 會被瀏覽器節流到幾乎不觸發（實測 30s 只推進 4 個月），不 flush 的話使用者
+    // 開頁就切走＝快取永遠寫不進去，下次又是整包 ~6MB 重抓。此刻頁面不可見，
+    // 同步壓縮不會被看到卡頓。
+    state.flush = () => {
+      if (state.cancelled || queue.length === 0) return
+      state.cancel()
+      const tSlice = performance.now()
+      while (queue.length > 0) compressOne()
+      slices++
+      maxSlice = Math.max(maxSlice, performance.now() - tSlice)
+      finish('轉入背景，一次補完')
+    }
+    _deferredWrites.set(tableType, state)
+    state.handle = _idleRun(step)
+    console.log(`[Cache] ${tableType} ${stale.length} 個月待壓縮，改於瀏覽器閒置時分批處理`)
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'hidden') return
+    for (const state of [..._deferredWrites.values()]) state.flush()   // 快照：flush 會改 Map
+  })
+
+  // comps：月份 → { json, comp }。同步寫入直接用共享 memo；背景寫入傳入自己的快照
+  function writeMonthlyEnvelope(tableType, data, etag, jsons, t0 = performance.now(), comps = _monthMemo) {
+    const cmonths = {}
+    for (const m of jsons.keys()) {
+      const entry = comps.get(m)
+      // 理論上不會缺；真缺了寧可整批不寫，也不落地缺月份的信封（讀回來會少資料）
+      if (!entry) {
+        console.warn(`[Cache] ${tableType} 快取缺少 ${m} 的壓縮結果，略過本次寫入`)
+        return
+      }
+      cmonths[m] = entry.comp
+    }
+    let payload
+    try {
+      // etag 必須是第一個鍵且不可為 undefined（否則會被 stringify 省略），見 MONTHLY_MAGIC
+      payload = JSON.stringify({
+        etag: etag ?? null,
+        timestamp: Date.now(),
+        fingerprints: data.fingerprints || {},
+        cmonths
+      })
+    } catch (e) {
+      console.warn(`[Cache] ${tableType} 快取序列化失敗:`, e)
+      return
+    }
+    writeCacheEntry(tableType, payload, data, t0)
+  }
+
+  // localStorage 落地：配額不足時清「其他表」再重試一次，仍失敗只警告不拋
+  function writeCacheEntry(tableType, payload, data, t0 = performance.now()) {
+    const key = getCacheKey(tableType)
+    const ms = () => Math.round(performance.now() - t0)
+    try {
+      localStorage.setItem(key, payload)
+      console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料，${ms()}ms`)
+    } catch (e) {
+      // 配額不足：只清「其他表」的快取（setlist 除外，見 CACHE_KEEP_TABLE）後重試一次
+      const evicted = evictOtherCaches(tableType)
+      try {
+        localStorage.setItem(key, payload)
+        console.log(`[Cache] 儲存 ${tableType} 快取（清出 ${evicted} 筆其他快取後重試成功），${cacheRowCount(data)} 筆資料，${ms()}ms`)
+      } catch (e2) {
+        // 仍寫不進去：放棄本表快取即可，不再全清（全清會毀掉 setlist 月度快取，
+        // 而且反正這次也存不進去，等於白白付出下次 ~6MB 重抓）
+        console.warn(`[Cache] ${tableType} 快取空間不足，本次略過快取（其餘快取保留）:`, e2)
       }
     }
-    console.log('[Cache] 已清除舊快取')
+  }
+
+  // 清除「除了自己以外」的表格快取，回傳清除筆數。
+  // 只碰 tableCache_ 前綴的 key（lang 等其他 localStorage 用途不動）；
+  // 寫入者不是 setlist 時，setlist 那筆受保護不清。
+  function evictOtherCaches(writingTable) {
+    const selfKey = getCacheKey(writingTable)
+    const keepKey = getCacheKey(CACHE_KEEP_TABLE)
+    let evicted = 0
+    for (const key of Object.keys(localStorage)) {   // 快照後再刪，理由同上方版本清理
+      if (!key.startsWith(CACHE_PREFIX)) continue
+      if (key === selfKey) continue
+      if (key === keepKey && writingTable !== CACHE_KEEP_TABLE) continue
+      localStorage.removeItem(key)
+      evicted++
+    }
+    if (evicted > 0) console.warn(`[Cache] localStorage 配額不足，已清除 ${evicted} 筆其他表快取`)
+    return evicted
   }
 
   // 比較資料是否相同（使用 JSON 字串比較）
@@ -3202,7 +3438,12 @@ $(()=>{
         return { ...col, editor: "input", editable: true }
       })
       jsonTable.setColumns(editableColDef)
-      jsonTable.showColumn("YTLink")
+      // YTLink 只存在於 setlist 的欄位定義（visible:false）；其他表沒有這欄，
+      // 無條件 showColumn 會噴 "Column Show Error"。用 getColumns() 判斷存在性——
+      // getColumn(field) 找不到時同樣會 console.warn，不能拿來當存在檢查
+      if (jsonTable.getColumns().some(c => c.getField() === "YTLink")) {
+        jsonTable.showColumn("YTLink")
+      }
       jsonTable.deselectRow()
 
       // Show add new song button for setlist
