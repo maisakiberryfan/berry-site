@@ -170,4 +170,4 @@ jobs:
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-setlist-matcher \
             --capabilities CAPABILITY_IAM \
-            --parameter-overrides BerrySiteApiUrl=https://d36w2d8blmdfr.cloudfront.net
+            --parameter-overrides BerrySiteApiUrl=https://d36w2d8blmdfr.cloudfront.net FunctionTimeout=29

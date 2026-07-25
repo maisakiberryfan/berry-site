@@ -14,6 +14,9 @@ const CONFIG = {
   threshold: 0.88,
   titleWeight: 0.75,
   artistWeight: 0.25,
+  // 輸入護欄：matchSetlist() 逐行 fuzzy 比對無上限，超大輸入會讓比對階段隨行數線性放大。
+  // 實測最長場次 raw 231 行（NNZErosM_zg，115 首），500 留足量體不誤傷正常歌單。
+  maxLines: 500,
 }
 
 // ============================================================================
@@ -670,8 +673,16 @@ export async function handler(event) {
       }
     }
 
+    // 輸入護欄：行數超限則截斷（不靜默丟棄，留 log 供追查異常來源）
+    let effectiveComment = setlistComment
+    const lineCount = setlistComment.split('\n').length
+    if (lineCount > CONFIG.maxLines) {
+      console.warn(`[MATCHER] setlistComment 行數 ${lineCount} 超過上限 ${CONFIG.maxLines}，截斷處理`)
+      effectiveComment = setlistComment.split('\n').slice(0, CONFIG.maxLines).join('\n')
+    }
+
     // Execute matching
-    const result = await matchSetlist(setlistComment)
+    const result = await matchSetlist(effectiveComment)
 
     return {
       statusCode: 200,
