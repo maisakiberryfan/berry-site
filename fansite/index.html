@@ -204,7 +204,7 @@
 					<div id="addStreamRowError" class="alert alert-danger alert-dismissible fade show" role="alert" style="display: none;">
 						<strong>❌ 新增失敗</strong>
 						<div id="addStreamRowErrorMsg"></div>
-						<button type="button" class="btn-close" onclick="document.getElementById('addStreamRowError').style.display='none'"></button>
+						<button type="button" class="btn-close" id="addStreamRowErrorClose"></button>
 					</div>
 
 					<form>
@@ -398,7 +398,7 @@
 				<div id="quickAddError" class="alert alert-danger alert-dismissible fade show" role="alert" style="display: none;">
 					<strong>❌ <span data-lang="zh">操作失敗</span><span data-lang="en" class="d-none">Operation Failed</span><span data-lang="ja" class="d-none">操作失敗</span></strong>
 						<div id="quickAddErrorMsg"></div>
-						<button type="button" class="btn-close" onclick="document.getElementById('quickAddError').style.display='none'; document.getElementById('quickAddErrorMsg').innerHTML=''"></button>
+						<button type="button" class="btn-close" id="quickAddErrorClose"></button>
 					</div>
 
 					<div class="mb-3">
