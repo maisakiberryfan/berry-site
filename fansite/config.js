@@ -81,7 +81,9 @@ export async function apiRequest(method, endpoint, data = null, options = {}) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`)
+        const httpError = new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`)
+        httpError.status = response.status
+        throw httpError
       }
 
       const result = await response.json()
@@ -105,8 +107,9 @@ export async function apiRequest(method, endpoint, data = null, options = {}) {
       lastError = error
       console.warn(`API request attempt ${attempt} failed:`, error.message)
 
-      // Don't retry on client errors (4xx)
-      if (error.message.includes('HTTP 4')) {
+      // Don't retry on client errors (4xx) — judged by numeric status,
+      // not the message string (backend-supplied messages don't contain "HTTP 4")
+      if (error.status >= 400 && error.status < 500) {
         break
       }
 
