@@ -1,8 +1,8 @@
 {
-  "time": "2026-07-25T23:50:00+08:00",
+  "time": "2026-08-05T20:46:00+08:00",
   "msg": {
-    "zh": "網站安全性全面強化（錯誤處理改善、內容安全政策 CSP 正式啟用）",
-    "en": "Comprehensive site security hardening (improved error handling, Content Security Policy now fully enforced)",
-    "ja": "サイトのセキュリティを全面強化（エラー処理の改善、コンテンツセキュリティポリシー CSP を正式適用）"
+    "zh": "網站載入速度優化（資料快取架構全面翻新）",
+    "en": "Site loading speed improved (data cache architecture overhauled)",
+    "ja": "サイトの読み込み速度を改善（データキャッシュ構造を全面刷新）"
   }
 }
