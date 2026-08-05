@@ -6,9 +6,16 @@ import * as bootstrap from 'bootstrap'
 import { marked } from 'marked'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-// localStorage 表格快取的壓縮（UTF16 變體：localStorage 以 UTF-16 計費，
-// 用 compressToUTF16 才真的省到配額）
-import { compressToUTF16, decompressFromUTF16 } from 'lz-string'
+// 表格快取存 IndexedDB（見下方「IndexedDB 表格快取」節）；具名匯入加 idb 前綴，
+// 避免 get/set 這種泛用名稱跟檔內既有識別字互相遮蔽
+import {
+  get as idbGet,
+  getMany as idbGetMany,
+  set as idbSet,
+  setMany as idbSetMany,
+  delMany as idbDelMany,
+  createStore as idbCreateStore
+} from 'idb-keyval'
 
 // Local CSS imports (bundled)
 import 'bootstrap/dist/css/bootstrap.min.css'
@@ -318,29 +325,71 @@ $(()=>{
   }
 
   // ============================================
-  // localStorage 快取工具函數
+  // IndexedDB 表格快取
   // ============================================
-  const CACHE_PREFIX = 'tableCache_'
-  // v2：setlist 改月度結構 { months, fingerprints }＋各表快取帶 etag
-  // v3：內容改存 lz-string compressToUTF16 壓縮字串（v2 未壓縮，setlist 全量
-  //     JSON ~5MB 已逼近 localStorage 5MB/origin 上限，寫別表就 QuotaExceeded）。
-  //     setlist（月度結構）另走「未壓縮信封 + 逐月壓縮字串」格式，見 MONTHLY_MAGIC
-  const CACHE_VERSION = 'v3'
-  // 配額吃緊時的保留表：setlist 快取是月度增量同步的基礎，清掉＝下次整包重抓 ~6MB，
-  // 不為了別表（小很多）的一次寫入犧牲它
-  const CACHE_KEEP_TABLE = 'setlist'
+  // 前身是 localStorage + lz-string：5MB/origin 天花板逼出「整包壓縮 → 逐月壓縮 →
+  // idle 分片 → 配額逐出」一整套機器，光 setlist 解壓就 ~250ms。
+  // IDB 沒有這個天花板，值以 structured clone 存原生物件（免 stringify、免壓縮），
+  // 那套機器整組拆掉。
+  //
+  // key 配置（單一 store）：
+  //   table:{type}          → { data, etag, timestamp }（整包表）
+  //   setlist:meta          → { etag, timestamp, fingerprints, months: [...] }
+  //   setlist:m:{YYYY-MM}   → 該月 rows 陣列（'none'＝不留檔場 bucket）
+  // setlist 拆月存：同步時只重寫指紋變動的月份，未變月零寫入。
+  const CACHE_DB = 'berry-cache'
+  const CACHE_STORE = 'tables'
+  // 月度分存的表（key 前綴即表名，日後有第二張月度表照樣適用）
+  const MONTHLY_TABLE = 'setlist'
+  const tableKey = (tableType) => `table:${tableType}`
+  const metaKey = (tableType) => `${tableType}:meta`
+  const monthKey = (tableType, month) => `${tableType}:m:${month}`
 
-  function getCacheKey(tableType) {
-    return `${CACHE_PREFIX}${tableType}_${CACHE_VERSION}`
-  }
-
-  // 啟動時清掉舊版本的表格快取（結構不相容，留著只佔 localStorage 空間）
+  // 一次性清理：舊版 localStorage 表格快取（tableCache_*）已全面搬進 IDB，殘留只佔配額。
+  // 升級後首次載入會重抓一次，之後都走 IDB。
   // 先用 Object.keys 快照再刪——邊 localStorage.key(i) 列舉邊 removeItem 會位移索引漏刪
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(CACHE_PREFIX) && !key.endsWith(`_${CACHE_VERSION}`)) {
-      localStorage.removeItem(key)
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('tableCache_')) localStorage.removeItem(key)
     }
+  } catch (e) {
+    console.warn('[Cache] 清理舊版 localStorage 快取失敗:', e)
   }
+
+  // store 延遲建立：createStore 會當場 indexedDB.open()，隱私模式／無 IDB 時會丟出，
+  // 不能在模組載入期跑（整包 script 會掛）。任何 IDB 失敗都只警告一次並降級——
+  // 讀→null（上層改走 API）、寫→放棄，功能完全不受影響
+  let _store = null
+  let _storeBroken = false
+  let _idbWarned = false
+
+  function warnIdb(e) {
+    if (_idbWarned) return
+    _idbWarned = true
+    console.warn('[Cache] IndexedDB 不可用，本次停用表格快取（改直接走 API）:', e)
+  }
+
+  function cacheStore() {
+    if (_storeBroken) return null
+    if (!_store) {
+      try {
+        if (typeof indexedDB === 'undefined') throw new Error('indexedDB unavailable')
+        _store = idbCreateStore(CACHE_DB, CACHE_STORE)
+      } catch (e) {
+        _storeBroken = true
+        warnIdb(e)
+        return null
+      }
+    }
+    return _store
+  }
+
+  // 月份內容指紋（monthKey → 該月 rows 的 JSON 字串），讀取與寫入時同步更新。
+  // 寫入時據此判斷哪些月真的變了，只重寫變動月。不用陣列參照比對——就地改 row 物件
+  // 時參照相同但內容已變會漏寫；全表 stringify ~15ms，這點成本換正確性划算。
+  const _monthJson = new Map()
+  // IDB 裡目前有哪些月（＝meta.months）。null＝本次還沒讀過快取，寫入時回頭讀 meta 補
+  let _storedMonths = null
 
   // 快取筆數（陣列＝整包；物件＝setlist 月度結構）
   function cacheRowCount(data) {
@@ -349,273 +398,117 @@ $(()=>{
     return 0
   }
 
-  // ── 月度結構（setlist）的逐月壓縮 ───────────────────────────────────────
-  // 整包壓縮 ~4.7M 字元要 ~1.8s 阻塞主執行緒，而 setCache('setlist') 在
-  // 「manifest 同步（含指紋無變化只更新 etag）」與「編輯後回寫」都會跑 → 不可接受。
-  // 改為逐月壓縮＋memo 重用：未變動的月份直接沿用上次的壓縮字串，
-  // 只有真正變動的月份重壓。信封本身不壓縮（440KB 已壓字串 JSON.stringify 僅數 ms）。
-  //
-  // 磁碟格式（key 仍是單一 tableCache_setlist_v3）：
-  //   {"etag":…,"timestamp":…,"fingerprints":{…},"cmonths":{"2026-07":"<壓縮字串>",…}}
-  // etag 固定為第一個鍵，讀取時以此前綴區分「月度信封」與「整包壓縮字串」
-  // （壓縮輸出是任意 UTF16 字元，撞上這 8 個字元的機率實質為 0）
-  const MONTHLY_MAGIC = '{"etag":'
-  // monthKey → { json, comp }。json 用來判斷內容是否真的變了（編輯是就地改陣列，
-  // 比對參照會漏掉變更），comp 是可重用的壓縮結果
-  const _monthMemo = new Map()
-  let _monthMemoTable = null   // memo 目前屬於哪個表（防未來有第二張月度表互相污染）
-  // 待執行的背景寫入：table → { cancel() }，同表新寫入進來就取消舊的（last-write-wins）
-  const _deferredWrites = new Map()
-  // 需重壓的月份多過這個數（首訪全新壓、或後端大範圍變更）才丟到 idle 分片做；
-  // 常態的 0~2 個月維持同步寫入，避免快取落地被無謂延後
-  const MONTHLY_SYNC_MAX = 3
-
-  const _idleRun = (cb) => (typeof requestIdleCallback === 'function'
-    ? requestIdleCallback(cb, { timeout: 2000 })
-    : setTimeout(() => cb({ timeRemaining: () => 0, didTimeout: true }), 0))
-  const _idleCancel = (h) => (typeof requestIdleCallback === 'function'
-    ? cancelIdleCallback(h) : clearTimeout(h))
-
-  const isMonthlyPayload = (data) =>
-    !!data && typeof data === 'object' && !Array.isArray(data) &&
-    !!data.months && typeof data.months === 'object'
-
-  function cancelDeferredWrite(tableType) {
-    const pendingWrite = _deferredWrites.get(tableType)
-    if (pendingWrite) {
-      pendingWrite.cancel()
-      _deferredWrites.delete(tableType)
-    }
-  }
-
-  function getCache(tableType) {
-    const key = getCacheKey(tableType)
+  // 回傳 { data, etag, timestamp }（setlist 的 data 為 { months, fingerprints }），無快取或
+  // IDB 不可用時回 null。呼叫端一律要 await
+  async function getCache(tableType) {
+    const store = cacheStore()
+    if (!store) return null
     const t0 = performance.now()
     try {
-      const cached = localStorage.getItem(key)
-      if (!cached) return null
-      const parsed = cached.startsWith(MONTHLY_MAGIC)
-        ? readMonthlyEnvelope(tableType, cached)
-        : JSON.parse(decompressOrThrow(cached))
-      console.log(`[Cache] 讀取 ${tableType} 快取，${cacheRowCount(parsed.data)} 筆資料，${Math.round(performance.now() - t0)}ms`)
-      return parsed
+      const entry = tableType === MONTHLY_TABLE
+        ? await readMonthly(tableType, store)
+        : await idbGet(tableKey(tableType), store)
+      if (!entry) return null
+      console.log(`[Cache] 讀取 ${tableType} 快取，${cacheRowCount(entry.data)} 筆資料，${Math.round(performance.now() - t0)}ms`)
+      return entry
     } catch (e) {
-      // 解壓/解析失敗＝快取損毀（含單月壞掉），整筆清掉讓上層走 API 重抓
-      if (_monthMemoTable === tableType) { _monthMemo.clear(); _monthMemoTable = null }
-      console.warn(`[Cache] 讀取 ${tableType} 快取失敗，已清除該筆:`, e)
-      try { localStorage.removeItem(key) } catch {}
+      warnIdb(e)
       return null
     }
   }
 
-  function decompressOrThrow(comp) {
-    const json = decompressFromUTF16(comp)
-    if (!json) throw new Error('decompress returned empty')
-    return json
-  }
-
-  // 月度信封 → 呼叫端看到的 { data: {months, fingerprints}, etag, timestamp }。
-  // 順便把每月的 json/comp 填回 memo：載入後的第一次寫入才不用整包重壓。
-  function readMonthlyEnvelope(tableType, raw) {
-    const env = JSON.parse(raw)
+  // 月度：meta + 各月記錄（一次 getMany）組回 { months, fingerprints }
+  async function readMonthly(tableType, store) {
+    const meta = await idbGet(metaKey(tableType), store)
+    if (!meta) return null
+    const monthList = meta.months || []
+    const rowsList = monthList.length
+      ? await idbGetMany(monthList.map(m => monthKey(tableType, m)), store)
+      : []
     const months = {}
-    _monthMemo.clear()
-    _monthMemoTable = tableType
-    for (const [m, comp] of Object.entries(env.cmonths || {})) {
-      const json = decompressOrThrow(comp)
-      months[m] = JSON.parse(json)
-      _monthMemo.set(m, { json, comp })
-    }
-    return {
-      data: { months, fingerprints: env.fingerprints || {} },
-      etag: env.etag ?? null,
-      timestamp: env.timestamp
-    }
+    const fingerprints = { ...(meta.fingerprints || {}) }
+    _monthJson.clear()
+    _storedMonths = monthList.slice()
+    monthList.forEach((m, i) => {
+      const rows = rowsList[i]
+      // 缺件（寫入中斷／被外部清掉）：連指紋一起丟掉，下次同步才會判定該月有變重抓，
+      // 否則指紋對得上＝永遠不補，變成靜默的缺月快取
+      if (!rows) {
+        console.warn(`[Cache] ${tableType} 缺少 ${m} 的月份記錄，該月將於下次同步重抓`)
+        delete fingerprints[m]
+        return
+      }
+      months[m] = rows
+      _monthJson.set(monthKey(tableType, m), JSON.stringify(rows))
+    })
+    return { data: { months, fingerprints }, etag: meta.etag ?? null, timestamp: meta.timestamp }
   }
 
+  // 同表寫入串成 promise chain：非同步化後兩次 setCache 的 setMany 批次可能交錯，
+  // 排隊確保先後順序；語意仍是 last-write-wins（同舊版）
+  const _writeChain = new Map()
+
+  // 寫入快取。回傳 Promise（內部已吞掉所有錯誤，不會 reject）；
+  // 不需等待落地的呼叫點可以不 await
   function setCache(tableType, data, etag = null) {
-    const t0 = performance.now()
-    cancelDeferredWrite(tableType)   // 同表有更新的資料了，舊的背景寫入作廢
-    if (isMonthlyPayload(data)) {
-      setMonthlyCache(tableType, data, etag, t0)
-      return
-    }
-    let payload
-    try {
-      payload = compressToUTF16(JSON.stringify({
-        data: data,
-        etag: etag,
-        timestamp: Date.now()
-      }))
-    } catch (e) {
-      console.warn(`[Cache] ${tableType} 快取序列化失敗:`, e)
-      return
-    }
-    writeCacheEntry(tableType, payload, data, t0)
+    // 整包表在呼叫當下就快照：寫入是非同步排隊的，而呼叫端交出來的常是 Tabulator 正在
+    // 處理的同一份陣列——time 欄 mutator 會就地把 ISO 改成顯示格式，等真的落地時就晚了
+    // （舊版 localStorage 是同步 stringify，天然有這個快照）。
+    // setlist（月度）不需要：交給 Tabulator 的都是 structuredClone 過的副本，
+    // 快取端的月份陣列不會被就地改動，省下 15,776 筆複製的 ~35ms
+    const payload = tableType === MONTHLY_TABLE ? data : structuredClone(data)
+    const run = () => writeCache(tableType, payload, etag)
+    const next = (_writeChain.get(tableType) || Promise.resolve()).then(run)
+    _writeChain.set(tableType, next)
+    return next
   }
 
-  function setMonthlyCache(tableType, data, etag, t0) {
-    if (_monthMemoTable !== tableType) { _monthMemo.clear(); _monthMemoTable = tableType }
-    // 全部月份先 stringify（~4.7M 字元也只要十幾 ms），據此判斷哪些月真的變了
+  async function writeCache(tableType, data, etag) {
+    const store = cacheStore()
+    if (!store) return
+    const t0 = performance.now()
+    try {
+      if (tableType === MONTHLY_TABLE) {
+        await writeMonthly(tableType, data, etag, store, t0)
+        return
+      }
+      await idbSet(tableKey(tableType), { data, etag, timestamp: Date.now() }, store)
+      console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料，${Math.round(performance.now() - t0)}ms`)
+    } catch (e) {
+      warnIdb(e)
+    }
+  }
+
+  async function writeMonthly(tableType, data, etag, store, t0) {
+    const months = data.months || {}
+    const monthList = Object.keys(months)
     const jsons = new Map()
-    const stale = []
-    for (const [m, rows] of Object.entries(data.months)) {
+    const changed = []
+    for (const [m, rows] of Object.entries(months)) {
+      const key = monthKey(tableType, m)
       const json = JSON.stringify(rows)
-      jsons.set(m, json)
-      const memo = _monthMemo.get(m)
-      if (!memo || memo.json !== json) stale.push(m)
+      jsons.set(key, json)
+      if (_monthJson.get(key) !== json) changed.push(m)
     }
-    for (const m of [..._monthMemo.keys()]) {          // 已不存在的月份不留在 memo 裡
-      if (!jsons.has(m)) _monthMemo.delete(m)
-    }
+    // 已不在資料裡的月份要刪掉；_storedMonths 未知時回頭讀 meta（本次沒讀過快取的路徑）
+    if (_storedMonths === null) _storedMonths = (await idbGet(metaKey(tableType), store))?.months || []
+    const gone = _storedMonths.filter(m => !(m in months))
 
-    if (stale.length > MONTHLY_SYNC_MAX) {
-      scheduleMonthlyWrite(tableType, data, etag, jsons, stale)
-      return
-    }
-    for (const m of stale) {
-      const json = jsons.get(m)
-      _monthMemo.set(m, { json, comp: compressToUTF16(json) })
-    }
-    writeMonthlyEnvelope(tableType, data, etag, jsons, t0)
-  }
+    const entries = changed.map(m => [monthKey(tableType, m), months[m]])
+    entries.push([metaKey(tableType), {
+      etag: etag ?? null,
+      timestamp: Date.now(),
+      fingerprints: data.fingerprints || {},
+      months: monthList
+    }])
+    await idbSetMany(entries, store)   // 單一 transaction：變動月與 meta 一起落地
+    // 先寫後刪：meta 落地時已不列這些月，反序失敗只會留下無人參照的孤兒記錄（無害）
+    if (gone.length) await idbDelMany(gone.map(m => monthKey(tableType, m)), store)
 
-  // 大量月份要壓（首訪 ~1.8s）：丟到 idle callback 分片做，每片至少壓一個月、
-  // 還有餘裕就繼續，全部壓完才寫入一次信封。期間有新寫入會 cancel 掉整批。
-  function scheduleMonthlyWrite(tableType, data, etag, jsons, stale) {
-    const queue = stale.slice()
-    const t0 = performance.now()
-    let slices = 0, maxSlice = 0
-    // 排程當下就把「本批要寫的每月壓縮結果」快照下來，之後只認這份。
-    // _monthMemo 是共享的，壓縮期間若有人重讀快取（SPA 切回本頁）會被舊信封重新填充，
-    // 屆時用它組信封會寫出「新 fingerprints ＋ 舊月份內容」——下次同步比對指紋認為
-    // 已是最新而不重抓，變成靜默的髒快取
-    // 只帶入「不用重壓」的月份：待壓月份留空，等 compressOne 填。這樣萬一日後有人加了
-    // 提前 finish 的路徑，writeMonthlyEnvelope 的缺件防呆會真的擋下來（而不是拿舊內容
-    // 配新 fingerprints 寫出去）
-    const staleSet = new Set(stale)
-    const snapshot = new Map()
-    for (const m of jsons.keys()) {
-      const memo = _monthMemo.get(m)
-      if (memo && !staleSet.has(m)) snapshot.set(m, memo)
-    }
-    const state = { handle: null, cancelled: false }
-    state.cancel = () => {
-      state.cancelled = true
-      if (state.handle !== null) _idleCancel(state.handle)
-    }
-    const compressOne = () => {
-      const m = queue.shift()
-      const json = jsons.get(m)
-      const entry = { json, comp: compressToUTF16(json) }
-      snapshot.set(m, entry)
-      _monthMemo.set(m, entry)   // 順便更新共享 memo，之後的同步寫入可直接重用
-    }
-    const finish = (how) => {
-      _deferredWrites.delete(tableType)
-      writeMonthlyEnvelope(tableType, data, etag, jsons, undefined, snapshot)
-      console.log(`[Cache] ${tableType} 背景壓縮完成（${how}）：${stale.length} 個月／${slices} 批，總耗時 ${Math.round(performance.now() - t0)}ms，單批最長 ${Math.round(maxSlice)}ms`)
-    }
-    const step = (deadline) => {
-      if (state.cancelled) return
-      const tSlice = performance.now()
-      do { compressOne() } while (queue.length > 0 && deadline.timeRemaining() > 8)
-      slices++
-      maxSlice = Math.max(maxSlice, performance.now() - tSlice)
-      if (queue.length > 0) {
-        state.handle = _idleRun(step)
-        return
-      }
-      finish('idle')
-    }
-    // 頁面切到背景時把剩下的月份一次壓完落地：分頁 hidden 後 requestIdleCallback
-    // 會被瀏覽器節流到幾乎不觸發（實測 30s 只推進 4 個月），不 flush 的話使用者
-    // 開頁就切走＝快取永遠寫不進去，下次又是整包 ~6MB 重抓。此刻頁面不可見，
-    // 同步壓縮不會被看到卡頓。
-    state.flush = () => {
-      if (state.cancelled || queue.length === 0) return
-      state.cancel()
-      const tSlice = performance.now()
-      while (queue.length > 0) compressOne()
-      slices++
-      maxSlice = Math.max(maxSlice, performance.now() - tSlice)
-      finish('轉入背景，一次補完')
-    }
-    _deferredWrites.set(tableType, state)
-    state.handle = _idleRun(step)
-    console.log(`[Cache] ${tableType} ${stale.length} 個月待壓縮，改於瀏覽器閒置時分批處理`)
-  }
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'hidden') return
-    for (const state of [..._deferredWrites.values()]) state.flush()   // 快照：flush 會改 Map
-  })
-
-  // comps：月份 → { json, comp }。同步寫入直接用共享 memo；背景寫入傳入自己的快照
-  function writeMonthlyEnvelope(tableType, data, etag, jsons, t0 = performance.now(), comps = _monthMemo) {
-    const cmonths = {}
-    for (const m of jsons.keys()) {
-      const entry = comps.get(m)
-      // 理論上不會缺；真缺了寧可整批不寫，也不落地缺月份的信封（讀回來會少資料）
-      if (!entry) {
-        console.warn(`[Cache] ${tableType} 快取缺少 ${m} 的壓縮結果，略過本次寫入`)
-        return
-      }
-      cmonths[m] = entry.comp
-    }
-    let payload
-    try {
-      // etag 必須是第一個鍵且不可為 undefined（否則會被 stringify 省略），見 MONTHLY_MAGIC
-      payload = JSON.stringify({
-        etag: etag ?? null,
-        timestamp: Date.now(),
-        fingerprints: data.fingerprints || {},
-        cmonths
-      })
-    } catch (e) {
-      console.warn(`[Cache] ${tableType} 快取序列化失敗:`, e)
-      return
-    }
-    writeCacheEntry(tableType, payload, data, t0)
-  }
-
-  // localStorage 落地：配額不足時清「其他表」再重試一次，仍失敗只警告不拋
-  function writeCacheEntry(tableType, payload, data, t0 = performance.now()) {
-    const key = getCacheKey(tableType)
-    const ms = () => Math.round(performance.now() - t0)
-    try {
-      localStorage.setItem(key, payload)
-      console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料，${ms()}ms`)
-    } catch (e) {
-      // 配額不足：只清「其他表」的快取（setlist 除外，見 CACHE_KEEP_TABLE）後重試一次
-      const evicted = evictOtherCaches(tableType)
-      try {
-        localStorage.setItem(key, payload)
-        console.log(`[Cache] 儲存 ${tableType} 快取（清出 ${evicted} 筆其他快取後重試成功），${cacheRowCount(data)} 筆資料，${ms()}ms`)
-      } catch (e2) {
-        // 仍寫不進去：放棄本表快取即可，不再全清（全清會毀掉 setlist 月度快取，
-        // 而且反正這次也存不進去，等於白白付出下次 ~6MB 重抓）
-        console.warn(`[Cache] ${tableType} 快取空間不足，本次略過快取（其餘快取保留）:`, e2)
-      }
-    }
-  }
-
-  // 清除「除了自己以外」的表格快取，回傳清除筆數。
-  // 只碰 tableCache_ 前綴的 key（lang 等其他 localStorage 用途不動）；
-  // 寫入者不是 setlist 時，setlist 那筆受保護不清。
-  function evictOtherCaches(writingTable) {
-    const selfKey = getCacheKey(writingTable)
-    const keepKey = getCacheKey(CACHE_KEEP_TABLE)
-    let evicted = 0
-    for (const key of Object.keys(localStorage)) {   // 快照後再刪，理由同上方版本清理
-      if (!key.startsWith(CACHE_PREFIX)) continue
-      if (key === selfKey) continue
-      if (key === keepKey && writingTable !== CACHE_KEEP_TABLE) continue
-      localStorage.removeItem(key)
-      evicted++
-    }
-    if (evicted > 0) console.warn(`[Cache] localStorage 配額不足，已清除 ${evicted} 筆其他表快取`)
-    return evicted
+    for (const [key, json] of jsons) _monthJson.set(key, json)
+    for (const m of gone) _monthJson.delete(monthKey(tableType, m))
+    _storedMonths = monthList
+    console.log(`[Cache] 儲存 ${tableType} 快取，${cacheRowCount(data)} 筆資料（重寫 ${changed.length} 個月${gone.length ? `、刪除 ${gone.length} 個月` : ''}），${Math.round(performance.now() - t0)}ms`)
   }
 
   // 比較資料是否相同（使用 JSON 字串比較）
@@ -687,6 +580,7 @@ $(()=>{
   // setlist 同步主流程：manifest 比對 → 差異月抓取 → 快取與表格更新。
   // 開頁背景驗證、首訪漸進載入、reload 按鈕、編輯後刷新統一走這條路徑。
   // opts.forceRender：即使 304／指紋無變化也用快取重繪表格（reload 按鈕恢復髒狀態用）
+  // opts.cached：呼叫端剛讀過的快取，直接沿用（configJsonTable 開頁路徑用，省一次全表讀取）
   let _setlistSyncBusy = false
   async function syncSetlistTable(apiUrl, opts = {}) {
     if (_setlistSyncBusy) {
@@ -696,7 +590,7 @@ $(()=>{
     _setlistSyncBusy = true
     const endIndicator = startSyncIndicator('setlist')
     try {
-      const cached = getCache('setlist')
+      const cached = opts.cached !== undefined ? opts.cached : await getCache('setlist')
       const hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
 
       // 表格重繪的統一入口：structuredClone 隔離表格與快取——Tabulator 的 time 欄
@@ -763,9 +657,10 @@ $(()=>{
         if (recent.length === 0) {
           // 無任何真月份（空庫或只有不留檔場）
           if (maniSet.has('none')) await fetchNoneInto(monthsDict)
-          setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
           renderRows(monthsDict)
           rebuildHeaderFilters()
+          // 快取寫入放最後才 await：先讓畫面到位，寫入是背景成本
+          await setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
           console.log('[Sync] setlist 首次載入完成（無月份資料）')
           return
         }
@@ -782,8 +677,8 @@ $(()=>{
           renderRows(monthsDict)
           setMsg('&emsp;')
         }
-        setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
         rebuildHeaderFilters()
+        await setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
         console.log(`[Sync] setlist 首次載入完成，${monthKeys.length} 個月`)
         return
       }
@@ -806,13 +701,15 @@ $(()=>{
 
       endIndicator()
       if (getProcess() === 'setlist') $('#setTableMsg').removeClass('text-bg-warning')
-      setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
       if (changedAll.length > 0 || removed.length > 0) {
         renderRows(monthsDict)
       } else {
         console.log('[Sync] setlist 指紋無變化（僅更新 etag）')
         if (opts.forceRender) renderRows(monthsDict)
       }
+      // 同上：先渲染再落地。await 讓 _setlistSyncBusy 撐到寫入完成，
+      // 否則下一次同步可能在寫入落地前就讀快取，讀到舊資料
+      await setCache('setlist', { months: monthsDict, fingerprints: newFp }, etag)
     } catch (error) {
       endIndicator()
       console.error('[Sync] setlist 同步失敗:', error)
@@ -1075,9 +972,13 @@ $(()=>{
               </div>
             `)
             // SWR：先用上次快取秒開，API 回來後替換（API 失敗/無資料/內容相同時保留現狀）
-            const cachedYT = getCache('ytlatest')
-            if (cachedYT?.data?.videoId) { $("#yt-slot").html(renderYTlatestHTML(cachedYT.data)); attachYTlatestFallback() }
-            ytLatestPromise.then(html => { if (html) { $("#yt-slot").html(html); attachYTlatestFallback() } })
+            // 快取讀取是非同步的（IDB），API 有可能先回來——已渲染新資料就別再用舊快取蓋回去
+            let ytFresh = false
+            ytLatestPromise.then(html => { if (html) { ytFresh = true; $("#yt-slot").html(html); attachYTlatestFallback() } })
+            getCache('ytlatest').then(cachedYT => {
+              if (ytFresh || !cachedYT?.data?.videoId) return
+              $("#yt-slot").html(renderYTlatestHTML(cachedYT.data)); attachYTlatestFallback()
+            })
             dataUpdatesPromise.then(html => { if (html) $("#info-slot").prepend(html) })
             changelogPromise.then(html => { if (html) $("#info-slot").append(html) })
           }
@@ -1914,7 +1815,7 @@ $(()=>{
       _skipFilterClear = true
       jsonTable.replaceData(freshData)
       _skipFilterClear = false
-      setCache(currentProcess, freshData)
+      await setCache(currentProcess, freshData)
       console.log(`[Cache] 重新載入 ${currentProcess}，${freshData.length} 筆`)
     } catch (e) {
       _skipFilterClear = false
@@ -2747,12 +2648,14 @@ $(()=>{
     })
 
     // ============================================
-    // localStorage 快取優先載入機制
+    // 快取優先載入機制（IndexedDB）
     // setlist：月度結構（manifest 增量更新，見 syncSetlistTable）
     // 其他表：整包 + ETag（304 短路，見 backgroundFetchAndUpdate）
+    // 這一份 cached 是本頁唯一一次快取讀取：往下同時餵給表格初始化、syncSetlistTable
+    // 與 backgroundFetchAndUpdate（以前各自再讀一次，setlist 光解壓就多付 ~250ms）
     // ============================================
     const isSetlist = (p === 'setlist')
-    const cached = getCache(p)
+    const cached = await getCache(p)
     const hasCachedData = isSetlist
       ? !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
       : !!(cached?.data?.length > 0)
@@ -2779,15 +2682,19 @@ $(()=>{
       tabulatorConfig.ajaxResponse = function(url, params, response) {
         const data = response.data || response
         // 儲存到快取（此路徑拿不到 ETag header；下次背景更新 200 時補上）
-        setCache(p, data)
+        // 非同步寫入，不擋 Tabulator 的資料流程
+        setCache(p, data).catch(console.warn)
         return data
       }
     }
 
     // 如果有快取，使用快取資料初始化（秒開）
+    // structuredClone 隔離表格與快取：Tabulator 的 time 欄 mutator 會就地改 row 物件
+    // （轉本地顯示格式），共享參照會讓 cached 被污染 —— 之後 setCache 存進壞掉的 time、
+    // backgroundFetchAndUpdate 的差異比對也會全部誤判（同 syncSetlistTable 的 renderRows）
     if (hasCachedData) {
       const rowCount = isSetlist ? null : cached.data.length
-      tabulatorConfig.data = isSetlist ? flattenMonths(cached.data.months) : cached.data
+      tabulatorConfig.data = structuredClone(isSetlist ? flattenMonths(cached.data.months) : cached.data)
       console.log(`[Cache] 使用快取資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
     } else {
       console.log(`[Cache] 無快取，從 API 載入 ${p}`)
@@ -2817,7 +2724,7 @@ $(()=>{
     // 背景同步：setlist 走 manifest 增量（含無快取的首訪漸進載入）；
     // 其他表有快取時做 If-None-Match 背景驗證（無快取時 Tabulator ajaxURL 已在抓）
     if (isSetlist) {
-      syncSetlistTable(u)
+      syncSetlistTable(u, { cached })
     } else if (hasCachedData) {
       backgroundFetchAndUpdate(u, p)
     }
@@ -2827,7 +2734,8 @@ $(()=>{
       const endIndicator = startSyncIndicator(tableType)
       try {
         console.log(`[Cache] 背景更新 ${tableType}...`)
-        const cachedEtag = getCache(tableType)?.etag
+        // 沿用上面那次讀取（此路徑只在 hasCachedData 時啟動，期間沒有別的寫入者）
+        const cachedEtag = cached?.etag
         const response = await fetch(apiUrl, {
           cache: 'no-store',
           headers: cachedEtag ? { 'If-None-Match': cachedEtag } : {}
@@ -2848,9 +2756,9 @@ $(()=>{
 
         // 快取無論如何更新；表格與 UI 只在使用者仍停留在此表頁時才觸碰
         // （慢回應完成時已換頁的話，replaceData 會把別表資料灌進當前表格）
-        const cachedData = getCache(tableType)?.data || []
+        const cachedData = cached?.data || []
         const dataChanged = !isDataEqual(cachedData, freshData)
-        setCache(tableType, freshData, etag)
+        setCache(tableType, freshData, etag).catch(console.warn)
         if (getProcess() !== tableType) return
 
         // 背景更新成功：清掉先前失敗留下的警示
@@ -3092,7 +3000,7 @@ $(()=>{
         // 編輯已同步 API，快取留舊值，下次 manifest sync 以指紋差異自動修正該月。
         const currentProcess = getProcess()
         if (currentProcess !== 'setlist') {
-          setCache(currentProcess, jsonTable.getData())
+          await setCache(currentProcess, jsonTable.getData())
         }
 
       } catch (error) {
@@ -3590,9 +3498,9 @@ $(()=>{
       const currentPath = window.location.pathname.split('/').pop()
       if (currentPath === 'songlist' && jsonTable) {
         jsonTable.addRow(newSong, true)
-        // 更新 localStorage 快取
+        // 更新快取
         const currentData = jsonTable.getData()
-        setCache('songlist', currentData)
+        await setCache('songlist', currentData)
         console.log('[Cache] 已更新 songlist 快取（新增後）')
       }
 
@@ -3955,9 +3863,9 @@ $(()=>{
           note: note
         }, true)
 
-        // 更新 localStorage 快取
+        // 更新快取
         const currentData = jsonTable.getData()
-        setCache('streamlist', currentData)
+        await setCache('streamlist', currentData)
         console.log('[Cache] 已更新 streamlist 快取（新增後）')
 
         // 關閉 Modal（✅ 成功時才關閉）
@@ -4569,14 +4477,14 @@ function getYTlatest(){
     $.ajax({
       url: API_CONFIG.BASE_URL + '/api/yt/latest'
     })
-    .done((d)=>{
+    .done(async (d)=>{
       if (!d.success || !d.data) { resolve(''); return }
       const v = d.data
       // 與快取相同就不重新渲染（避免縮圖重載閃爍）；快取秒開已顯示同樣內容。
       // time 也要比：預約時間被修正（scheduled→actual）時卡片要更新
-      const cached = getCache('ytlatest')
+      const cached = await getCache('ytlatest')
       if (cached?.data?.videoId === v.videoId && cached?.data?.title === v.title && cached?.data?.time === v.time) { resolve(''); return }
-      setCache('ytlatest', v)
+      await setCache('ytlatest', v)
       resolve(renderYTlatestHTML(v))
     })
     .fail((err)=>{reject(err)});
