@@ -65,6 +65,7 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - jQuery 3.7.1 + Bootstrap 5.3.3（深色主題）
 - Tabulator 6.4.0 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
 - DuckDB-WASM（Analytics）
+- 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
 - 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
 
@@ -271,8 +272,9 @@ cd fansite && npm run build:js
   stale 304（與上方 Hyperdrive 節的既有規則同源，但這裡是正確性依賴不只是新鮮度）
 - setlist VIEW 欄位清單已自動摻入 ETag（ALTER VIEW 增減欄位免 bump）；欄位不變、
   格式變（如 mysqlToISO8601 修改）仍需人工 bump
-- setlist 前端為月度快取（localStorage v2）：manifest 比對 → 只重抓指紋變更的月份；
-  不留檔場（佔位 streamID、time NULL）走 `none` bucket
+- setlist 前端為月度快取（IndexedDB，每月一筆 record＋meta）：manifest 比對 → 只重抓
+  指紋變更的月份；不留檔場（佔位 streamID、time NULL）走 `none` bucket；快取不完整
+  （缺月 record）時 etag 回 null 停用 If-None-Match——帶舊 etag 會 304 短路擋死自癒路徑
 
 ### Select2 IME
 - 必須使用 **4.1.0-rc.0**（非 4.0.13）
@@ -324,6 +326,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |
 | v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
 | v3.3 | 2026-06-13 | 歌單辨識大修：挑留言防護（cooldown/佔比/熔斷）、matcher 精度（序號感知/EN 欄位/格式解析）、alias 綁 songID、webhook 驗證＋非同步化 |
 | v3.2 | 2026-03-22 | 安全強化：CORS、rate limiting、security headers、DB TLS |
@@ -333,4 +336,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-07-25
+**最後更新**：2026-08-05
