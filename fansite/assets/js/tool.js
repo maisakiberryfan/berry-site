@@ -429,6 +429,7 @@ $(()=>{
     const fingerprints = { ...(meta.fingerprints || {}) }
     _monthJson.clear()
     _storedMonths = monthList.slice()
+    let incomplete = false
     monthList.forEach((m, i) => {
       const rows = rowsList[i]
       // 缺件（寫入中斷／被外部清掉）：連指紋一起丟掉，下次同步才會判定該月有變重抓，
@@ -436,12 +437,21 @@ $(()=>{
       if (!rows) {
         console.warn(`[Cache] ${tableType} 缺少 ${m} 的月份記錄，該月將於下次同步重抓`)
         delete fingerprints[m]
+        incomplete = true
         return
       }
       months[m] = rows
       _monthJson.set(monthKey(tableType, m), JSON.stringify(rows))
     })
-    return { data: { months, fingerprints }, etag: meta.etag ?? null, timestamp: meta.timestamp }
+    // 快取不完整時 etag 一律回 null：同步端帶舊 etag 會命中 304 提前 return，
+    // 走不到指紋比對，上面刪指紋的自癒就永遠不會發生（整月缺失直到 ETag 被別的
+    // 寫入碰巧推進）。不帶 If-None-Match 必然拿 200 全 manifest → 缺月被判定為
+    // 變更 → 重抓補齊。代價只是那一次多抓幾 KB 的 manifest
+    return {
+      data: { months, fingerprints },
+      etag: incomplete ? null : (meta.etag ?? null),
+      timestamp: meta.timestamp
+    }
   }
 
   // 同表寫入串成 promise chain：非同步化後兩次 setCache 的 setMany 批次可能交錯，
