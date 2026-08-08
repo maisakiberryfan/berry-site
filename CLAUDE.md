@@ -130,8 +130,11 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
   `assets/vendor/sql-wasm-browser.{js,wasm}`（sql.js 1.14，**按下執行才載**）。
   版本由 `fansite/package.json` 的 `sql.js` 相依管理，升級後跑 `npm run vendor:sqljs`
   重新複製產物（vendor 檔進 git，同 `xlsx.full.min.js` 慣例）
-- **時間語意**：寬表的 `time` 在建表時就轉成瀏覽器時區的 `'YYYY-MM-DD HH:MM'`
-  固定寬度字串（SQLite 無 timestamp 型別，字典序＝時序），使用者直接寫本地日期即可
+- **時間語意（全部本地時區）**：寬表的 `time` 在建表時就轉成瀏覽器時區的
+  `'YYYY-MM-DD HH:MM'` 固定寬度字串（SQLite 無 timestamp 型別，字典序＝時序），
+  使用者直接寫本地日期即可；統計面板的月度分桶同樣用本地月（2026-08-09 用戶指正
+  統一——原沿用 v3 的 UTC 桶會讓跨月深夜場與查詢的 `month` 對不上）。代價：統計桶
+  與後端 manifest 的 UTC 月度分段不可直接對帳（僅影響開發者除錯）
 - **三語**：靜態文字走 `data-lang` span（`updatePageLang`）；JS 動態產生的內容走
   `analytics/i18n.js` 字典（動態節點不在 `updatePageLang` 掃描時機內）
 - **已移除**：AI「SQL 小幫手」（`/api/text-to-sql`、`ai_usage` 預算表、`ANTHROPIC_API_KEY`）
