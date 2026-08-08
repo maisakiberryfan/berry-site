@@ -23,6 +23,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css'
 import 'select2/dist/css/select2.min.css'
 import '@fancyapps/ui/dist/fancybox/fancybox.css'
 import '../css/tabulator-bootstrap5-custom.css'
+import '../css/theme-berry.css'
 
 // API configuration
 import { API_CONFIG, apiRequest, loadingManager, showError, escapeHtml } from '../../config.js'
