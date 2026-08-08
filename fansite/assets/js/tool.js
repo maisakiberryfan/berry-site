@@ -3418,6 +3418,13 @@ $(()=>{
             editable: true
           }
         }
+        // Setlist: 段落/曲序是 composite key，後端 PUT 靜默忽略這兩欄
+        // （改 key＝跨列事務，單列操作必撞主鍵衝突）——不給 editor，
+        // 避免「改了顯示新值、下次同步跳回」的假成功（2026-08-08 發現）。
+        // 順序修正請走批次編輯（或未來的 reorder API）
+        if (getProcess() === 'setlist' && (col.field === 'segmentNo' || col.field === 'trackNo')) {
+          return { ...col, editable: false }
+        }
         // Artist 欄位在 setlist 保持唯讀（由 Select2 自動填入）
         // 在 streamlist 添加 editor（允許手動編輯）
         if (col.field === 'artist') {
