@@ -30,6 +30,9 @@ import '../css/theme-berry.css'
 // API configuration
 import { API_CONFIG, apiRequest, loadingManager, showError, escapeHtml } from '../../config.js'
 
+// 表格快速搜尋語法（`欄位:值`）——純函式＋各表欄位別名表，自 fansite-v2 移植
+import { tokenize, matchesQuery, syntaxName, getSearchSpec, SEARCH_HELP_TEXT } from './table-search.js'
+
 // Expose globals for libraries expecting window bindings
 window.$ = window.jQuery = $
 window.bootstrap = bootstrap
@@ -1137,12 +1140,9 @@ $(()=>{
               </button>
             </div>`:'') +
             `<div id='setTableMsg' class='p-3'>&emsp;</div>
-            <!-- 進階搜尋區塊 -->
+            <!-- 進階搜尋區塊：卡片首列＝快速搜尋（欄位:值 語法），多欄運算子搜尋收在 #searchBody -->
             <div id="advancedSearch" class="card bg-body-tertiary mb-3 w-100">
-              <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#searchBody">
-                <span><i class="bi bi-search me-2"></i>${t('進階搜尋', 'Advanced Search', '詳細検索')}</span>
-                <i class="bi bi-chevron-down"></i>
-              </div>
+              ${quickSearchHeaderHTML(process)}
               <div id="searchBody" class="collapse">
                 <div class="card-body">
                   <div class="d-flex align-items-center mb-3">
@@ -1205,6 +1205,7 @@ $(()=>{
             </div>
             <div id='tb' class='table-dark table-striped table-bordered'>${t('載入中...', 'Loading...', '読み込み中...')}</div>
               `
+      resetTableSearchState()  // 換表／換語言重繪：搜尋輸入框回空，狀態也要跟著歸零
       $("#content").empty().append(c)
       updatePageLang()  // Update language for dynamically generated content
       configJsonTable(url, process)
@@ -3424,6 +3425,180 @@ $(()=>{
 
   //--- jsonTable button block ---
 
+  // === 快速搜尋（`欄位:值` 語法）===
+  //
+  // 語法本體在 table-search.js（自 fansite-v2 移植）。這裡只負責 UI 與 Tabulator 接線。
+  // 與下方多欄運算子搜尋**並存**：兩者各自維護狀態，最後由 applyTableFilters() 併成
+  // 單一 custom filter 交給 setFilter——Tabulator 的 setFilter 會整組取代既有程式化
+  // filter，兩邊各自呼叫必定互相清掉，所以一定要走這個統一出口。
+  // （headerFilter 是另一組，Tabulator 自己會 AND 起來，不受此處影響。）
+
+  let quickSearchTokens = []   // tokenize() 結果；空陣列＝快速搜尋未啟用
+  let advancedMatcher = null   // 多欄運算子搜尋的比對函式；null＝未啟用
+  let quickSearchTimer = null
+  let quickSearchComposing = false  // IME 組字中不觸發（中途片段會整表重算）
+
+  // 換頁／換表時把兩邊狀態歸零（#content 重繪後輸入框本來就是空的）
+  function resetTableSearchState() {
+    clearTimeout(quickSearchTimer)
+    quickSearchTimer = null
+    quickSearchComposing = false
+    quickSearchTokens = []
+    advancedMatcher = null
+  }
+
+  // 快速搜尋列（進階搜尋卡片的 card-header）＋「?」語法說明面板。
+  // 說明面板用 Bootstrap collapse 的宣告式 data-bs-toggle（無 inline script，CSP 相容）；
+  // 三語走既有 data-lang 慣例，切語言時 updatePageLang() 直接換區塊
+  function quickSearchHeaderHTML(process) {
+    const spec = getSearchSpec(process)
+    const advBtn = `
+        <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button"
+                data-bs-toggle="collapse" data-bs-target="#searchBody"
+                aria-expanded="false" aria-controls="searchBody">
+          <i class="bi bi-sliders me-1"></i>${t('多欄位條件', 'Field Conditions', '複数条件')}<i class="bi bi-chevron-down ms-1"></i>
+        </button>`
+
+    // 沒有搜尋規格的表（理論上不會發生）只保留原本的進階搜尋入口
+    if (!spec) {
+      return `<div class="card-header d-flex flex-wrap align-items-center gap-2">
+        <span class="flex-grow-1"><i class="bi bi-search me-2"></i>${t('進階搜尋', 'Advanced Search', '詳細検索')}</span>
+        ${advBtn}
+      </div>`
+    }
+
+    const f0 = spec.help[0]
+    const ph = {
+      zh: `搜尋全部欄位…（可用 ${f0.zh}:值）`,
+      en: `Search all columns… (try ${f0.en}:value)`,
+      ja: `全項目を検索…（${f0.ja}:値 も可）`
+    }
+    const helpTitle = t('搜尋語法', 'Search syntax', '検索の書き方')
+    const clearLabel = t('清除快速搜尋', 'Clear quick search', 'クイック検索をクリア')
+
+    // 說明面板的單一語言區塊
+    const block = (lang) => {
+      const txt = SEARCH_HELP_TEXT[lang]
+      const fields = spec.help.map(f => {
+        const label = f.label?.[lang] || ''
+        return `<li class="d-flex align-items-baseline gap-2 mb-1">
+              <code class="flex-shrink-0">${escapeHtml(syntaxName(lang, f.zh, f.ja, f.en))}</code>
+              ${label ? `<span class="text-body-secondary">${escapeHtml(label)}</span>` : ''}
+            </li>`
+      }).join('')
+      const examples = (spec.examples[lang] || []).map(ex =>
+        `<li class="mb-1"><button type="button" class="btn btn-sm btn-outline-secondary font-monospace text-start quick-search-example" data-example="${escapeHtml(ex)}">${escapeHtml(ex)}</button></li>`
+      ).join('')
+      return `
+          <div data-lang="${lang}" class="${lang === currentLang ? '' : 'd-none'}">
+            <p class="mb-2">${txt.intro}</p>
+            <div class="fw-semibold mb-1">${txt.fields}</div>
+            <ul class="list-unstyled mb-3 ps-1">${fields}</ul>
+            <div class="fw-semibold mb-1">${txt.examples}</div>
+            <ul class="list-unstyled mb-0 ps-1">${examples}</ul>
+          </div>`
+    }
+
+    return `
+      <div class="card-header d-flex flex-wrap align-items-center gap-2">
+        <!-- .input-group 本身是 width:100%，在 flex-wrap 容器裡會把右邊的鈕擠到下一行；
+             改 width:auto + flex 基準值才會與「多欄位條件」鈕並排 -->
+        <div class="input-group input-group-sm" style="width: auto; flex: 1 1 260px; max-width: 620px;">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="search" id="quickSearch" class="form-control" autocomplete="off" spellcheck="false"
+                 aria-label="${escapeHtml(helpTitle)}"
+                 placeholder="${escapeHtml(ph[currentLang] || ph.zh)}"
+                 data-placeholder-zh="${escapeHtml(ph.zh)}"
+                 data-placeholder-en="${escapeHtml(ph.en)}"
+                 data-placeholder-ja="${escapeHtml(ph.ja)}">
+          <button class="btn btn-outline-secondary" type="button" id="quickSearchClear"
+                  title="${escapeHtml(clearLabel)}" aria-label="${escapeHtml(clearLabel)}"><i class="bi bi-x-lg"></i></button>
+          <button class="btn btn-outline-secondary" type="button" id="quickSearchHelpBtn"
+                  data-bs-toggle="collapse" data-bs-target="#quickSearchHelp"
+                  aria-expanded="false" aria-controls="quickSearchHelp"
+                  title="${escapeHtml(helpTitle)}" aria-label="${escapeHtml(helpTitle)}">?</button>
+        </div>
+        ${advBtn}
+      </div>
+      <div id="quickSearchHelp" class="collapse">
+        <div class="card-body border-top small py-3">
+          ${block('zh')}${block('en')}${block('ja')}
+        </div>
+      </div>`
+  }
+
+  /**
+   * 兩種搜尋合併後送進 Tabulator。
+   * 都沒啟用時用 clearFilter()（不帶 true）——帶 true 會連 headerFilter 一起清掉，
+   * 使用者只是把快速搜尋刪空不該連欄頭篩選一起沒了。整組清空另有「清除」鈕。
+   */
+  function applyTableFilters() {
+    if (!jsonTable) return
+    const spec = getSearchSpec(getProcess())
+    const tokens = spec ? quickSearchTokens : []
+    const adv = advancedMatcher
+
+    if (!tokens.length && !adv) {
+      jsonTable.clearFilter()
+      $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
+      return
+    }
+
+    jsonTable.setFilter((data) => {
+      if (adv && !adv(data)) return false
+      if (tokens.length && !matchesQuery(data, tokens, spec.fields, spec.aliases)) return false
+      return true
+    })
+
+    const count = jsonTable.getDataCount('active')
+    $('#setTableMsg')
+      .text(t(`搜尋結果：${count} 筆`, `Search results: ${count} rows`, `検索結果：${count} 件`))
+      .addClass('text-bg-info')
+  }
+
+  // 快速搜尋輸入 → tokenize → 套用（debounce 200ms，IME 組字中略過）
+  function scheduleQuickSearch() {
+    clearTimeout(quickSearchTimer)
+    if (quickSearchComposing) return
+    quickSearchTimer = setTimeout(() => {
+      quickSearchTokens = tokenize($('#quickSearch').val() || '')
+      applyTableFilters()
+    }, 200)
+  }
+
+  $('#content').on('input', '#quickSearch', scheduleQuickSearch)
+  $('#content').on('compositionstart', '#quickSearch', () => { quickSearchComposing = true })
+  $('#content').on('compositionend', '#quickSearch', () => {
+    quickSearchComposing = false
+    scheduleQuickSearch()
+  })
+  // Enter＝立刻套用（不等 debounce）
+  $('#content').on('keydown', '#quickSearch', (e) => {
+    if (e.key === 'Enter' && !e.originalEvent?.isComposing) {
+      clearTimeout(quickSearchTimer)
+      quickSearchTokens = tokenize($('#quickSearch').val() || '')
+      applyTableFilters()
+    }
+  })
+
+  $('#content').on('click', '#quickSearchClear', () => {
+    clearTimeout(quickSearchTimer)
+    $('#quickSearch').val('').trigger('focus')
+    quickSearchTokens = []
+    applyTableFilters()
+  })
+
+  // 說明面板的範例＝點擊直接套用（省得手打全形冒號／引號）
+  $('#content').on('click', '.quick-search-example', function() {
+    // 用 attr 不用 data：jQuery 的 .data() 會自動轉型（純數字範例會變 number）
+    const ex = $(this).attr('data-example')
+    if (ex == null) return
+    clearTimeout(quickSearchTimer)
+    $('#quickSearch').val(ex)
+    quickSearchTokens = tokenize(ex)
+    applyTableFilters()
+  })
+
   // === 進階搜尋功能 ===
 
   // 取得可搜尋的欄位列表（從 Tabulator 動態取得，只顯示 visible 欄位）
@@ -3518,7 +3693,9 @@ $(()=>{
     })
 
     if (conditions.length === 0) {
-      jsonTable.clearFilter(true)
+      // 條件全空＝停用多欄搜尋，但快速搜尋（若有）要留著 → 走統一出口重算
+      advancedMatcher = null
+      applyTableFilters()
       return
     }
 
@@ -3565,12 +3742,9 @@ $(()=>{
         : results.some(r => r)
     }
 
-    jsonTable.setFilter(customFilter)
-
-    // 顯示搜尋結果數量
-    const count = jsonTable.getDataCount('active')
-    const resultText = t(`搜尋結果：${count} 筆`, `Search results: ${count} rows`, `検索結果：${count} 件`)
-    $('#setTableMsg').text(resultText).addClass('text-bg-info')
+    // 不直接 setFilter：交給統一出口與快速搜尋 AND 起來（結果筆數也在那裡顯示）
+    advancedMatcher = customFilter
+    applyTableFilters()
   }
 
   // 新增條件按鈕
@@ -3634,10 +3808,12 @@ $(()=>{
     applyAdvancedSearch()
   })
 
-  // 清除搜尋按鈕
+  // 清除搜尋按鈕：整組歸零（含 headerFilter 與快速搜尋）——語意就是「全部清掉」
   $('#content').on('click', '#clearSearch', () => {
+    resetTableSearchState()
     jsonTable.clearFilter(true)
     $('.search-value').val('')
+    $('#quickSearch').val('')
     $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
@@ -3656,10 +3832,12 @@ $(()=>{
     } else {
       jsonTable.setData()
     }
+    resetTableSearchState()
     jsonTable.clearFilter(true)
     jsonTable.deselectRow()
     // 清除進階搜尋的輸入值
     $('.search-value').val('')
+    $('#quickSearch').val('')
     $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 

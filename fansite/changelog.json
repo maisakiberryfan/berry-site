@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-09T02:30:00+08:00",
+  "time": "2026-08-09T12:00:00+08:00",
   "msg": {
-    "zh": "資料分析頁改版：新增統計圖表（熱門曲・歌手・月度趨勢），查詢改用點選式建構器，不會 SQL 也能查",
-    "en": "Analytics revamped: new stats charts (top songs, artists, monthly trend) and a point-and-click query builder — no SQL required",
-    "ja": "データ分析ページを刷新：統計グラフ（人気曲・アーティスト・月別推移）を追加、検索は選ぶだけのビルダー方式に"
+    "zh": "表格新增快速搜尋：直接打字搜全部欄位，或用「歌手:YOASOBI」限定欄位，旁邊的「?」有語法說明與範例",
+    "en": "New quick search on the tables: type to search every column, or narrow it with \"artist:YOASOBI\" — the \"?\" button shows the syntax and examples",
+    "ja": "テーブルにクイック検索を追加：そのまま入力で全項目を検索、「アーティスト:YOASOBI」で項目を限定。「?」ボタンに書き方と例があります"
   }
 }
