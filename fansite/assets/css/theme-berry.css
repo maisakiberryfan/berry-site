@@ -132,12 +132,28 @@ html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   color: var(--bs-primary-text-emphasis) !important;
 }
 
-/* 引言 blockquote：粉色引用線。inline-block 讓寬度收縮到內容，
-   置中版面（#intro text-center）下引用線才會貼著文字而非容器左緣 */
+/* 引言 blockquote：粉色引用線＋主題色正體字（宣言感）。斜體會變成
+   「他人引述」口吻，這段是她官方自介文案故用正體＋primary 語意色。
+   inline-block 讓寬度收縮到內容，置中版面下引用線才貼著文字 */
 #content blockquote.blockquote {
   display: inline-block;
   border-left: 3px solid rgba(var(--berry-primary-rgb), 0.6);
   padding-left: 0.75em;
+  color: var(--bs-primary-text-emphasis);
+}
+
+/* hashtag 膠囊（X 連結）：草莓 subtle 三件套，亮暗語意變數自動反轉；
+   原 text-bg-secondary 中性灰在主題裡像停用鈕、看不出可點 */
+.badge-berry {
+  background-color: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+  border: 1px solid var(--bs-primary-border-subtle);
+}
+
+.badge-berry:hover,
+.badge-berry:focus-visible {
+  background-color: rgba(var(--berry-primary-rgb), 0.25);
+  color: var(--bs-primary-text-emphasis);
 }
 
 /* ── 表格雙語副標（英文/羅馬字第二行） ───────────────────────────
