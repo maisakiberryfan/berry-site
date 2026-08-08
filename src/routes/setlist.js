@@ -384,11 +384,23 @@ export async function updateSetlistEntry(c) {
     );
   }
 
-  const { songID, note } = body;
+  const { songID, note, startTime, endTime } = body;
 
   const noteError = validateLength(note, "note", FIELD_LIMITS.setlistNote);
   if (noteError) {
     return c.json(createErrorResponse("VALIDATION_ERROR", noteError), 400);
+  }
+
+  // startTime/endTime: seconds into the video, editable via wiki UI (null = unknown)
+  for (const [field, value] of [["startTime", startTime], ["endTime", endTime]]) {
+    if (value !== undefined && value !== null) {
+      if (!Number.isInteger(value) || value < 0 || value > 360000) {
+        return c.json(
+          createErrorResponse("VALIDATION_ERROR", `${field} must be null or an integer between 0 and 360000 (seconds)`, { [field]: "invalid" }),
+          400,
+        );
+      }
+    }
   }
 
   const updates = [];
@@ -411,6 +423,14 @@ export async function updateSetlistEntry(c) {
   if (note !== undefined) {
     updates.push("note = ?");
     params.push(note);
+  }
+  if (startTime !== undefined) {
+    updates.push("startTime = ?");
+    params.push(startTime);
+  }
+  if (endTime !== undefined) {
+    updates.push("endTime = ?");
+    params.push(endTime);
   }
 
   if (updates.length === 0) {

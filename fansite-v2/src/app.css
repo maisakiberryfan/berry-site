@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+
+/* 暗色主題以 data-theme 切換（theme-init.js 首繪前設定） */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ===== 苺咲べりぃ品牌色 tokens（取樣自官方 logo/symbol，色票同現站） =====
+   亮=草莓牛奶（預設）／暗=暗莓。所有元件一律引用 tokens，禁止硬編亮/暗前提色 */
+:root {
+  --berry-primary: #e24368;
+  --berry-primary-rgb: 226, 67, 104;
+  --berry-pink: #f090a0;
+  --berry-pink-rgb: 240, 144, 160;
+  --berry-green: #45b384;
+
+  --berry-bg: #fcf4f6;
+  --berry-fg: #3b2b31;
+  --berry-bg-2: #f4e0e7;
+  --berry-bg-3: #f8eaef;
+  --berry-border: #e7cdd6;
+  --berry-link: #c92a5c;
+  --berry-link-hover: #a1224a;
+  --berry-fg-2: rgba(59, 43, 49, 0.75);
+  --berry-fg-3: rgba(59, 43, 49, 0.5);
+  --berry-emphasis: #000;
+  --berry-subtle-bg: #f9d9e1;
+  --berry-subtle-border: #f3b4c3;
+  --berry-text-emphasis: #5a1b2a;
+  --berry-brand: #b62450;
+  --berry-brand-hover: #9c1d42;
+}
+:root[data-theme='dark'] {
+  --berry-bg: #261a21;
+  --berry-fg: #dee2e6;
+  --berry-bg-2: #3c2a34;
+  --berry-bg-3: #302129;
+  --berry-border: #4f3b46;
+  --berry-link: #f193ab;
+  --berry-link-hover: #f6b3c5;
+  --berry-fg-2: rgba(222, 226, 230, 0.75);
+  --berry-fg-3: rgba(222, 226, 230, 0.5);
+  --berry-emphasis: #fff;
+  --berry-subtle-bg: #2d0d15;
+  --berry-subtle-border: #88283e;
+  --berry-text-emphasis: #ee8ea4;
+  --berry-brand: var(--berry-pink);
+  --berry-brand-hover: #f6b3c5;
+}
+
+@theme inline {
+  /* Tailwind utility 對接：bg-berry-bg、text-berry-fg、border-berry-border… */
+  --color-berry-primary: var(--berry-primary);
+  --color-berry-pink: var(--berry-pink);
+  --color-berry-green: var(--berry-green);
+  --color-berry-bg: var(--berry-bg);
+  --color-berry-fg: var(--berry-fg);
+  --color-berry-bg-2: var(--berry-bg-2);
+  --color-berry-bg-3: var(--berry-bg-3);
+  --color-berry-border: var(--berry-border);
+  --color-berry-link: var(--berry-link);
+  --color-berry-link-hover: var(--berry-link-hover);
+  --color-berry-fg-2: var(--berry-fg-2);
+  --color-berry-fg-3: var(--berry-fg-3);
+  --color-berry-emphasis: var(--berry-emphasis);
+  --color-berry-subtle-bg: var(--berry-subtle-bg);
+  --color-berry-subtle-border: var(--berry-subtle-border);
+  --color-berry-text-emphasis: var(--berry-text-emphasis);
+  --color-berry-brand: var(--berry-brand);
+}
+
+::selection {
+  background: #f5d33f;
+  color: #3b2b31;
+}
+
+/* 基準字級 16px（同原站 Bootstrap）；主內容用 text-base=16px 對齊原站實測值
+   （原站 Tabulator cell/表頭 16px、body 16px——2026-08-08 實測），輔助文字 text-sm=14px */
+
+body {
+  background: var(--berry-bg);
+  color: var(--berry-fg);
+}
+
+/* 連結預設色收進 base layer——讓 text-* utility 能覆蓋（icon 連結等） */
+@layer base {
+  a {
+    color: var(--berry-link);
+  }
+  a:hover {
+    color: var(--berry-link-hover);
+  }
+}
