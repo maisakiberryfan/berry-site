@@ -28,7 +28,7 @@
     "tabulator-tables": "^6.5.2"
   },
   "devDependencies": {
-    "esbuild": "^0.27.0",
+    "esbuild": "^0.28.1",
     "rimraf": "^6.1.2",
     "sass": "^1.93.1"
   }

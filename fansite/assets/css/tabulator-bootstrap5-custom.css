@@ -246,12 +246,12 @@
 .tabulator .tabulator-header .tabulator-calcs-holder {
   box-sizing: border-box;
   display: inline-block;
-  background: rgba(12.75, 12.75, 12.75, 0) !important;
+  background: rgba(5%, 5%, 5%, 0) !important;
   border-top: 1px solid #dee2e6;
   border-bottom: 1px solid #aaa;
 }
 .tabulator .tabulator-header .tabulator-calcs-holder .tabulator-row {
-  background: rgba(12.75, 12.75, 12.75, 0) !important;
+  background: rgba(5%, 5%, 5%, 0) !important;
 }
 .tabulator .tabulator-header .tabulator-calcs-holder .tabulator-row .tabulator-col-resize-handle {
   display: none;
@@ -383,14 +383,14 @@
   box-sizing: border-box;
   width: 100%;
   text-align: left;
-  background: rgb(242.75, 242.75, 242.75) !important;
+  background: rgb(95.1960784314%, 95.1960784314%, 95.1960784314%) !important;
   border-bottom: 1px solid #dee2e6;
   border-top: 1px solid #dee2e6;
   overflow: hidden;
 }
 .tabulator .tabulator-footer .tabulator-calcs-holder .tabulator-row {
   display: inline-block;
-  background: rgb(242.75, 242.75, 242.75) !important;
+  background: rgb(95.1960784314%, 95.1960784314%, 95.1960784314%) !important;
 }
 .tabulator .tabulator-footer .tabulator-calcs-holder .tabulator-row .tabulator-col-resize-handle {
   display: none;
@@ -1201,7 +1201,7 @@ body.tabulator-print-fullscreen-hide > *:not(.tabulator-print-fullscreen) {
 .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input:focus {
   color: #212529;
   background-color: #fff;
-  border-color: rgb(134, 182.5, 254);
+  border-color: rgb(52.5490196078%, 71.568627451%, 99.6078431373%);
   outline: 0;
 }
 .tabulator .tabulator-header .tabulator-calcs-holder {
@@ -1483,7 +1483,7 @@ html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row:nth-child(even)
 .tabulator.table-dark .tabulator-footer {
   border-color: #4d5154 !important;
   color: #fff !important;
-  background-color: rgb(44.3716216216, 49.75, 55.1283783784);
+  background-color: rgb(17.40063593%, 19.5098039216%, 21.6189719131%);
 }
 .tabulator.table-dark .tabulator-footer .tabulator-calcs-holder {
   border-color: #4d5154 !important;
@@ -1495,15 +1495,15 @@ html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row:nth-child(even)
   color: #fff !important;
 }
 .tabulator.table-dark .tabulator-footer .tabulator-spreadsheet-tabs .tabulator-spreadsheet-tab.tabulator-spreadsheet-tab-active {
-  background-color: rgb(55.7432432432, 62.5, 69.2567567568);
+  background-color: rgb(21.8600953895%, 24.5098039216%, 27.1595124536%);
 }
 .tabulator.table-dark .tabulator-footer .tabulator-page {
   border-color: #4d5154;
   background-color: #212529;
 }
 .tabulator.table-dark .tabulator-footer .tabulator-page.active {
-  background-color: rgb(67.1148648649, 75.25, 83.3851351351);
-  border-color: rgb(101.3913043478, 106.6583850932, 110.6086956522);
+  background-color: rgb(26.319554849%, 29.5098039216%, 32.7000529942%);
+  border-color: rgb(39.7612958227%, 41.8268176836%, 43.3759590793%);
   color: #212529;
 }
 .tabulator.table-dark .tabulator-footer .tabulator-page:disabled {
@@ -1532,7 +1532,7 @@ html[data-bs-theme=dark] .tabulator.table-striped .tabulator-row:nth-child(even)
 .tabulator.table-dark .tabulator-cell.tabulator-editing input:focus,
 .tabulator.table-dark .tabulator-cell.tabulator-editing select:focus,
 .tabulator.table-dark .tabulator-cell.tabulator-editing textarea:focus {
-  border-color: rgb(134, 182.5, 254);
+  border-color: rgb(52.5490196078%, 71.568627451%, 99.6078431373%);
 }
 html[data-bs-theme=dark] .tabulator {
   background-color: var(--bs-body-bg);
@@ -1660,22 +1660,22 @@ html[data-bs-theme=dark] .tabulator .tabulator-cell.tabulator-editing textarea:f
   border-color: var(--bs-primary-border-subtle);
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-primary {
-  background: rgb(206.6, 226, 254.6) !important;
+  background: rgb(81.0196078431%, 88.6274509804%, 99.8431372549%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-secondary {
-  background: rgb(225.6, 227.4, 229) !important;
+  background: rgb(88.4705882353%, 89.1764705882%, 89.8039215686%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-success {
-  background: rgb(209, 231, 220.8) !important;
+  background: rgb(81.9607843137%, 90.5882352941%, 86.5882352941%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-info {
-  background: rgb(206.6, 244.4, 252) !important;
+  background: rgb(81.0196078431%, 95.8431372549%, 98.8235294118%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-warning {
-  background: rgb(255, 242.6, 205.4) !important;
+  background: rgb(100%, 95.137254902%, 80.5490196078%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-danger {
-  background: rgb(248, 214.6, 217.8) !important;
+  background: rgb(97.2549019608%, 84.1568627451%, 85.4117647059%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.table-light {
   background: #f8f9fa !important;
@@ -1687,22 +1687,22 @@ html[data-bs-theme=dark] .tabulator .tabulator-cell.tabulator-editing textarea:f
   background: #6c757d !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-primary {
-  background: rgb(206.6, 226, 254.6) !important;
+  background: rgb(81.0196078431%, 88.6274509804%, 99.8431372549%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-secondary {
-  background: rgb(225.6, 227.4, 229) !important;
+  background: rgb(88.4705882353%, 89.1764705882%, 89.8039215686%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-success {
-  background: rgb(209, 231, 220.8) !important;
+  background: rgb(81.9607843137%, 90.5882352941%, 86.5882352941%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-info {
-  background: rgb(206.6, 244.4, 252) !important;
+  background: rgb(81.0196078431%, 95.8431372549%, 98.8235294118%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-warning {
-  background: rgb(255, 242.6, 205.4) !important;
+  background: rgb(100%, 95.137254902%, 80.5490196078%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-danger {
-  background: rgb(248, 214.6, 217.8) !important;
+  background: rgb(97.2549019608%, 84.1568627451%, 85.4117647059%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row.bg-light {
   background: #f8f9fa !important;
@@ -1714,22 +1714,22 @@ html[data-bs-theme=dark] .tabulator .tabulator-cell.tabulator-editing textarea:f
   background: #6c757d !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-primary {
-  background: rgb(206.6, 226, 254.6) !important;
+  background: rgb(81.0196078431%, 88.6274509804%, 99.8431372549%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-secondary {
-  background: rgb(225.6, 227.4, 229) !important;
+  background: rgb(88.4705882353%, 89.1764705882%, 89.8039215686%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-success {
-  background: rgb(209, 231, 220.8) !important;
+  background: rgb(81.9607843137%, 90.5882352941%, 86.5882352941%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-info {
-  background: rgb(206.6, 244.4, 252) !important;
+  background: rgb(81.0196078431%, 95.8431372549%, 98.8235294118%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-warning {
-  background: rgb(255, 242.6, 205.4) !important;
+  background: rgb(100%, 95.137254902%, 80.5490196078%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-danger {
-  background: rgb(248, 214.6, 217.8) !important;
+  background: rgb(97.2549019608%, 84.1568627451%, 85.4117647059%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.table-light {
   background: #f8f9fa !important;
@@ -1741,22 +1741,22 @@ html[data-bs-theme=dark] .tabulator .tabulator-cell.tabulator-editing textarea:f
   background: #6c757d !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-primary {
-  background: rgb(206.6, 226, 254.6) !important;
+  background: rgb(81.0196078431%, 88.6274509804%, 99.8431372549%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-secondary {
-  background: rgb(225.6, 227.4, 229) !important;
+  background: rgb(88.4705882353%, 89.1764705882%, 89.8039215686%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-success {
-  background: rgb(209, 231, 220.8) !important;
+  background: rgb(81.9607843137%, 90.5882352941%, 86.5882352941%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-info {
-  background: rgb(206.6, 244.4, 252) !important;
+  background: rgb(81.0196078431%, 95.8431372549%, 98.8235294118%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-warning {
-  background: rgb(255, 242.6, 205.4) !important;
+  background: rgb(100%, 95.137254902%, 80.5490196078%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-danger {
-  background: rgb(248, 214.6, 217.8) !important;
+  background: rgb(97.2549019608%, 84.1568627451%, 85.4117647059%) !important;
 }
 .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell.bg-light {
   background: #f8f9fa !important;
