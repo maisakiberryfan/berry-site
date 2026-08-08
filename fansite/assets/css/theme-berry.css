@@ -124,6 +124,22 @@ html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   border-color: var(--berry-primary);
 }
 
+/* ── Profile / Clothes 資訊格與引言點綴 ───────────────────────────
+   facts-grid 標籤欄（生日/出道/設計…）用 primary 語意色：SCSS 自動生成
+   亮版深草莓/暗版亮粉的 --bs-primary-text-emphasis，wiki infobox 風格。
+   utility class 帶 !important，覆蓋需同權 */
+.facts-grid > .text-body-secondary {
+  color: var(--bs-primary-text-emphasis) !important;
+}
+
+/* 引言 blockquote：粉色引用線。inline-block 讓寬度收縮到內容，
+   置中版面（#intro text-center）下引用線才會貼著文字而非容器左緣 */
+#content blockquote.blockquote {
+  display: inline-block;
+  border-left: 3px solid rgba(var(--berry-primary-rgb), 0.6);
+  padding-left: 0.75em;
+}
+
 /* ── 表格雙語副標（英文/羅馬字第二行） ───────────────────────────
    原為 formatter inline 硬編 color:#999（舊暗色站遺留）：亮版一般列
    對比僅 ~2.8:1、選中列紅底上近乎不可讀（2026-08-08 用戶回報）。
