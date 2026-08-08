@@ -63,7 +63,7 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 
 ### 技術棧
 - jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
-- Tabulator 6.4.0 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
+- Tabulator 6.5.2 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
 - DuckDB-WASM（Analytics）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）

@@ -269,10 +269,12 @@
   }
 }
 
-// ── Neutralize 6.4.0's .table-dark hardcoded colors ────────────────────
+// ── Neutralize .table-dark hardcoded colors (6.4 rules + 6.5 additions) ─
 // The table uses class="table-dark table-striped table-bordered", so
-// .tabulator.table-dark rules from 6.4.0 override our .tabulator overrides.
+// .tabulator.table-dark rules override our .tabulator overrides.
 // Re-apply CSS variables at matching specificity.
+// 6.5.x 起 .table-dark 命名空間新增分頁/編輯輸入的烘死色（#212529 系），
+// 亮色主題下 table-dark class 仍掛在容器上，必須一併變數化。
 .tabulator.table-dark {
   background-color: var(--bs-body-bg, transparent);
 
@@ -343,7 +345,41 @@
     }
   }
 
-  input {
+  // 6.5.x：分頁鈕與每頁筆數選單在 .table-dark 下烘死 #212529/#4d5154
+  .tabulator-footer .tabulator-page {
+    background-color: var(--bs-pagination-bg, transparent);
+    border-color: var(--bs-pagination-border-color, var(--bs-border-color));
+    color: var(--bs-pagination-color, var(--bs-link-color));
+
+    &:not(.disabled):hover {
+      background-color: var(--bs-pagination-hover-bg, rgba(0, 0, 0, 0.05));
+      border-color: var(--bs-pagination-hover-border-color, var(--bs-border-color));
+      color: var(--bs-pagination-hover-color, var(--bs-link-hover-color));
+    }
+
+    &.active {
+      background-color: var(--bs-pagination-active-bg, var(--bs-primary));
+      border-color: var(--bs-pagination-active-border-color, var(--bs-primary));
+      color: var(--bs-pagination-active-color, #fff);
+    }
+
+    &:disabled {
+      background-color: var(--bs-pagination-disabled-bg, transparent);
+      border-color: var(--bs-pagination-disabled-border-color, var(--bs-border-color));
+      color: var(--bs-pagination-disabled-color, var(--bs-secondary-color));
+    }
+  }
+
+  .tabulator-footer .tabulator-page-size {
+    background-color: var(--bs-body-bg);
+    border-color: var(--bs-border-color);
+    color: var(--bs-body-color);
+  }
+
+  // 6.5.x 起 header filter 與編輯格的 select/textarea 也被烘死，一併涵蓋
+  input,
+  select,
+  textarea {
     color: var(--bs-body-color) !important;
     background-color: var(--bs-body-bg) !important;
   }
@@ -448,9 +484,18 @@ html[data-bs-theme="dark"] .tabulator {
     }
   }
 
-  input {
+  input,
+  select,
+  textarea {
     color: var(--bs-body-color) !important;
     background-color: var(--bs-body-bg) !important;
+  }
+
+  // 6.5.x：dark 命名空間的 active 分頁鈕官方給 emphasis 白底，改回主題 primary
+  .tabulator-footer .tabulator-page.active {
+    background-color: var(--bs-pagination-active-bg, var(--bs-primary));
+    border-color: var(--bs-pagination-active-border-color, var(--bs-primary));
+    color: var(--bs-pagination-active-color, #fff);
   }
 }
 

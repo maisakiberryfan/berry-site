@@ -276,7 +276,7 @@ function buildNavFromConfig(config) {
       <ul class="navbar-nav">${leftItems}</ul>
       <ul class="navbar-nav flex-row flex-wrap ms-md-auto">
         ${rightItems}
-        <li class="nav-item d-flex align-items-center">
+        <li class="nav-item d-flex align-items-center border-start ps-2 ms-2">
           <a class="nav-link" href="#" id="themeToggle" role="button" aria-label="Toggle theme"><i class="bi ${document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'bi-sun' : 'bi-moon-stars'}"></i></a>
         </li>
         <li class="nav-item d-flex align-items-center">${buildLangSwitch()}</li>
