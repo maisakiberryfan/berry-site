@@ -124,8 +124,12 @@ html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   border-color: var(--berry-primary);
 }
 
-/* ── 文字選取 ─────────────────────────────────────────────────── */
+/* ── 文字選取 ─────────────────────────────────────────────────────
+   螢光筆式黃色（logo 圓點色 #F5D33F）＋深字：草莓紅 selection 會與
+   .tabulator-selected 的紅底混同無法區分（2026-08-08 用戶回報），
+   黃色在亮底/暗底/選中列紅底上都可辨，且為 CVD 安全色。
+   刻意不透明——半透明黃疊在紅底會混成橙 */
 ::selection {
-  background-color: rgba(226, 67, 104, 0.55);
-  color: #fff;
+  background-color: #f5d33f;
+  color: #3b2b31;
 }
