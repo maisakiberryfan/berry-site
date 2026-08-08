@@ -138,6 +138,13 @@ html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/* 儲存成功閃光：原 inline #d4edda 淺綠在暗版會蓋掉淺色文字的可讀性，
+   改半透明葉綠 tint——文字色不變，亮暗兩版都是「底色輕染」而非換底 */
+.tabulator-cell.cell-save-flash {
+  background-color: rgba(69, 179, 132, 0.35) !important;
+  transition: background-color 0.3s;
+}
+
 /* ── 文字選取 ─────────────────────────────────────────────────────
    螢光筆式黃色（logo 圓點色 #F5D33F）＋深字：草莓紅 selection 會與
    .tabulator-selected 的紅底混同無法區分（2026-08-08 用戶回報），
