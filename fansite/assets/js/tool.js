@@ -121,6 +121,10 @@ let currentLang = (() => {
   return 'en'
 })()
 
+// analytics.js 是獨立的 ES module（不進 esbuild bundle），拿不到這裡的 currentLang；
+// 掛一支 getter 讓它取得目前語言（切語言時 tool.js 會重跑 setContent 使其重新初始化）
+window.berryLang = () => currentLang
+
 // Get label based on current language
 function getLabel(item) {
   if (currentLang === 'ja' && item.labelJa) {
@@ -851,6 +855,184 @@ $(()=>{
     }
   }
 
+  // ============================================
+  // 分析頁資料供給（window.loadBerryTables）
+  // ============================================
+  // analytics.js 是獨立的 ES module（不進 esbuild bundle），取不到本閉包內的快取函式，
+  // 故在此掛一支唯讀入口。三張表各走與表格頁相同的瀑布：
+  //   IndexedDB 快取 →（無快取）CDN 靜態快照 →（無快照）API 全量
+  // 分析頁因此與表格頁共用同一份資料，不再需要 sqldata.m-b.win 的每日 parquet 管線。
+  // 只回傳資料、不觸碰任何表格 UI；走到 API 的路徑順手落地快取，之後開表格頁即秒開。
+  //
+  // _analyticsBase：本次載入實際用了哪份資料，供背景校正當比對基準。
+  // 刻意不讓校正端回頭讀 IDB——快照路徑的 setCache 是非同步排隊的（15,000 筆要 ~160ms），
+  // 讀回來時很可能還沒落地，會被誤判成「沒有快取」而整個跳過校正。
+  //   setlist：{ months, fingerprints, etag }（null＝走 API 全量，無月度結構可比對）
+  //   其他表：{ rows, etag }
+  let _analyticsBase = { setlist: null, songlist: null, streamlist: null }
+
+  async function loadAnalyticsTable(tableType) {
+    const cached = await getCache(tableType)
+
+    if (tableType === 'setlist') {
+      if (cached?.data?.months && Object.keys(cached.data.months).length > 0) {
+        _analyticsBase.setlist = {
+          months: cached.data.months,
+          fingerprints: cached.data.fingerprints || {},
+          etag: cached.etag ?? null
+        }
+        return flattenMonths(cached.data.months)
+      }
+      const snap = await primeSetlistFromSnapshot()
+      if (snap) {
+        _analyticsBase.setlist = { months: snap.data.months, fingerprints: snap.data.fingerprints, etag: null }
+        setCache('setlist', snap.data, null).catch(console.warn)
+        return flattenMonths(snap.data.months)
+      }
+      _analyticsBase.setlist = null
+      const res = await fetch(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist, { cache: 'no-store' })
+      if (!res.ok) throw new Error(`setlist HTTP ${res.status}`)
+      return (await res.json()).data || []
+    }
+
+    if (cached?.data?.length > 0) {
+      _analyticsBase[tableType] = { rows: cached.data, etag: cached.etag ?? null }
+      return cached.data
+    }
+    if (SNAPSHOT_FILES[tableType]) {
+      const rows = await fetchSnapshot(SNAPSHOT_FILES[tableType])
+      if (Array.isArray(rows) && rows.length > 0) {
+        // 快照沒有 ETag，不能拿去 If-None-Match（帶假值會 304 短路把過時資料鎖死）
+        _analyticsBase[tableType] = { rows, etag: null }
+        return rows
+      }
+    }
+    const url = API_CONFIG.BASE_URL + (API_CONFIG.ENDPOINTS[tableType] || `/api/${tableType}`)
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`${tableType} HTTP ${res.status}`)
+    const rows = (await res.json()).data || []
+    const etag = res.headers.get('ETag')
+    _analyticsBase[tableType] = { rows, etag }
+    setCache(tableType, rows, etag).catch(console.warn)
+    return rows
+  }
+
+  // 背景校正（SWR 的 R）：與表格頁同一組端點與比對規則，但完全不碰 UI。
+  // 有變更時回傳新 rows，無變更（304／內容相同／指紋全同）回 null。
+  async function revalidatePlainTable(tableType) {
+    const base = _analyticsBase[tableType]
+    const url = API_CONFIG.BASE_URL + (API_CONFIG.ENDPOINTS[tableType] || `/api/${tableType}`)
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: base?.etag ? { 'If-None-Match': base.etag } : {}
+    })
+    if (res.status === 304) return null
+    if (!res.ok) throw new Error(`${tableType} HTTP ${res.status}`)
+    const rows = (await res.json()).data || []
+    const etag = res.headers.get('ETag')
+    setCache(tableType, rows, etag).catch(console.warn)
+    const unchanged = isDataEqual(base?.rows, rows)
+    _analyticsBase[tableType] = { rows, etag }
+    return unchanged ? null : rows
+  }
+
+  // setlist 走 manifest 指紋比對（同 syncSetlistTable，只是沒有表格與提示列）
+  async function revalidateSetlistRows() {
+    const base = _analyticsBase.setlist
+    // 沒有月度結構＝剛剛才從 API 全量抓過，本來就是最新
+    if (!base) return null
+
+    const apiUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist
+    const res = await fetch(`${apiUrl}/manifest`, {
+      cache: 'no-store',
+      headers: base.etag ? { 'If-None-Match': base.etag } : {}
+    })
+    if (res.status === 304) return null
+    if (!res.ok) throw new Error(`setlist manifest HTTP ${res.status}`)
+
+    const etag = res.headers.get('ETag')
+    const mani = (await res.json()).data
+    const version = mani.version || 'v1'
+    const fp = (mo) => `${version}|${mo.count}|${mo.maxUpdated}`
+    const oldFp = base.fingerprints || {}
+    const newFp = Object.fromEntries(mani.months.map(mo => [mo.month, fp(mo)]))
+    const changedAll = mani.months.filter(mo => oldFp[mo.month] !== fp(mo)).map(mo => mo.month)
+    const maniSet = new Set(mani.months.map(mo => mo.month))
+    const months = { ...base.months }
+    const removed = Object.keys(months).filter(k => !maniSet.has(k))
+    removed.forEach(k => delete months[k])
+
+    if (!changedAll.length && !removed.length) {
+      _analyticsBase.setlist = { months, fingerprints: newFp, etag }
+      await setCache('setlist', { months, fingerprints: newFp }, etag)  // 只推進 etag
+      return null
+    }
+
+    const changed = changedAll.filter(k => k !== 'none')
+    if (changed.length) {
+      // 後端 months 已降序：[0] 最新、[length-1] 最舊
+      await fetchMonthsInto(months, apiUrl, changed[changed.length - 1], changed[0])
+    }
+    if (changedAll.includes('none')) {
+      const r = await fetch(`${apiUrl}?from=none&to=none`, { cache: 'no-store' })
+      if (!r.ok) throw new Error(`setlist none HTTP ${r.status}`)
+      months.none = (await r.json()).data || []
+    }
+    _analyticsBase.setlist = { months, fingerprints: newFp, etag }
+    await setCache('setlist', { months, fingerprints: newFp }, etag)
+    return flattenMonths(months)
+  }
+
+  // 任一表校正失敗只警告不中斷——畫面已有快取資料，下次進頁再試
+  async function revalidateBerryTables(current) {
+    const settled = await Promise.allSettled([
+      revalidateSetlistRows(),
+      revalidatePlainTable('songlist'),
+      revalidatePlainTable('streamlist')
+    ])
+    const value = (i, name) => {
+      if (settled[i].status === 'fulfilled') return settled[i].value
+      console.warn(`[Analytics] ${name} 背景校正失敗（沿用快取）:`, settled[i].reason)
+      return null
+    }
+    const setlist = value(0, 'setlist')
+    const songlist = value(1, 'songlist')
+    const streamlist = value(2, 'streamlist')
+    if (!setlist && !songlist && !streamlist) return null
+    return {
+      setlist: setlist ?? current.setlist,
+      songlist: songlist ?? current.songlist,
+      streamlist: streamlist ?? current.streamlist
+    }
+  }
+
+  /**
+   * 分析頁取資料。先以快取／快照秒回，再於背景以 ETag／manifest 校正；
+   * 真的有變更才呼叫 onFresh(tables)（SWR，同表格頁的行為）。
+   */
+  window.loadBerryTables = async (onFresh) => {
+    const t0 = performance.now()
+    const [setlist, songlist, streamlist] = await Promise.all([
+      loadAnalyticsTable('setlist'),
+      loadAnalyticsTable('songlist'),
+      loadAnalyticsTable('streamlist')
+    ])
+    const tables = { setlist, songlist, streamlist }
+    console.log(`[Analytics] 資料就緒：setlist ${setlist.length} / songlist ${songlist.length} / streamlist ${streamlist.length}，${Math.round(performance.now() - t0)}ms`)
+
+    if (typeof onFresh === 'function') {
+      revalidateBerryTables(tables).then(fresh => {
+        if (!fresh) {
+          console.log('[Analytics] 背景校正：無變更')
+          return
+        }
+        console.log(`[Analytics] 背景校正：資料已更新（setlist ${fresh.setlist.length} / songlist ${fresh.songlist.length} / streamlist ${fresh.streamlist.length}）`)
+        onFresh(fresh)
+      }).catch(err => console.warn('[Analytics] 背景校正失敗（顯示快取資料）:', err))
+    }
+    return tables
+  }
+
   // Set marked options
   marked.use()
 
@@ -1066,10 +1248,8 @@ $(()=>{
             })
           }
           if(url.includes('analytics.htm')) {
-            // xlsx vendor script 與 analytics.js module 平行載入（原本 jQuery eval 亦是頁面插入即觸發）
-            window.loadXLSX().catch(err => {
-              console.error('[Analytics] Failed to load XLSX vendor script:', err)
-            })
+            // XLSX 與 sql.js 都改成按下匯出／執行時才載（analytics.js 內部處理），
+            // 開頁只付統計面板的成本
             import('/assets/js/analytics.js').then(module => {
               module.initAnalytics()
             }).catch(err => {

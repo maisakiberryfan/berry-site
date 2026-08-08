@@ -50,7 +50,6 @@ LAMBDA_MATCHER_URL = "http://localhost:3000/match-setlist"
 # 需要使用 wrangler secret put 設定的秘密變數（清單須與 README 一致）：
 # wrangler secret put YOUTUBE_API_KEY
 # wrangler secret put DISCORD_WEBHOOK_URL
-# wrangler secret put ANTHROPIC_API_KEY
 # wrangler secret put PUBSUB_CALLBACK_URL
 # wrangler secret put GITHUB_TOKEN
 # wrangler secret put TRIGGER_TOKEN   # webhook 簽名驗證與 /trigger-* 端點都依賴此值，未設＝不處理通知

@@ -54,7 +54,7 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 
 - **後端**：Hono 4.13（雙入口：`entry-worker.js` / `entry-lambda.js`）+ mysql2
 - **前端**：jQuery 3.7 + Bootstrap 5.3（SCSS 客製編譯，苺主題亮暗雙模式）+
-  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ DuckDB-WASM
+  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ sql.js（Analytics）
 - **建置**：esbuild（bundle）+ sass（Bootstrap / Tabulator 主題編譯，產物進 git）
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
 
@@ -91,7 +91,6 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `DB_PASSWORD` | DB 密碼 |
 | `DB_NAME` | DB 名稱（mbdb） |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 |
-| `ANTHROPIC_API_KEY` | Claude API（text-to-sql） |
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
 | ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ | ~~Discord 歌單留言通知~~ ⚠️ **MIGRATED to yt-setlist-discord (2026-05-02)** |
 | `TRIGGER_TOKEN` | /trigger-* 端點驗證 |
@@ -106,7 +105,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `CLOUDFLARE_ACCOUNT_ID` | CF Account ID |
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
-- `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- `YOUTUBE_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
 
 ## 本地開發
 

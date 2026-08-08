@@ -74,7 +74,6 @@ jobs:
               DbPassword=${{ secrets.DB_PASSWORD }} \
               DbName=${{ secrets.DB_NAME }} \
               YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
-              AnthropicApiKey=${{ secrets.ANTHROPIC_API_KEY }} \
               DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
               TriggerToken=${{ secrets.TRIGGER_TOKEN }} \
               LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \

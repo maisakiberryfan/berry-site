@@ -108,7 +108,7 @@ export class Database {
       };
     } catch (error) {
       // 寫入不自動 retry：斷線可能發生在寫入「已送達」之後，重試會重複執行
-      // 非冪等語句（如 ai_usage 的 cost 累加）。只重置壞連線供下次請求重建。
+      // 非冪等語句（如計數欄位的累加）。只重置壞連線供下次請求重建。
       if (error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ECONNRESET') {
         this.resetConnection();
       }

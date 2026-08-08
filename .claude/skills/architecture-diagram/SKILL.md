@@ -38,8 +38,7 @@ Trace actual `import` statements across all `src/` files:
 
 ### Tab 3: 前端 SPA（Frontend SPA）
 - SPA routing: setContent() → page components → API calls
-- DuckDB-WASM local queries
-- text-to-sql AI endpoint
+- sql.js (SQLite/WASM) local queries over the browser table cache
 
 ## Visual Style
 
