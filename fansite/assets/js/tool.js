@@ -2551,12 +2551,18 @@ $(()=>{
           }
         } else {
           // Cell editor：success() 後 Tabulator 會移除 editor 元素，但 select2 的
-          // dropdown 是掛在 .tabulator 容器上的獨立節點 — 不先 close+destroy 會殘留
-          // 一層 absolute 定位的面板蓋在表格上攔截滾輪事件，造成表格無法向下捲動
+          // dropdown 是掛在 .tabulator 容器上的獨立節點 — 不 close+destroy 會殘留
+          // 一層 absolute 定位的面板蓋在表格上攔截滾輪事件，造成表格無法向下捲動。
+          // destroy 必須 defer 一拍：Select2 4.1.0 的 _handleClear（× 清除鈕）在
+          // change 之後同一 call stack 還會 toggleDropdown，同步 destroy 會讓該
+          // 流程摸到 null dataAdapter 拋錯；延後 destroy 讓 clear 流程走完，
+          // 其間誤開的下拉也由這次 destroy 一併移除
           if (hasSucceeded) return
           hasSucceeded = true
           try { op.select2('close') } catch (err) { /* already closed */ }
-          try { op.select2('destroy') } catch (err) { /* already destroyed */ }
+          setTimeout(() => {
+            try { op.select2('destroy') } catch (err) { /* already destroyed */ }
+          }, 0)
           success(val)
         }
       })
