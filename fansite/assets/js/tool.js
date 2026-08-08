@@ -3042,7 +3042,13 @@ $(()=>{
       height:700,
       columnDefaults:{
         headerFilter:"input",
+        tooltip:true,          // 截字時 hover 顯示原始值（v3 回饋：截字看不到全文）
+        resizable:'header',    // 拖表頭邊緣調欄寬（v3 回饋；cell 邊緣不啟用，避免與選取衝突）
       },
+      // 記住使用者調過的欄寬。四個表共用 #tb 容器，必須用 persistenceID 區分，
+      // 否則 songlist 拖的寬度會套到 setlist 上
+      persistence:{ columns:['width'] },
+      persistenceID: p,
       columns:initialColDef,
       selectableRows:true,
       selectableRowsRangeMode:"click",
