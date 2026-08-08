@@ -65,7 +65,8 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
 - Tabulator 6.5.2 + Select2 4.1.0（IME 支援；4.0.13 組字有致命 bug 勿降版，
   2026-08-08 由 rc.0 升正式版、日文組字全流程實測通過。**任何 Select2 升級都必須重測 IME**）
-- DuckDB-WASM（Analytics）
+- sql.js 1.14（Analytics 進階 SQL；SQLite/WASM self-host 於 `assets/vendor/`，
+  按下執行才載入 ~0.64MB wasm。取代 DuckDB-WASM＋parquet，見下方 Analytics 節）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - 資料載入三層瀑布：IndexedDB → CDN 靜態快照（`/data/*.json`）→ API 增量校正（見下節）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
@@ -112,6 +113,30 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 - **新鮮度**：快照只跟得上「最近一次部署」，這是設計的一部分——正確性由 API 校正保證，
   快照只負責讓首訪先有東西看
 
+### Analytics（`pages/analytics.htm` ＋ `assets/js/analytics.js` ＋ `assets/js/analytics/`）
+
+頁內兩個分頁籤：**統計**（第一屏、零下載）與**資料查詢**（引擎按需載入）。
+
+- **資料源＝瀏覽器既有快取**：`window.loadBerryTables()`（tool.js）以與表格頁相同的
+  三層瀑布（IDB → CDN 快照 → API）取回 setlist／songlist／streamlist。
+  **不再有 `sqldata.m-b.win` 的每日 parquet 管線**（VPS 匯出 cron 與 R2 bucket 待退役）
+- **統計面板**：純 JS 聚合（統計卡、Top 20 曲、Top 10 歌手、24 個月趨勢），
+  圖表為自繪 SVG（`analytics/charts.js`，無圖表庫）。色彩全走 CSS 變數
+  （`--berry-primary`/`--berry-pink` ＋ `--bs-*` 文字/邊框階層），亮暗自適應
+- **查詢建構器**（`analytics/builder.js`）：欄位勾選＋7 運算子＋6 聚合＋SQL 即時預覽。
+  欄位名走 `DATASET_COLUMNS` 白名單、運算子走固定表、**值一律 bind（`?`）**、
+  LIKE 另加 `ESCAPE '\'` ⇒ 使用者輸入不可能變成語法
+- **進階 SQL**：`analytics/engine.js` 以原生 `<script src>` 載入 self-host 的
+  `assets/vendor/sql-wasm-browser.{js,wasm}`（sql.js 1.14，**按下執行才載**）。
+  版本由 `fansite/package.json` 的 `sql.js` 相依管理，升級後跑 `npm run vendor:sqljs`
+  重新複製產物（vendor 檔進 git，同 `xlsx.full.min.js` 慣例）
+- **時間語意**：寬表的 `time` 在建表時就轉成瀏覽器時區的 `'YYYY-MM-DD HH:MM'`
+  固定寬度字串（SQLite 無 timestamp 型別，字典序＝時序），使用者直接寫本地日期即可
+- **三語**：靜態文字走 `data-lang` span（`updatePageLang`）；JS 動態產生的內容走
+  `analytics/i18n.js` 字典（動態節點不在 `updatePageLang` 掃描時機內）
+- **已移除**：AI「SQL 小幫手」（`/api/text-to-sql`、`ai_usage` 預算表、`ANTHROPIC_API_KEY`）
+  與 DuckDB-WASM；CSP 兩側同步移除 `cdn.jsdelivr.net`、`sqldata.m-b.win`
+
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
 - 即時編輯：Tabulator inline editing + API 同步
@@ -128,6 +153,7 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI 跑這個）
 cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
+cd fansite && npm run vendor:sqljs     # sql.js dist → assets/vendor/（升 sql.js 後必跑，產物進 git）
 npm run snapshot                       # repo 根：產生 CDN 快照 → fansite/data/（CI 也跑這個）
 ```
 
@@ -154,7 +180,6 @@ npm run snapshot                       # repo 根：產生 CDN 快照 → fansit
 | `/api/yt/newvideos` | 多頻道新影片查詢 |
 | `/api/yt/live-details?id={videoId}` | 直播狀態（isLive, isEnded） |
 | `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher）；需 token（同 `/trigger-*`） |
-| `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
 | `/api/stats/last-updated` | 各表最後更新時間 |
 
 ### 基礎設施路由（無 `/api/` 前綴）
@@ -369,7 +394,7 @@ cd fansite && npm run build:js
 ### 費用
 - 全部在 AWS/CF 免費額度內（預估 < $0.20/月）
 - EventBridge 保溫：免費
-- text-to-sql 每日預算 $0.10
+- Analytics 全在瀏覽器端（sql.js + 既有快取），無任何查詢類 API／AI 成本
 
 ---
 
@@ -377,6 +402,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.8 | 2026-08-09 | Analytics 重寫（由 fansite-v2 移植）：新增統計面板（統計卡＋Top20 曲／Top10 歌手／24 月趨勢，純 JS 聚合既有快取、毫秒級零下載）＋自繪 SVG 圖表；查詢改「選取式建構器」（值全 bind、LIKE 加 ESCAPE）；進階 SQL 引擎 DuckDB-WASM→self-host sql.js；**text-to-sql（AI SQL 助手）全鏈移除**（前端 modal／`/api/text-to-sql`／預算控制／`ANTHROPIC_API_KEY`）；parquet 管線退役 ⇒ CSP 兩側移除 cdn.jsdelivr.net、sqldata.m-b.win，worker-src 收回 'self' |
 | v3.7 | 2026-08-09 | CDN 靜態快照資料層（由 fansite-v2 移植）：首訪改「IDB → /data/*.json 快照 → API 增量校正」三層瀑布，setlist 首訪由三段式 API 抓取（4 發、秒級）降為快照灌入＋僅重抓指紋變更的月份；快照由 `npm run snapshot` 於 CI 產生，AWS 側 max-age=300 獨立同步、CF 側隨 Static Assets 上傳；快照缺席無縫 fallback 原 API 路徑 |
 | v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：Bootstrap 改 SCSS 客製編譯（bootstrap-berry.scss，官方 Sass 變數路線），亮=草莓牛奶（預設）／暗=暗莓雙主題＋navbar 切換鈕（theme-init.js 防閃）；裝飾層 theme-berry.css（navbar 漸層線/光暈/h2 hairline/表頭底線）；硬編暗色 class 清理（btn-outline-light、bg-dark modal），色碼取樣自官方 logo・symbol |
 | v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |

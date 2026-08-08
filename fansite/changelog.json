@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-09T00:40:00+08:00",
+  "time": "2026-08-09T02:30:00+08:00",
   "msg": {
-    "zh": "首次開啟頁面的資料載入大幅加速：改由 CDN 直接提供資料快照，再自動更新到最新",
-    "en": "Much faster first load: data now comes straight from the CDN, then auto-updates to the latest",
-    "ja": "初回表示の読み込みを大幅に高速化：データをCDNから直接配信し、その後自動で最新に更新"
+    "zh": "資料分析頁改版：新增統計圖表（熱門曲・歌手・月度趨勢），查詢改用點選式建構器，不會 SQL 也能查",
+    "en": "Analytics revamped: new stats charts (top songs, artists, monthly trend) and a point-and-click query builder — no SQL required",
+    "ja": "データ分析ページを刷新：統計グラフ（人気曲・アーティスト・月別推移）を追加、検索は選ぶだけのビルダー方式に"
   }
 }

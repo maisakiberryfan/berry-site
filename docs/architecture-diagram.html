@@ -403,7 +403,6 @@ function buildGraph1() {
     makeEdge('yt_api', 'cfg'),
     makeEdge('yt_cmt', 'cfg'),
     makeEdge('tool', 'app', 'fetch /api/*', true),
-    makeEdge('analytics', 'app', 'fetch /api/text-to-sql', true),
     makeEdge('sc', 'db', 'standalone', true),
   ]);
 
@@ -425,12 +424,11 @@ function buildGraph2() {
     makeNode('song', '歌曲\n/songlist', 'page'),
     makeNode('alias', '別名管理\n/aliases', 'page'),
     makeNode('analytics_p', '分析\n/analytics', 'page'),
-    makeNode('cache', 'localStorage\n+ ETag 快取', 'process'),
+    makeNode('cache', 'IndexedDB 表格快取\n+ ETag／manifest 校正', 'process'),
     makeNode('api_calls', 'fetch /api/*\n+ CRUD editing', 'api'),
     makeNode('backend', 'Hono API\n端點', 'core'),
     makeNode('static', '靜態頁面\npages/*.htm|md', 'external'),
-    makeNode('duckdb', 'DuckDB-WASM\n本地 Parquet', 'lambda'),
-    makeNode('text_sql', '/api/text-to-sql\nAI 小幫手', 'api'),
+    makeNode('sqljs', 'sql.js (SQLite/WASM)\nself-host、按需載入', 'lambda'),
   ]);
 
   const edges = new vis.DataSet([
@@ -455,8 +453,8 @@ function buildGraph2() {
     makeEdge('alias', 'api_calls'),
     makeEdge('api_calls', 'cache', '讀/寫'),
     makeEdge('api_calls', 'backend', 'fetch'),
-    makeEdge('analytics_p', 'duckdb', 'SQL'),
-    makeEdge('analytics_p', 'text_sql', 'AI'),
+    makeEdge('analytics_p', 'cache', '統計聚合'),
+    makeEdge('analytics_p', 'sqljs', 'SQL'),
   ]);
 
   return { nodes, edges };
