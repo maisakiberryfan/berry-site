@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-08T14:20:00+08:00",
+  "time": "2026-08-08T22:45:00+08:00",
   "msg": {
-    "zh": "新增苺咲べりぃ主題色與亮暗雙主題（預設跟隨系統，右上角可切換）",
-    "en": "New Maisaki Berry theme with light/dark modes (follows system setting, toggle at top right)",
-    "ja": "苺咲べりぃテーマカラー＋ライト/ダークモード追加（システム設定に追従、右上で切替）"
+    "zh": "歌單的開始/結束時間可在編輯模式直接修改（支援 h:mm:ss / m:ss / 秒數輸入）",
+    "en": "Setlist start/end times are now editable in edit mode (h:mm:ss / m:ss / seconds input)",
+    "ja": "セットリストの開始/終了時間が編集モードで直接編集可能に（h:mm:ss / m:ss / 秒入力対応）"
   }
 }

@@ -18,7 +18,13 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname } from 'node:path'
 import app from './src/app.js'
+
+// cwd 錨定到本檔所在目錄：serveStatic 的相對 root 以 process.cwd() 解析，
+// 從別處啟動（如 git worktree 的 launch config）會 serve 到錯的 fansite/
+process.chdir(dirname(fileURLToPath(import.meta.url)))
 
 // .env → process.env（不覆蓋已存在的值，讓命令列 override 優先）
 try {
