@@ -157,7 +157,10 @@ export async function createStream(c) {
     const formattedStream = {
       ...newStream,
       time: mysqlToISO8601(newStream.time),
-      categories: JSON.parse(newStream.categories),
+      // mysql2 3.23 起對 JSON 欄位自動 parse 成陣列，僅字串才需 parse（與 GET 路徑同 pattern）
+      categories: typeof newStream.categories === "string"
+        ? JSON.parse(newStream.categories)
+        : (newStream.categories || []),
     };
 
     return c.json(successResponse(formattedStream), 201);
@@ -279,7 +282,10 @@ export async function updateStream(c) {
   const formattedStream = {
     ...updatedStream,
     time: mysqlToISO8601(updatedStream.time),
-    categories: JSON.parse(updatedStream.categories),
+    // mysql2 3.23 起對 JSON 欄位自動 parse 成陣列，僅字串才需 parse（與 GET 路徑同 pattern）
+    categories: typeof updatedStream.categories === "string"
+      ? JSON.parse(updatedStream.categories)
+      : (updatedStream.categories || []),
   };
 
   return c.json(successResponse(formattedStream));
