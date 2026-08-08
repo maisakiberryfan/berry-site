@@ -79,8 +79,8 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
   `.table-dark` 硬編色跟隨主題、Tabulator 表頭底線/編輯格、工具列按鈕暗色提亮）；
   bundle 順序必須排在 bootstrap-berry 與 tabulator CSS 之後
 - `assets/js/theme-init.js`：head 內**同步** script（CSP 禁 inline 故獨立成檔），首繪前套用
-  localStorage 主題偏好防閃爍；支援 `?theme=light|dark` 測試 override（不落地）。
-  navbar 切換鈕（`#themeToggle`）寫 localStorage
+  主題防閃爍。優先序：`?theme=` 測試 override（不落地）> localStorage（切換鈕選過）
+  > 系統 prefers-color-scheme > light。navbar 切換鈕（`#themeToggle`）寫 localStorage
 - ⚠️ 新增 UI 勿硬編亮/暗前提 class（`btn-outline-light`、`bg-dark text-light`、
   `table-dark` 例外——表格容器沿用它但變數已跟隨主題），一律用主題自適應變數/元件
 
