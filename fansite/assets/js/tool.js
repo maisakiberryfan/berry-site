@@ -1379,8 +1379,8 @@ $(()=>{
             // Show success indicator (cell may be gone after reloadTable)
             const cellEl = cell.getElement()
             if (cellEl) {
-              cellEl.style.backgroundColor = '#d4edda'
-              setTimeout(() => { cellEl.style.backgroundColor = '' }, 1000)
+              cellEl.classList.add('cell-save-flash')
+              setTimeout(() => { cellEl.classList.remove('cell-save-flash') }, 1000)
             }
 
             console.log(`[setlistSongSelect2Editor] ✅ Song updated successfully`)
@@ -1482,8 +1482,8 @@ $(()=>{
 
             const cellEl = cell.getElement()
             if (cellEl) {
-              cellEl.style.backgroundColor = '#d4edda'
-              setTimeout(() => { cellEl.style.backgroundColor = '' }, 1000)
+              cellEl.classList.add('cell-save-flash')
+              setTimeout(() => { cellEl.classList.remove('cell-save-flash') }, 1000)
             }
           } catch (error) {
             console.error('[aliasCanonicalSelect2Editor] ❌ Error syncing to API:', error)
