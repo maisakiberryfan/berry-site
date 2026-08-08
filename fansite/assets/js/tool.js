@@ -1918,7 +1918,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.songName || '';
         const en = row.songNameEn || '';
-        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div class="cell-subtext">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -1943,7 +1943,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.artist || '';
         const en = row.artistEn || '';
-        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div class="cell-subtext">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -2119,7 +2119,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.songName || '';
         const en = row.songNameEn || '';
-        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div style="font-weight: 500;">${escapeHtml(ja)}</div>${en ? `<div class="cell-subtext">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {
@@ -2139,7 +2139,7 @@ $(()=>{
         const row = cell.getRow().getData();
         const ja = row.artist || '';
         const en = row.artistEn || '';
-        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div style="font-size: 0.85em; color: #999; margin-top: 2px;">${escapeHtml(en)}</div>` : ''}</div>`;
+        return `<div style="line-height: 1.5;"><div>${escapeHtml(ja)}</div>${en ? `<div class="cell-subtext">${escapeHtml(en)}</div>` : ''}</div>`;
       }
     },
     {title:t('曲風', 'Genre', 'ジャンル'), field:"genre", headerFilter:"input"},
