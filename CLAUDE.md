@@ -67,6 +67,7 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
   2026-08-08 由 rc.0 升正式版、日文組字全流程實測通過。**任何 Select2 升級都必須重測 IME**）
 - DuckDB-WASM（Analytics）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
+- 資料載入三層瀑布：IndexedDB → CDN 靜態快照（`/data/*.json`）→ API 增量校正（見下節）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
 - 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
 
@@ -85,6 +86,32 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - ⚠️ 新增 UI 勿硬編亮/暗前提 class（`btn-outline-light`、`bg-dark text-light`、
   `table-dark` 例外——表格容器沿用它但變數已跟隨主題），一律用主題自適應變數/元件
 
+### 資料載入三層瀑布（首訪加速；2026-08-09 由 fansite-v2 移植）
+
+```
+IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
+（回訪，不變）      （首訪，edge 直出）           （既有 manifest/ETag 邏輯）
+```
+
+- **快照產生**：`npm run snapshot`（`scripts/fetch-snapshot.mjs`，純 Node 無相依）向正式
+  API 唯讀 GET，輸出到 `fansite/data/`（**gitignored**，部署時重建）：
+  `songlist.json`、`streamlist.json`、`manifest.json`、`setlist-{YYYY-MM}.json`（每月一檔）
+  ＋`setlist-none.json`。`BERRY_API=http://localhost:8788` 可改抓本地 API。
+  單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）
+- **前端**（tool.js）：IDB 無快取時才抓快照。setlist 走 `primeSetlistFromSnapshot()`——
+  manifest 快照給月份清單並 **seed fingerprints**，逐月快照併發 6 抓齊後灌入，之後
+  **照常走既有的 manifest 比對**：快照過時的月份指紋對不上、自動由 API 重抓（缺檔的月份
+  不寫指紋，效果同缺月自癒）。songlist/streamlist 用整包快照當 Tabulator 初始 data，
+  校正交給既有的 `backgroundFetchAndUpdate`
+- **etag 一律為 null**：靜態快照沒有 ETag，帶假值會 304 短路把過時資料鎖死
+- **fallback**：快照 404／解析失敗 → 回傳 null → 完全走原本的 API 路徑（首訪漸進載入
+  不變），代價只是一個 404 往返
+- **CI**：build 之後跑 `npm run snapshot`（`continue-on-error`——快照抓不全不該擋部署）；
+  AWS 側 `fansite/data/` 獨立一輪 s3 sync（`max-age=300`＋`--delete`，不用 `--size-only`），
+  CF 側隨 Workers Static Assets 一起上傳。CloudFront 的 `/*` invalidation 已涵蓋 `/data/`
+- **新鮮度**：快照只跟得上「最近一次部署」，這是設計的一部分——正確性由 API 校正保證，
+  快照只負責讓首訪先有東西看
+
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
 - 即時編輯：Tabulator inline editing + API 同步
@@ -101,6 +128,7 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI 跑這個）
 cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
+npm run snapshot                       # repo 根：產生 CDN 快照 → fansite/data/（CI 也跑這個）
 ```
 
 ---
@@ -349,6 +377,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.7 | 2026-08-09 | CDN 靜態快照資料層（由 fansite-v2 移植）：首訪改「IDB → /data/*.json 快照 → API 增量校正」三層瀑布，setlist 首訪由三段式 API 抓取（4 發、秒級）降為快照灌入＋僅重抓指紋變更的月份；快照由 `npm run snapshot` 於 CI 產生，AWS 側 max-age=300 獨立同步、CF 側隨 Static Assets 上傳；快照缺席無縫 fallback 原 API 路徑 |
 | v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：Bootstrap 改 SCSS 客製編譯（bootstrap-berry.scss，官方 Sass 變數路線），亮=草莓牛奶（預設）／暗=暗莓雙主題＋navbar 切換鈕（theme-init.js 防閃）；裝飾層 theme-berry.css（navbar 漸層線/光暈/h2 hairline/表頭底線）；硬編暗色 class 清理（btn-outline-light、bg-dark modal），色碼取樣自官方 logo・symbol |
 | v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |
 | v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
@@ -360,4 +389,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-08-08
+**最後更新**：2026-08-09

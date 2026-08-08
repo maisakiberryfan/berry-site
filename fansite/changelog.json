@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-08T22:45:00+08:00",
+  "time": "2026-08-09T00:40:00+08:00",
   "msg": {
-    "zh": "歌單的開始/結束時間可在編輯模式直接修改（支援 h:mm:ss / m:ss / 秒數輸入）",
-    "en": "Setlist start/end times are now editable in edit mode (h:mm:ss / m:ss / seconds input)",
-    "ja": "セットリストの開始/終了時間が編集モードで直接編集可能に（h:mm:ss / m:ss / 秒入力対応）"
+    "zh": "首次開啟頁面的資料載入大幅加速：改由 CDN 直接提供資料快照，再自動更新到最新",
+    "en": "Much faster first load: data now comes straight from the CDN, then auto-updates to the latest",
+    "ja": "初回表示の読み込みを大幅に高速化：データをCDNから直接配信し、その後自動で最新に更新"
   }
 }

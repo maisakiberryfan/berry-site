@@ -37,5 +37,13 @@ jobs:
       # Install root dependencies
       - run: npm ci
 
+      # CDN 靜態快照（fansite/data/*.json）：首訪三層瀑布的第二層，隨 Workers Static
+      # Assets 一起上傳（wrangler 直接收 fansite/ 整個目錄）。
+      # continue-on-error——部分月份抓不到就少幾個檔，前端會把缺的月份判定為變更、
+      # 改由 API 補；為此擋住整個部署並不划算
+      - name: Build CDN snapshot
+        continue-on-error: true
+        run: npm run snapshot
+
       # Deploy to Cloudflare Workers
       - run: npx wrangler deploy
