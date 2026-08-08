@@ -52,10 +52,14 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 
 ## 技術棧
 
-- **後端**：Hono 4.9.7（雙入口：`entry-worker.js` / `entry-lambda.js`）
-- **前端**：jQuery 3.7.1 + Bootstrap 5.3.8 + Tabulator 6.4.0 + DuckDB-WASM
-- **建置**：esbuild
+- **後端**：Hono 4.13（雙入口：`entry-worker.js` / `entry-lambda.js`）+ mysql2
+- **前端**：jQuery 3.7 + Bootstrap 5.3（SCSS 客製編譯，苺主題亮暗雙模式）+
+  Tabulator 6.5 + Select2 4.1.0-rc.0（IME 支援，版本鎖定勿升）+ DuckDB-WASM
+- **建置**：esbuild（bundle）+ sass（Bootstrap / Tabulator 主題編譯，產物進 git）
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
+
+> 依賴升級原則：minor/patch 隨 `npm update` 跟進；jQuery 4（Select2 相容未驗）、
+> marked 18（major、低收益）暫緩，Select2 鎖 4.1.0-rc.0（IME 實測版本）。
 
 ## CI/CD
 
@@ -107,14 +111,20 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 npm install
 cd fansite && npm install && cd ..
 
-# CF 路徑（wrangler dev，含靜態檔案）
+# CF 路徑（wrangler dev，含靜態檔案；workerd 連不上自簽 TLS DB）
 npm run dev          # http://localhost:8787
+
+# Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑）
+# 先開 tunnel：ssh -N -L 13307:127.0.0.1:8081 <db-host>
+node --env-file=.env.dev entry-dev.js   # http://localhost:8788
 
 # AWS 路徑（SAM local）
 sam build && sam local start-api --port 3001 --env-vars .env.json
 
-# Fansite JS bundle
-cd fansite && npm run build:js
+# Fansite 前端建置
+cd fansite && npm run build:js         # esbuild bundle（CI 跑這個）
+cd fansite && npm run build:bootstrap  # 主題 SCSS 改動後必跑（產物進 git）
+cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 ```
 
 ### 環境檔案
@@ -122,6 +132,7 @@ cd fansite && npm run build:js
 | 檔案 | 用途 | Git |
 |------|------|-----|
 | `.dev.vars` | wrangler dev 環境變數 | ignored |
+| `.env.dev` | entry-dev.js 連線目標（tunnel + 測試庫） | ignored |
 | `.env.json` | SAM local 環境變數 | ignored |
 | `.env` | 正式環境變數（參考用） | ignored |
 
@@ -148,6 +159,8 @@ AWS EventBridge 為主要排程，CF Worker cron 已停用。
 | `GET /api/streamlist` | 全部直播 |
 | `GET /api/setlist` | 全部歌單 |
 | `GET /api/setlist?streamID={id}` | 單場歌單 |
+| `GET /api/setlist?from=YYYY-MM&to=YYYY-MM` | 月度區段（`from=none`＝不留檔場） |
+| `GET /api/setlist/manifest` | 每月 {month, count, maxUpdated} 清單（增量比對用） |
 | `GET /api/aliases/grouped` | 別名對照表（歌手名/曲名的別名映射） |
 | `GET /api/stats/last-updated` | 各表最後更新時間 |
 
