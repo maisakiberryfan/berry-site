@@ -1,59 +1,46 @@
 /*!
- * Berry 主題色覆寫層 — 依苺咲べりぃ官方 logo / symbol 配色
+ * Berry 裝飾層 — 苺咲べりぃ主題的非變數類點綴
+ *
+ * 色彩變數本體（primary/連結/背景階層/表單 focus 等）已移至
+ * bootstrap-berry.scss 由 Bootstrap SCSS 源頭編譯，此檔只剩：
+ *   1. Bootstrap 變數系統蓋不到的裝飾（navbar 漸層線、h2 hairline、光暈）
+ *   2. .table-dark 硬編色跟隨主題（表格容器硬掛此 class，見 tool.js）
+ *   3. Tabulator 編譯期硬編色（表頭底線、編輯格框）
  *
  * 色彩來源（fansite/img/profile 實際取樣）：
- *   logo 主字色  #E03058（草莓紅）→ 提亮為 #E24368 當 primary（深底白字對比較佳）
- *   symbol 單色  #F090A0（草莓粉）→ 點綴用
- *   logo 葉綠    #28B078 / #90C878 → accent（navbar 漸層線一端）
+ *   logo 主字色 #E03058 → primary #E24368；symbol 單色 #F090A0；
+ *   logo 葉綠 #28B078/#90C878 → accent #45B384（僅 navbar 漸層線尾端）
  *
- * 全站鎖 data-bs-theme="dark"，此檔以深色底為準；bundle 順序必須在
- * bootstrap.min.css 與 tabulator-bootstrap5-custom.css 之後（後載同權重覆寫）。
+ * bundle 順序必須在 bootstrap-berry.css 與 tabulator CSS 之後。
  */
 
-:root,
-[data-bs-theme="dark"] {
+:root {
   --berry-primary: #e24368;
   --berry-primary-rgb: 226, 67, 104;
-  --berry-primary-darker: #c73158;   /* 按鈕 hover */
-  --berry-primary-darkest: #b02b4e;  /* 按鈕 active */
   --berry-pink: #f090a0;             /* symbol 草莓粉 */
   --berry-pink-rgb: 240, 144, 160;
-  --berry-link: #f193ab;             /* 深底連結色（對 #212529 約 7:1） */
-  --berry-link-rgb: 241, 147, 171;
-  --berry-link-hover: #f6b3c5;
-  --berry-link-hover-rgb: 246, 179, 197;
   --berry-green: #45b384;            /* 葉綠 accent */
-
-  /* Bootstrap 全域變數：utility（text/bg/border-primary）、Tabulator 自訂層
-     （selected row 用 --bs-primary-rgb）、Select2 highlight、context menu
-     都吃這兩個變數，改這裡即全站生效 */
-  --bs-primary: var(--berry-primary);
-  --bs-primary-rgb: var(--berry-primary-rgb);
-  --bs-link-color: var(--berry-link);
-  --bs-link-color-rgb: var(--berry-link-rgb);
-  --bs-link-hover-color: var(--berry-link-hover);
-  --bs-link-hover-color-rgb: var(--berry-link-hover-rgb);
-  --bs-focus-ring-color: rgba(var(--berry-primary-rgb), 0.25);
-
-  /* 背景階層：中性深灰 → 暗莓色（hue ≈335°、低飽和，維持深色站閱讀舒適度）。
-     modal/card/dropdown/Tabulator/Select2 都引用這幾個變數，改這裡即全站生效 */
-  --bs-body-bg: #261a21;
-  --bs-body-bg-rgb: 38, 26, 33;
-  --bs-tertiary-bg: #302129;        /* navbar (bg-body-tertiary)、卡片 cap */
-  --bs-tertiary-bg-rgb: 48, 33, 41;
-  --bs-secondary-bg: #3c2a34;       /* Select2 chips、disabled 欄位 */
-  --bs-secondary-bg-rgb: 60, 42, 52;
-  --bs-border-color: #4f3b46;       /* 帶粉的邊框灰 */
-  --bs-dark: #2b1e26;               /* .bg-dark 卡片、context menu */
-  --bs-dark-rgb: 43, 30, 38;
-
-  /* 藍色系殘留（primary 衍生色）一併轉粉 */
-  --bs-primary-text-emphasis: var(--berry-link);
-  --bs-primary-bg-subtle: #33101c;
-  --bs-primary-border-subtle: #7d2540;
 }
 
-/* 兩角光暈：右上草莓粉、左下葉綠（呼應 navbar 漸層兩端）。
+/* ── Navbar：草莓→葉綠漸層底線＋主題色站名 ───────────────────── */
+.navbar {
+  --bs-navbar-brand-color: #b62450;          /* 亮色：深草莓（淺粉底需要對比） */
+  --bs-navbar-brand-hover-color: #9c1d42;
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(
+    90deg,
+    var(--berry-primary),
+    var(--berry-pink) 55%,
+    var(--berry-green)
+  ) 1;
+}
+
+[data-bs-theme="dark"] .navbar {
+  --bs-navbar-brand-color: var(--berry-pink); /* 暗色：徽章粉 */
+  --bs-navbar-brand-hover-color: #f6b3c5;
+}
+
+/* ── 兩角光暈：右上草莓粉、左下葉綠（呼應 navbar 漸層兩端）。
    畫在 body 背景色之上、內容之下（負 z-index 子層），position:fixed
    捲動不跟動；iOS 對 background-attachment:fixed 支援差，故不用那招 */
 body::before {
@@ -63,91 +50,22 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
+    radial-gradient(1100px 520px at 88% -8%, rgba(226, 67, 104, 0.07), transparent 62%),
+    radial-gradient(900px 460px at -6% 106%, rgba(69, 179, 132, 0.05), transparent 58%);
+}
+
+[data-bs-theme="dark"] body::before {
+  background:
     radial-gradient(1100px 520px at 88% -8%, rgba(226, 67, 104, 0.11), transparent 62%),
     radial-gradient(900px 460px at -6% 106%, rgba(69, 179, 132, 0.06), transparent 58%);
 }
 
-/* .table-dark 整套硬編中性灰（#212529/#2c3034/#323539）改吃變數＋粉 tint 條紋；
-   Tabulator 自訂層的 row/striped/hover 都讀這幾個 --bs-table-* 變數 */
-.table-dark {
-  --bs-table-bg: var(--bs-body-bg);
-  --bs-table-border-color: var(--bs-border-color);
-  --bs-table-striped-bg: rgba(var(--berry-pink-rgb), 0.05);
-  --bs-table-hover-bg: rgba(var(--berry-pink-rgb), 0.09);
-  --bs-table-active-bg: rgba(var(--berry-pink-rgb), 0.12);
-}
-
-/* ── 按鈕 ─────────────────────────────────────────────────────── */
-.btn-primary {
-  --bs-btn-bg: var(--berry-primary);
-  --bs-btn-border-color: var(--berry-primary);
-  --bs-btn-hover-bg: var(--berry-primary-darker);
-  --bs-btn-hover-border-color: var(--berry-primary-darker);
-  --bs-btn-active-bg: var(--berry-primary-darkest);
-  --bs-btn-active-border-color: var(--berry-primary-darkest);
-  --bs-btn-disabled-bg: var(--berry-primary);
-  --bs-btn-disabled-border-color: var(--berry-primary);
-  --bs-btn-focus-shadow-rgb: 230, 95, 127; /* mix(white 15%, primary)，仿 Bootstrap 公式 */
-}
-
-.btn-outline-primary {
-  --bs-btn-color: var(--berry-pink);
-  --bs-btn-border-color: var(--berry-pink);
-  --bs-btn-hover-bg: var(--berry-primary);
-  --bs-btn-hover-border-color: var(--berry-primary);
-  --bs-btn-active-bg: var(--berry-primary);
-  --bs-btn-active-border-color: var(--berry-primary);
-  --bs-btn-disabled-color: var(--berry-pink);
-  --bs-btn-disabled-border-color: var(--berry-pink);
-  --bs-btn-focus-shadow-rgb: var(--berry-primary-rgb);
-}
-
-/* ── 表單 focus（Bootstrap 硬編 #86b7fe 藍，需逐項覆寫） ───────── */
-.form-control:focus,
-.form-select:focus {
-  border-color: #ec7e97; /* tint(primary 50%)，仿 #86b7fe 的算法 */
-  box-shadow: 0 0 0 0.25rem rgba(var(--berry-primary-rgb), 0.25);
-}
-
-.form-check-input:focus {
-  border-color: #ec7e97;
-  box-shadow: 0 0 0 0.25rem rgba(var(--berry-primary-rgb), 0.25);
-}
-
-.form-check-input:checked {
-  background-color: var(--berry-primary);
-  border-color: var(--berry-primary);
-}
-
-.form-switch .form-check-input:focus {
-  --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23ec7e97'/%3e%3c/svg%3e");
-}
-
-/* ── 下拉選單／分頁／進度條 ───────────────────────────────────── */
-.dropdown-menu {
-  --bs-dropdown-link-active-bg: var(--berry-primary);
-}
-
-.nav-pills {
-  --bs-nav-pills-link-active-bg: var(--berry-primary);
-}
-
-.progress,
-.progress-stacked {
-  --bs-progress-bar-bg: var(--berry-primary);
-}
-
-/* ── Navbar：草莓→葉綠漸層底線＋粉色站名 ─────────────────────── */
-.navbar {
-  --bs-navbar-brand-color: var(--berry-pink);
-  --bs-navbar-brand-hover-color: var(--berry-link-hover);
-  border-bottom: 2px solid transparent;
-  border-image: linear-gradient(
-    90deg,
-    var(--berry-primary),
-    var(--berry-pink) 55%,
-    var(--berry-green)
-  ) 1;
+/* ── 表格工具列按鈕（btn-outline-secondary）暗色提亮 ──────────────
+   原本硬編 btn-outline-light（亮色底看不見）換成 secondary 後，
+   暗色下預設 #6c757d 偏暗，提回接近原本 outline-light 的觀感 */
+[data-bs-theme="dark"] .btn-outline-secondary {
+  --bs-btn-color: #cfd4d9;
+  --bs-btn-border-color: #8a9198;
 }
 
 /* ── Modal：標題列底線帶一點主題色 ───────────────────────────── */
@@ -180,7 +98,23 @@ body::before {
   );
 }
 
-/* ── Tabulator：表頭底線與編輯格改主題色 ─────────────────────── */
+/* ── .table-dark 硬編色跟隨主題 ──────────────────────────────────
+   表格容器硬掛 table-dark class（tool.js），Bootstrap 對它硬編整套
+   中性灰（#212529/#2c3034/#fff 字）；改吃主題變數後亮暗兩版都成立，
+   Tabulator 自訂層的 row/striped/hover 都讀這幾個 --bs-table-* 變數 */
+.table-dark {
+  --bs-table-color: var(--bs-body-color);
+  --bs-table-striped-color: var(--bs-body-color);
+  --bs-table-hover-color: var(--bs-body-color);
+  --bs-table-active-color: var(--bs-body-color);
+  --bs-table-bg: var(--bs-body-bg);
+  --bs-table-border-color: var(--bs-border-color);
+  --bs-table-striped-bg: rgba(var(--berry-pink-rgb), 0.05);
+  --bs-table-hover-bg: rgba(var(--berry-pink-rgb), 0.12);
+  --bs-table-active-bg: rgba(var(--berry-pink-rgb), 0.16);
+}
+
+/* ── Tabulator：編譯期硬編色改主題色 ─────────────────────────── */
 .tabulator .tabulator-header,
 html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   border-bottom-color: rgba(var(--berry-primary-rgb), 0.55);

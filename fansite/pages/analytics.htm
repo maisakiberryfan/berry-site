@@ -465,15 +465,15 @@
 <!-- AI Helper Modal -->
 <div class="modal fade" id="aiHelperModal" tabindex="-1" aria-labelledby="aiHelperModalLabel" aria-hidden="true">
   <div class="modal-dialog">
-    <div class="modal-content bg-dark text-light">
-      <div class="modal-header border-secondary">
+    <div class="modal-content">
+      <div class="modal-header">
         <h5 class="modal-title" id="aiHelperModalLabel">
           <i class="bi bi-magic me-2"></i>
           <span data-lang="zh">SQL 小幫手</span>
           <span data-lang="en" class="d-none">SQL Helper</span>
           <span data-lang="ja" class="d-none">SQL ヘルパー</span>
         </h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <label for="aiQueryInput" class="form-label">
@@ -481,7 +481,7 @@
           <span data-lang="en" class="d-none">Enter your query (max 80 characters):</span>
           <span data-lang="ja" class="d-none">クエリを入力（最大80文字）：</span>
         </label>
-        <input type="text" id="aiQueryInput" class="form-control bg-dark text-light border-secondary" maxlength="80"
+        <input type="text" id="aiQueryInput" class="form-control" maxlength="80"
                placeholder="例：唱最多的歌、2024年唱過幾次夜に駆ける">
         <div class="form-text text-muted mt-2">
           <span data-lang="zh">例如：唱最多的歌、2024年唱過幾次夜に駆ける、各年前10名</span>

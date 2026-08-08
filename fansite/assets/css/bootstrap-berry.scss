@@ -1,0 +1,35 @@
+/*!
+ * Bootstrap 5.3 SCSS 客製編譯 — 苺咲べりぃ主題（亮暗雙主題）
+ *
+ * 官方客製路線：先覆蓋 Sass 變數再 @import bootstrap，hover/focus ring/
+ * subtle/emphasis 等衍生色全部由源頭自動生成（免逐項覆寫硬編值）。
+ * 色彩依官方 logo/symbol 取樣（見 theme-berry.css 檔頭說明）：
+ *   primary  = 草莓紅 #E24368（logo 主字色 #E03058 提亮）
+ *   亮色主題 = 草莓牛奶（淡粉白底＋深莓棕文字＋深草莓連結）
+ *   暗色主題 = 暗莓（hue≈335° 低飽和深底＋徽章粉連結）
+ *
+ * 編譯：npm run build:bootstrap（產物 bootstrap-berry.css 進 git，
+ * 與 tabulator-bootstrap5-custom.css 同慣例，CI 無需裝 sass）
+ */
+
+// ── 共用 ──────────────────────────────────────────────────────────
+$primary: #e24368;
+
+// ── 亮色主題（預設）：草莓牛奶 ────────────────────────────────────
+$body-bg: #fcf4f6;
+$body-color: #3b2b31;
+$body-secondary-bg: #f4e0e7;
+$body-tertiary-bg: #f8eaef;
+$border-color: #e7cdd6;
+$link-color: #c92a5c;
+
+// ── 暗色主題：暗莓（沿用第一版覆寫層的實測值） ────────────────────
+$body-bg-dark: #261a21;
+$body-color-dark: #dee2e6;
+$body-secondary-bg-dark: #3c2a34;
+$body-tertiary-bg-dark: #302129;
+$border-color-dark: #4f3b46;
+$link-color-dark: #f193ab;
+$link-hover-color-dark: #f6b3c5;
+
+@import "bootstrap/scss/bootstrap";

@@ -18,7 +18,9 @@ import {
 } from 'idb-keyval'
 
 // Local CSS imports (bundled)
-import 'bootstrap/dist/css/bootstrap.min.css'
+// Bootstrap 改用 SCSS 客製編譯版（bootstrap-berry.scss → npm run build:bootstrap），
+// 主題色與亮暗雙主題變數都在編譯期生成，不再吃官方預編譯 min.css
+import '../css/bootstrap-berry.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
 import 'select2/dist/css/select2.min.css'
 import '@fancyapps/ui/dist/fancybox/fancybox.css'
@@ -274,6 +276,9 @@ function buildNavFromConfig(config) {
       <ul class="navbar-nav">${leftItems}</ul>
       <ul class="navbar-nav flex-row flex-wrap ms-md-auto">
         ${rightItems}
+        <li class="nav-item d-flex align-items-center">
+          <a class="nav-link" href="#" id="themeToggle" role="button" aria-label="Toggle theme"><i class="bi ${document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'bi-sun' : 'bi-moon-stars'}"></i></a>
+        </li>
         <li class="nav-item d-flex align-items-center">${buildLangSwitch()}</li>
       </ul>
     </div>
@@ -308,6 +313,15 @@ $(()=>{
     $('.setContent').on('click', (e) => {
       e.preventDefault()
       setContent(e.target.pathname, true)
+    })
+
+    // 主題切換鈕：亮⇄暗、localStorage 記憶（theme-init.js 開頁時讀取套用）
+    $('#themeToggle').on('click', (e) => {
+      e.preventDefault()
+      const next = document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark'
+      document.documentElement.setAttribute('data-bs-theme', next)
+      try { localStorage.setItem('theme', next) } catch { /* 隱私模式寫入失敗時僅本頁生效 */ }
+      $('#themeToggle i').attr('class', next === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars')
     })
 
     // Attach language dropdown handler
@@ -824,19 +838,19 @@ $(()=>{
     // This eliminates duplicate requests (previously $.ajax() + Tabulator's ajaxURL)
     if(process=='setlist' || process=='streamlist' || process=='songlist' || process=='aliases'){
       let c = `
-            <button id='reloadBtn' class='btn btn-outline-light' data-disable-on-loading="true">
+            <button id='reloadBtn' class='btn btn-outline-secondary' data-disable-on-loading="true">
               <span class="loading-indicator spinner-border spinner-border-sm me-2" style="display: none;"></span>
               ${t('重新載入', 'Reload Data', 'リロード')}
             </button>
-            <button id='edit' class='btn btn-outline-light' data-bs-toggle="button">${t('編輯模式', 'Edit Mode', '編集モード')}</button>
-            <button id='`+ (process=='streamlist'?'addStreamRow':(process=='aliases'?'addAlias':'addRow')) + `' class='btn btn-outline-light addRow' disabled>${t('新增列', 'Add Row', '行追加')}</button>` +
-            (process=='aliases'?`<button id='batchAddAliases' class='btn btn-outline-light addRow' disabled>📦 ${t('批次新增', 'Batch Add', '一括追加')}</button>
-            <button id='testAlias' class='btn btn-outline-light'>🧪 ${t('測試別名', 'Test Alias', 'エイリアステスト')}</button>`:'') +
-            `<button id='deleteRow' class='btn btn-outline-light'>${t('刪除列', 'Delete Row', '行削除')}</button>
-            <button id='dlcsv' class='btn btn-outline-light'>${t('下載 CSV', 'Get CSV', 'CSV取得')}</button>
-            <button id='dljson' class='btn btn-outline-light'>${t('下載 JSON', 'Get JSON', 'JSON取得')}</button>`
+            <button id='edit' class='btn btn-outline-secondary' data-bs-toggle="button">${t('編輯模式', 'Edit Mode', '編集モード')}</button>
+            <button id='`+ (process=='streamlist'?'addStreamRow':(process=='aliases'?'addAlias':'addRow')) + `' class='btn btn-outline-secondary addRow' disabled>${t('新增列', 'Add Row', '行追加')}</button>` +
+            (process=='aliases'?`<button id='batchAddAliases' class='btn btn-outline-secondary addRow' disabled>📦 ${t('批次新增', 'Batch Add', '一括追加')}</button>
+            <button id='testAlias' class='btn btn-outline-secondary'>🧪 ${t('測試別名', 'Test Alias', 'エイリアステスト')}</button>`:'') +
+            `<button id='deleteRow' class='btn btn-outline-secondary'>${t('刪除列', 'Delete Row', '行削除')}</button>
+            <button id='dlcsv' class='btn btn-outline-secondary'>${t('下載 CSV', 'Get CSV', 'CSV取得')}</button>
+            <button id='dljson' class='btn btn-outline-secondary'>${t('下載 JSON', 'Get JSON', 'JSON取得')}</button>`
             + (process=='setlist'?`
-            <label class="btn btn-outline-light ms-2" style="font-size: 0.85em;">
+            <label class="btn btn-outline-secondary ms-2" style="font-size: 0.85em;">
               <input type="checkbox" id="toggleTimestamp" class="form-check-input me-1">
               ${t('時間戳', 'Timestamp', 'タイムスタンプ')}
             </label>`:'')
@@ -848,7 +862,7 @@ $(()=>{
             </div>`:'') +
             `<div id='setTableMsg' class='p-3'>&emsp;</div>
             <!-- 進階搜尋區塊 -->
-            <div id="advancedSearch" class="card bg-dark mb-3 w-100">
+            <div id="advancedSearch" class="card bg-body-tertiary mb-3 w-100">
               <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#searchBody">
                 <span><i class="bi bi-search me-2"></i>${t('進階搜尋', 'Advanced Search', '詳細検索')}</span>
                 <i class="bi bi-chevron-down"></i>
