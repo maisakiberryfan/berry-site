@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-08T09:10:00+08:00",
+  "time": "2026-08-08T12:50:00+08:00",
   "msg": {
-    "zh": "新增苺咲べりぃ主題色（依官方 logo 草莓粉紅配色）",
-    "en": "New Maisaki Berry theme colors (strawberry pink, based on official logo)",
-    "ja": "苺咲べりぃテーマカラーを追加（公式ロゴのいちごピンク配色）"
+    "zh": "新增苺咲べりぃ主題色與亮暗雙主題（右上角可切換，依官方 logo 草莓配色）",
+    "en": "New Maisaki Berry theme with light/dark modes (toggle at top right, strawberry palette from official logo)",
+    "ja": "苺咲べりぃテーマカラー＋ライト/ダークモード追加（右上で切替、公式ロゴのいちご配色）"
   }
 }

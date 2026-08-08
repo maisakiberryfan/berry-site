@@ -6,8 +6,9 @@
     "dev": "npx wrangler pages dev ./",
     "clean": "rimraf assets/dist",
     "build:tabulator": "sass --load-path=node_modules assets/css/tabulator-bootstrap5-custom.scss assets/css/tabulator-bootstrap5-custom.css",
+    "build:bootstrap": "sass --load-path=node_modules --style=compressed --no-source-map --quiet-deps --silence-deprecation=import assets/css/bootstrap-berry.scss assets/css/bootstrap-berry.css",
     "build:js": "npm run clean && esbuild assets/js/tool.js --bundle --splitting --format=esm --target=es2022 --minify --sourcemap --outdir=assets/dist --chunk-names=chunks/[name]-[hash] --loader:.css=css --loader:.woff=file --loader:.woff2=file --log-level=info",
-    "build": "npm run build:tabulator && npm run build:js",
+    "build": "npm run build:bootstrap && npm run build:tabulator && npm run build:js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

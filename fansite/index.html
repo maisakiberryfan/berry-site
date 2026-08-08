@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html data-bs-theme="dark">
+<html data-bs-theme="light">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>苺咲べりぃ非公式倉庫 | Maisaki Berry Unofficial Archive</title>
+	<!-- 同步載入（無 defer）：首繪前套用使用者主題偏好，避免亮暗閃爍 -->
+	<script src="/assets/js/theme-init.js"></script>
 	<link rel="stylesheet" href="/assets/dist/tool.css">
 	<link rel="icon" type="image/x-icon" href="/favicon.ico">
 	<script type="module" defer src="/assets/dist/tool.js"></script>
@@ -86,10 +88,10 @@
 			max-width: 100%;
 		}
 
-		/* Context Menu Styles */
+		/* Context Menu Styles（跟隨主題：亮色亮底、暗色暗底） */
 		.context-menu {
 			position: fixed;
-			background: var(--bs-dark);
+			background: var(--bs-body-bg);
 			border: 1px solid var(--bs-border-color);
 			border-radius: 4px;
 			box-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -101,7 +103,7 @@
 		.context-menu-item {
 			padding: 10px 16px;
 			cursor: pointer;
-			color: var(--bs-light);
+			color: var(--bs-body-color);
 			display: flex;
 			align-items: center;
 			gap: 8px;
@@ -109,6 +111,7 @@
 
 		.context-menu-item:hover {
 			background: var(--bs-primary);
+			color: #fff;
 		}
 
 		.context-menu-divider {

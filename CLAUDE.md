@@ -62,13 +62,27 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 ## 前端（fansite/）
 
 ### 技術棧
-- jQuery 3.7.1 + Bootstrap 5.3.3（深色主題）
+- jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
 - Tabulator 6.4.0 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
 - DuckDB-WASM（Analytics）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
 - 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
-- 主題色：`assets/css/theme-berry.css` 覆寫 Bootstrap 變數（primary=草莓紅 `#E24368`、連結=徽章粉 `#F193AB`、葉綠僅 navbar 漸層線點綴；背景階層整組換暗莓色 `#261A21` 系＋body::before 兩角光暈、`.table-dark` 條紋粉 tint）；色碼取樣自官方 logo/symbol（`img/profile/`），bundle 順序必須排在 bootstrap 與 tabulator CSS 之後
+
+### 主題色系統（苺咲べりぃ配色，色碼取樣自官方 logo/symbol @ `img/profile/`）
+- `assets/css/bootstrap-berry.scss`：**官方 Sass 變數覆蓋路線**（先設 `$primary`/`$body-bg`/
+  `$*-dark` 再 `@import bootstrap`），primary=草莓紅 `#E24368`，衍生色（hover/focus ring/
+  subtle/emphasis）編譯期自動生成。亮色主題=草莓牛奶（`#FCF4F6` 底＋深草莓連結）為**預設**；
+  暗色主題=暗莓（`#261A21` 系＋徽章粉連結 `#F193AB`）。產物 `bootstrap-berry.css` **進 git**
+  （同 tabulator 慣例，CI 只跑 build:js 不重編）——改 scss 後必須 `npm run build:bootstrap`
+- `assets/css/theme-berry.css`：裝飾層（navbar 漸層線＋brand 色、兩角光暈、h2 hairline、
+  `.table-dark` 硬編色跟隨主題、Tabulator 表頭底線/編輯格、工具列按鈕暗色提亮）；
+  bundle 順序必須排在 bootstrap-berry 與 tabulator CSS 之後
+- `assets/js/theme-init.js`：head 內**同步** script（CSP 禁 inline 故獨立成檔），首繪前套用
+  localStorage 主題偏好防閃爍；支援 `?theme=light|dark` 測試 override（不落地）。
+  navbar 切換鈕（`#themeToggle`）寫 localStorage
+- ⚠️ 新增 UI 勿硬編亮/暗前提 class（`btn-outline-light`、`bg-dark text-light`、
+  `table-dark` 例外——表格容器沿用它但變數已跟隨主題），一律用主題自適應變數/元件
 
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
@@ -83,7 +97,9 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 
 ### 建置
 ```bash
-cd fansite && npm run build:js   # esbuild bundle → assets/dist/
+cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI 跑這個）
+cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
+cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 ```
 
 ---
@@ -327,7 +343,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
-| v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：草莓粉紅覆寫層 theme-berry.css（primary/連結/表單 focus/navbar 漸層線/表頭底線/h2 點綴）＋背景整組換暗莓色階（body/tertiary/secondary/border/.table-dark 條紋）與兩角光暈，色碼取樣自官方 logo・symbol |
+| v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：Bootstrap 改 SCSS 客製編譯（bootstrap-berry.scss，官方 Sass 變數路線），亮=草莓牛奶（預設）／暗=暗莓雙主題＋navbar 切換鈕（theme-init.js 防閃）；裝飾層 theme-berry.css（navbar 漸層線/光暈/h2 hairline/表頭底線）；硬編暗色 class 清理（btn-outline-light、bg-dark modal），色碼取樣自官方 logo・symbol |
 | v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |
 | v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
 | v3.3 | 2026-06-13 | 歌單辨識大修：挑留言防護（cooldown/佔比/熔斷）、matcher 精度（序號感知/EN 欄位/格式解析）、alias 綁 songID、webhook 驗證＋非同步化 |
