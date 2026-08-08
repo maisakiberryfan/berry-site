@@ -34,6 +34,47 @@
   --bs-link-hover-color: var(--berry-link-hover);
   --bs-link-hover-color-rgb: var(--berry-link-hover-rgb);
   --bs-focus-ring-color: rgba(var(--berry-primary-rgb), 0.25);
+
+  /* 背景階層：中性深灰 → 暗莓色（hue ≈335°、低飽和，維持深色站閱讀舒適度）。
+     modal/card/dropdown/Tabulator/Select2 都引用這幾個變數，改這裡即全站生效 */
+  --bs-body-bg: #261a21;
+  --bs-body-bg-rgb: 38, 26, 33;
+  --bs-tertiary-bg: #302129;        /* navbar (bg-body-tertiary)、卡片 cap */
+  --bs-tertiary-bg-rgb: 48, 33, 41;
+  --bs-secondary-bg: #3c2a34;       /* Select2 chips、disabled 欄位 */
+  --bs-secondary-bg-rgb: 60, 42, 52;
+  --bs-border-color: #4f3b46;       /* 帶粉的邊框灰 */
+  --bs-dark: #2b1e26;               /* .bg-dark 卡片、context menu */
+  --bs-dark-rgb: 43, 30, 38;
+
+  /* 藍色系殘留（primary 衍生色）一併轉粉 */
+  --bs-primary-text-emphasis: var(--berry-link);
+  --bs-primary-bg-subtle: #33101c;
+  --bs-primary-border-subtle: #7d2540;
+}
+
+/* 兩角光暈：右上草莓粉、左下葉綠（呼應 navbar 漸層兩端）。
+   畫在 body 背景色之上、內容之下（負 z-index 子層），position:fixed
+   捲動不跟動；iOS 對 background-attachment:fixed 支援差，故不用那招 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 520px at 88% -8%, rgba(226, 67, 104, 0.11), transparent 62%),
+    radial-gradient(900px 460px at -6% 106%, rgba(69, 179, 132, 0.06), transparent 58%);
+}
+
+/* .table-dark 整套硬編中性灰（#212529/#2c3034/#323539）改吃變數＋粉 tint 條紋；
+   Tabulator 自訂層的 row/striped/hover 都讀這幾個 --bs-table-* 變數 */
+.table-dark {
+  --bs-table-bg: var(--bs-body-bg);
+  --bs-table-border-color: var(--bs-border-color);
+  --bs-table-striped-bg: rgba(var(--berry-pink-rgb), 0.05);
+  --bs-table-hover-bg: rgba(var(--berry-pink-rgb), 0.09);
+  --bs-table-active-bg: rgba(var(--berry-pink-rgb), 0.12);
 }
 
 /* ── 按鈕 ─────────────────────────────────────────────────────── */

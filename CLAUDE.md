@@ -68,7 +68,7 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
 - 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
-- 主題色：`assets/css/theme-berry.css` 覆寫 Bootstrap 變數（primary=草莓紅 `#E24368`、連結=徽章粉 `#F193AB`、葉綠僅 navbar 漸層線點綴）；色碼取樣自官方 logo/symbol（`img/profile/`），bundle 順序必須排在 bootstrap 與 tabulator CSS 之後
+- 主題色：`assets/css/theme-berry.css` 覆寫 Bootstrap 變數（primary=草莓紅 `#E24368`、連結=徽章粉 `#F193AB`、葉綠僅 navbar 漸層線點綴；背景階層整組換暗莓色 `#261A21` 系＋body::before 兩角光暈、`.table-dark` 條紋粉 tint）；色碼取樣自官方 logo/symbol（`img/profile/`），bundle 順序必須排在 bootstrap 與 tabulator CSS 之後
 
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
@@ -327,7 +327,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
-| v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：草莓粉紅覆寫層 theme-berry.css（primary/連結/表單 focus/navbar 漸層線/表頭底線/h2 點綴），色碼取樣自官方 logo・symbol |
+| v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：草莓粉紅覆寫層 theme-berry.css（primary/連結/表單 focus/navbar 漸層線/表頭底線/h2 點綴）＋背景整組換暗莓色階（body/tertiary/secondary/border/.table-dark 條紋）與兩角光暈，色碼取樣自官方 logo・symbol |
 | v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |
 | v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
 | v3.3 | 2026-06-13 | 歌單辨識大修：挑留言防護（cooldown/佔比/熔斷）、matcher 精度（序號感知/EN 欄位/格式解析）、alias 綁 songID、webhook 驗證＋非同步化 |
