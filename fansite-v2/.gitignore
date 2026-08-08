@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# 資料快照為 build 產物（npm run snapshot 生成；正式 CI 應在 build 前執行）
+public/data/
