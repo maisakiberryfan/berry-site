@@ -544,6 +544,48 @@ $(()=>{
   }
 
   // ============================================
+  // CDN 靜態快照（/data/*.json）
+  // ============================================
+  // 首訪載入的三層瀑布：IndexedDB 快取 →（無快取則）CDN 快照 → API 增量校正。
+  // 快照由 scripts/fetch-snapshot.mjs 在部署時向正式 API 產生，跟著靜態檔上
+  // CloudFront／Workers Assets，由 edge 直出——首訪不必等 Lambda 查 DB。
+  // 快照必然落後（上一次部署之後的編輯不在裡面），這是設計的一部分：灌進來之後照樣走
+  // 既有的 manifest 指紋／ETag 比對，過時的部分會被判定為變更並由 API 校正。
+  // 任何失敗（404、網路錯、SPA fallback 回 HTML 導致 JSON 解析失敗）一律回 null，
+  // 呼叫端無縫退回原本的 API 路徑。
+  const SNAPSHOT_BASE = '/data'
+  // 整包表的快照檔（setlist 是月度結構，另由 primeSetlistFromSnapshot 處理）
+  const SNAPSHOT_FILES = { songlist: 'songlist.json', streamlist: 'streamlist.json' }
+
+  async function fetchSnapshot(file) {
+    try {
+      // cache: 'default'——快照是純靜態檔，讓瀏覽器 HTTP 快取照常運作
+      // （API 那側才需要 no-store，因為 ETag 校驗由我們自己用 If-None-Match 做）
+      const res = await fetch(`${SNAPSHOT_BASE}/${file}`, { cache: 'default' })
+      if (!res.ok) return null
+      return await res.json()
+    } catch (e) {
+      console.warn(`[Snapshot] ${file} 取得失敗（改走 API）:`, e.message || e)
+      return null
+    }
+  }
+
+  // 併發上限版的 map：setlist 月度快照有 70+ 個檔，一次全發會塞滿瀏覽器的連線佇列
+  // （且讓後續的 manifest 校正排在最後面）；6 條足以吃滿 HTTP/2 又不失控
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length)
+    let cursor = 0
+    const worker = async () => {
+      while (cursor < items.length) {
+        const i = cursor++
+        out[i] = await fn(items[i], i)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+    return out
+  }
+
+  // ============================================
   // setlist 月度增量同步
   // 後端 /api/setlist/manifest 回每月 {month, count, maxUpdated}，
   // 前端按月存快取、只重抓指紋變更的月份（整月替換，刪除/舊資料回改都被涵蓋）
@@ -587,6 +629,40 @@ $(()=>{
     return rows.length
   }
 
+  // 首訪（IDB 無快取）用 CDN 快照灌 setlist：manifest 快照給月份清單與指紋，
+  // 逐月快照給資料。回傳與 getCache 同形狀的 { data: { months, fingerprints }, etag }，
+  // 讓 syncSetlistTable 之後的流程完全照既有的「有快取」路徑走。
+  // etag 刻意為 null：快照沒有 ETag，不帶 If-None-Match 必然拿 200 全 manifest，
+  // 指紋一比就知道快照哪幾個月過時（帶假 etag 反而可能 304 短路、把過時資料鎖死）。
+  // 全部月份都抓不到（無快照部署／CDN 未更新）時回 null，呼叫端退回原本的 API 首訪路徑。
+  async function primeSetlistFromSnapshot() {
+    const t0 = performance.now()
+    const mani = await fetchSnapshot('manifest.json')
+    if (!mani || !Array.isArray(mani.months) || mani.months.length === 0) return null
+
+    const version = mani.version || 'v1'
+    const files = await mapLimit(mani.months, 6, (entry) =>
+      fetchSnapshot(entry.month === 'none' ? 'setlist-none.json' : `setlist-${entry.month}.json`))
+
+    const months = {}
+    const fingerprints = {}
+    let missing = 0
+    mani.months.forEach((entry, i) => {
+      const rows = files[i]
+      if (!Array.isArray(rows)) { missing++; return }
+      months[entry.month] = rows
+      // 指紋只給「真的抓到的月份」——缺的月不寫指紋，之後與 API manifest 比對必然
+      // 判定為變更並重抓（同 readMonthly 缺件自癒的邏輯）
+      fingerprints[entry.month] = `${version}|${entry.count}|${entry.maxUpdated}`
+    })
+    const got = Object.keys(months).length
+    if (got === 0) return null
+
+    const rows = Object.values(months).reduce((s, r) => s + r.length, 0)
+    console.log(`[Snapshot] setlist 快照命中 ${got} 個月 / ${rows} 筆${missing ? `（${missing} 個月缺檔，將由 API 補）` : ''}，${Math.round(performance.now() - t0)}ms`)
+    return { data: { months, fingerprints }, etag: null, timestamp: null }
+  }
+
   // 延遲顯示的同步指示（304 在 1.5s 內完成則永不出現；真的要抓資料才會亮）
   // owner：發起同步時的頁面——回調觸發或清除時使用者已換頁就不觸碰 #setTableMsg
   function startSyncIndicator(owner) {
@@ -615,8 +691,8 @@ $(()=>{
     _setlistSyncBusy = true
     const endIndicator = startSyncIndicator('setlist')
     try {
-      const cached = opts.cached !== undefined ? opts.cached : await getCache('setlist')
-      const hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
+      let cached = opts.cached !== undefined ? opts.cached : await getCache('setlist')
+      let hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
 
       // 表格重繪的統一入口：structuredClone 隔離表格與快取——Tabulator 的 time 欄
       // mutator 會就地改 row 物件（轉為本地顯示格式），共享參照會讓後續 setCache
@@ -626,6 +702,29 @@ $(()=>{
         _skipFilterClear = true
         jsonTable.replaceData(structuredClone(flattenMonths(months)))
         _skipFilterClear = false
+      }
+
+      // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時由當時的
+      // 表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
+      const rebuildHeaderFilters = () => {
+        if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(applyTimestampVisibility(jsonTable.getColumnDefinitions()))
+      }
+
+      // 三層瀑布第二層：IDB 無快取時先吃 CDN 靜態快照，灌完就當成「有快取」——
+      // 下面的 manifest 比對照常跑，快照過時的月份由指紋差異抓出來重抓，不另闢路徑。
+      // 快照缺席（未部署／404）時 primed 為 false，走下方原本的 API 首訪漸進載入。
+      if (!hasCache) {
+        const snap = await primeSetlistFromSnapshot()
+        if (snap) {
+          cached = snap
+          hasCache = true
+          endIndicator()   // 已有資料可看，延遲指示不必再亮
+          renderRows(snap.data.months)
+          rebuildHeaderFilters()
+          // 先落地一份：即使下面的 API 校正失敗（斷網等），下次開頁也能直接吃 IDB，
+          // 不必再拉 70+ 個快照檔。不 await——寫入是背景成本，不擋校正
+          setCache('setlist', snap.data, null).catch(console.warn)
+        }
       }
 
       const headers = (hasCache && cached.etag) ? { 'If-None-Match': cached.etag } : {}
@@ -674,11 +773,6 @@ $(()=>{
         const recent = monthKeys.slice(0, 12)
         const rest = monthKeys.slice(12)
         endIndicator()  // 首訪用自己的常駐提示，不用延遲 indicator
-        // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時
-        // 由當時的表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
-        const rebuildHeaderFilters = () => {
-          if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(applyTimestampVisibility(jsonTable.getColumnDefinitions()))
-        }
         if (recent.length === 0) {
           // 無任何真月份（空庫或只有不留檔場）
           if (maniSet.has('none')) await fetchNoneInto(monthsDict)
@@ -2735,17 +2829,34 @@ $(()=>{
     })
 
     // ============================================
-    // 快取優先載入機制（IndexedDB）
+    // 快取優先載入機制（IndexedDB → CDN 快照 → API）
     // setlist：月度結構（manifest 增量更新，見 syncSetlistTable）
     // 其他表：整包 + ETag（304 短路，見 backgroundFetchAndUpdate）
     // 這一份 cached 是本頁唯一一次快取讀取：往下同時餵給表格初始化、syncSetlistTable
     // 與 backgroundFetchAndUpdate（以前各自再讀一次，setlist 光解壓就多付 ~250ms）
     // ============================================
     const isSetlist = (p === 'setlist')
-    const cached = await getCache(p)
-    const hasCachedData = isSetlist
+    let cached = await getCache(p)
+    let hasCachedData = isSetlist
       ? !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
       : !!(cached?.data?.length > 0)
+
+    // 首訪（IDB 無快取）：先吃 CDN 靜態快照當初始資料，讓表格立刻有東西可看，
+    // 校正交給下面既有的 backgroundFetchAndUpdate（etag 為 null → 必然拿 200 全量比對）。
+    // 快照缺席時 cached 維持 null，Tabulator 照舊用 ajaxURL 直接打 API。
+    // setlist 不走這裡——它的快照是月度結構，與 manifest 指紋一起在 syncSetlistTable 灌入
+    let fromSnapshot = false
+    if (!hasCachedData && !isSetlist && SNAPSHOT_FILES[p]) {
+      const rows = await fetchSnapshot(SNAPSHOT_FILES[p])
+      if (Array.isArray(rows) && rows.length > 0) {
+        // 形狀與 getCache 一致，讓下游（初始化、背景校正）不必分辨資料從哪來；
+        // etag 為 null——靜態快照沒有 ETag，不能拿去 If-None-Match
+        cached = { data: rows, etag: null, timestamp: null }
+        hasCachedData = true
+        fromSnapshot = true
+        console.log(`[Snapshot] ${p} 快照命中 ${rows.length} 筆`)
+      }
+    }
 
     const tabulatorConfig = {
       height:700,
@@ -2779,12 +2890,15 @@ $(()=>{
     // structuredClone 隔離表格與快取：Tabulator 的 time 欄 mutator 會就地改 row 物件
     // （轉本地顯示格式），共享參照會讓 cached 被污染 —— 之後 setCache 存進壞掉的 time、
     // backgroundFetchAndUpdate 的差異比對也會全部誤判（同 syncSetlistTable 的 renderRows）
+    // 註：tabulatorConfig.data 一旦有值，Tabulator 就不會用 ajaxURL 自動抓
+    //（Ajax 模組只在「無 data」時接手），所以快照初始化不會多發一次 API 請求
     if (hasCachedData) {
       const rowCount = isSetlist ? null : cached.data.length
       tabulatorConfig.data = structuredClone(isSetlist ? flattenMonths(cached.data.months) : cached.data)
-      console.log(`[Cache] 使用快取資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
+      console.log(`[${fromSnapshot ? 'Snapshot' : 'Cache'}] 使用${fromSnapshot ? '快照' : '快取'}資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
     } else {
-      console.log(`[Cache] 無快取，從 API 載入 ${p}`)
+      // setlist 的快照在 syncSetlistTable 裡才灌（要跟 manifest 指紋一起），這裡尚未確定來源
+      console.log(`[Cache] 無快取，${isSetlist ? '交由同步流程載入' : '從 API 載入'} ${p}`)
     }
 
     jsonTable = new Tabulator("#tb", tabulatorConfig)

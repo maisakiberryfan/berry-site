@@ -88,6 +88,16 @@ jobs:
           echo "bucket=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`FansiteBucketName`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
           echo "cf_dist=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
 
+      # CDN 靜態快照（fansite/data/*.json）：首訪三層瀑布的第二層，內容取自剛部署完的正式 API
+      # （刻意排在 sam build／deploy 之後：CodeUri 是 repo 根，先產快照會被打包進 Lambda；
+      #   且部署後才抓 = 快照與新版 API 的輸出格式一致）。
+      # continue-on-error——抓不完整就跳過下面的快照同步，S3 上既有的舊快照原地保留；
+      # 快照過時只是首訪多校正幾個月份，擋住整個部署才是更糟的失敗模式
+      - name: Build CDN snapshot
+        id: snapshot
+        continue-on-error: true
+        run: npm run snapshot
+
       # Sync fansite static files to S3
       - name: Sync fansite to S3
         run: |
@@ -96,6 +106,7 @@ jobs:
             --size-only \
             --cache-control "public, max-age=86400" \
             --exclude "node_modules/*" \
+            --exclude "data/*" \
             --exclude "package.json" \
             --exclude "package-lock.json" \
             --exclude "*.scss" \
@@ -117,6 +128,18 @@ jobs:
             --include "config.js" \
             --include "changelog.json" \
             --exclude "node_modules/*"
+
+      # CDN 快照獨立一輪（上一輪已用 --exclude "data/*" 讓開，含 --delete 的刪除判定也不涉及它）：
+      #   max-age=300  預設的 86400 會讓瀏覽器黏住舊快照一整天（CloudFront 端有
+      #                invalidation，但瀏覽器沒有）；快照的意義就是「跟得上最近一次部署」
+      #   不加 --size-only  月度快照常出現同大小的內容變更（改一個字），只比大小會漏傳
+      #   --delete     清掉 manifest 已不存在的舊月份檔
+      - name: Sync CDN snapshot to S3
+        if: steps.snapshot.outcome == 'success'
+        run: |
+          aws s3 sync fansite/data/ s3://${{ steps.stack.outputs.bucket }}/data/ \
+            --delete \
+            --cache-control "public, max-age=300"
 
       # Invalidate CloudFront cache for updated files
       - name: Invalidate CloudFront
