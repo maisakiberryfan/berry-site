@@ -18,7 +18,7 @@
  */
 
 import { escapeHtml } from '../../config.js'
-import { buildDataset, indexSongs, indexStreams } from './analytics/dataset.js'
+import { buildDataset, indexSongs, indexStreams, toLocalWallClock } from './analytics/dataset.js'
 import { exampleQueries, COLUMN_REFERENCE, TABLE_NAME } from './analytics/queries.js'
 import {
   FIELDS,
@@ -144,9 +144,13 @@ function hasKaraoke(categories) {
   return typeof categories === 'string' && categories.includes('歌枠')
 }
 
-/** time（ISO UTC 字串）→ 'YYYY-MM'；不留檔場（time 為 null）不計入趨勢 */
+/** time（ISO UTC 字串）→ 瀏覽器時區的 'YYYY-MM'；不留檔場（time 為 null）不計入趨勢。
+ *  與查詢寬表的 month 欄同一套本地時區語意（用戶指正 2026-08-09）——原版直接切
+ *  UTC 字串，跨日深夜場在每月 1 號凌晨會被算進前一個月，跟查詢結果對不上。
+ *  代價是統計桶與後端 manifest 的 UTC 月度分段不再可直接對帳（僅影響開發者除錯） */
 function monthKeyOf(time) {
-  return typeof time === 'string' && time.length >= 7 ? time.slice(0, 7) : null
+  const local = toLocalWallClock(time)
+  return local ? local.slice(0, 7) : null
 }
 
 function monthsEndingAt(end, count) {
