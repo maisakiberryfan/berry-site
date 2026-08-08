@@ -115,7 +115,7 @@ cd fansite && npm install && cd ..
 npm run dev          # http://localhost:8787
 
 # Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑）
-# 先開 tunnel：ssh -N -L 13307:127.0.0.1:8081 <db-host>
+# 需先建立通往 DB 的 ssh tunnel（連線細節見本地維運文件，不在 repo 內）
 node --env-file=.env.dev entry-dev.js   # http://localhost:8788
 
 # AWS 路徑（SAM local）
