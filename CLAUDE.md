@@ -140,10 +140,35 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 - **已移除**：AI「SQL 小幫手」（`/api/text-to-sql`、`ai_usage` 預算表、`ANTHROPIC_API_KEY`）
   與 DuckDB-WASM；CSP 兩側同步移除 `cdn.jsdelivr.net`、`sqldata.m-b.win`
 
+### 表格快速搜尋語法（`欄位:值`；2026-08-09 由 fansite-v2 移植）
+
+四張表頁（songlist/streamlist/setlist/aliases）的「進階搜尋」卡片首列＝**快速搜尋框**，
+即時過濾（200ms debounce、IME 組字中不觸發、Enter 立即套用）。
+
+- **語法本體**：`fansite/assets/js/table-search.js`（`tokenize` / `buildHaystack` /
+  `matchesQuery` 三支純函式＋四表的 `SEARCH_SPECS`）。空白分隔＝AND、引號括住含空白的值、
+  全形冒號「：」／全形空白／彎引號一併吃、`欄位:*`＝該欄不為空
+- **關鍵設計**：欄位名比不到別名表時，**整個 token（含冒號）退回全文比對**——
+  時間「12:34」不會被誤拆成 `12` 欄位。別名表以 `hasOwnProperty` 把關
+  （`constructor:x` 這類 key 會撈到 Object.prototype 成員，直接用會炸）
+- **別名表三語都收**（`曲名`/`song`/`曲名`、`歌手`/`artist`/`アーティスト`…），key 一律小寫；
+  雙語欄（曲名/歌手）同時比日文與英文欄，與各表 headerFilterFunc 既有行為一致
+- ⚠️ **取值對象是 Tabulator 的列資料（已過 mutator）**：setlist/streamlist 的 `time`
+  是 `'YYYY/MM/DD HH:mm'` 本地字串（不是 ISO），不留檔場（time NULL）會是 `'Invalid Date'`。
+  日期一律走 `dateText()`（同時吐斜線與短橫線兩版、`Invalid Date` 視同空）
+- **與多欄運算子搜尋並存**：兩者狀態各自維護，最後由 `applyTableFilters()` 併成單一
+  custom filter 送 `setFilter`。Tabulator 的 `setFilter` 會整組取代既有程式化 filter，
+  **兩邊各自呼叫必定互相清掉**——新增任何程式化篩選都必須走這個出口。
+  headerFilter 是另一組，Tabulator 自己 AND 起來，不受影響
+- 條件全空時用 `clearFilter()`（不帶 `true`）：帶 `true` 會連 headerFilter 一起清掉，
+  刪空搜尋框不該連欄頭篩選一起沒。整組清空由「清除」鈕與「重新載入」負責
+- 「?」說明面板為 Bootstrap collapse 的宣告式 `data-bs-toggle`（無 inline script，CSP 相容），
+  三語走 `data-lang` 區塊；範例可點擊直接套用，**值取自實際資料**（點下去不會 0 筆）
+
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
 - 即時編輯：Tabulator inline editing + API 同步
-- 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋
+- 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋 + 快速搜尋語法（見上節）
 - SPA 路由：`setContent(path)` + `history.pushState`
 
 ### ⚠️ SPA 路由同步
@@ -405,6 +430,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.9 | 2026-08-09 | 表格快速搜尋語法（由 fansite-v2 移植）：四張表頁的進階搜尋卡片首列新增快速搜尋框，支援 `欄位:值`（三語別名表）、引號值、全形冒號／空白／彎引號、`欄位:*`＝非空、空白分隔 AND；認不得的欄位名整串退回全文比對（`12:34` 不誤拆）；「?」語法說明面板（三語＋可點擊套用的範例）；與既有多欄運算子搜尋並存（統一 `applyTableFilters()` 出口合併送 `setFilter`），刪空搜尋框不再誤清 headerFilter |
 | v3.8 | 2026-08-09 | Analytics 重寫（由 fansite-v2 移植）：新增統計面板（統計卡＋Top20 曲／Top10 歌手／24 月趨勢，純 JS 聚合既有快取、毫秒級零下載）＋自繪 SVG 圖表；查詢改「選取式建構器」（值全 bind、LIKE 加 ESCAPE）；進階 SQL 引擎 DuckDB-WASM→self-host sql.js；**text-to-sql（AI SQL 助手）全鏈移除**（前端 modal／`/api/text-to-sql`／預算控制／`ANTHROPIC_API_KEY`）；parquet 管線退役 ⇒ CSP 兩側移除 cdn.jsdelivr.net、sqldata.m-b.win，worker-src 收回 'self' |
 | v3.7 | 2026-08-09 | CDN 靜態快照資料層（由 fansite-v2 移植）：首訪改「IDB → /data/*.json 快照 → API 增量校正」三層瀑布，setlist 首訪由三段式 API 抓取（4 發、秒級）降為快照灌入＋僅重抓指紋變更的月份；快照由 `npm run snapshot` 於 CI 產生，AWS 側 max-age=300 獨立同步、CF 側隨 Static Assets 上傳；快照缺席無縫 fallback 原 API 路徑 |
 | v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：Bootstrap 改 SCSS 客製編譯（bootstrap-berry.scss，官方 Sass 變數路線），亮=草莓牛奶（預設）／暗=暗莓雙主題＋navbar 切換鈕（theme-init.js 防閃）；裝飾層 theme-berry.css（navbar 漸層線/光暈/h2 hairline/表頭底線）；硬編暗色 class 清理（btn-outline-light、bg-dark modal），色碼取樣自官方 logo・symbol |
