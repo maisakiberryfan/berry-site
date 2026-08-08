@@ -124,6 +124,20 @@ html[data-bs-theme="dark"] .tabulator:not(.thead-light) .tabulator-header {
   border-color: var(--berry-primary);
 }
 
+/* ── 表格雙語副標（英文/羅馬字第二行） ───────────────────────────
+   原為 formatter inline 硬編 color:#999（舊暗色站遺留）：亮版一般列
+   對比僅 ~2.8:1、選中列紅底上近乎不可讀（2026-08-08 用戶回報）。
+   改 class 後交給主題變數：一般態隨亮暗自適應，選中態提亮 */
+.cell-subtext {
+  font-size: 0.85em;
+  color: var(--bs-secondary-color);
+  margin-top: 2px;
+}
+
+.tabulator-row.tabulator-selected .cell-subtext {
+  color: rgba(255, 255, 255, 0.85);
+}
+
 /* ── 文字選取 ─────────────────────────────────────────────────────
    螢光筆式黃色（logo 圓點色 #F5D33F）＋深字：草莓紅 selection 會與
    .tabulator-selected 的紅底混同無法區分（2026-08-08 用戶回報），
