@@ -63,7 +63,8 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 
 ### 技術棧
 - jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
-- Tabulator 6.5.2 + Select2 4.1.0-rc.0（IME 支援，必須用 rc.0）
+- Tabulator 6.5.2 + Select2 4.1.0（IME 支援；4.0.13 組字有致命 bug 勿降版，
+  2026-08-08 由 rc.0 升正式版、日文組字全流程實測通過。**任何 Select2 升級都必須重測 IME**）
 - DuckDB-WASM（Analytics）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
@@ -294,7 +295,10 @@ cd fansite && npm run build:js
   （缺月 record）時 etag 回 null 停用 If-None-Match——帶舊 etag 會 304 短路擋死自癒路徑
 
 ### Select2 IME
-- 必須使用 **4.1.0-rc.0**（非 4.0.13）
+- 使用 **4.1.0**（2026-08-08 起；此前鎖 4.1.0-rc.0 五年）。4.0.13 的組字 bug 是底線，
+  任何版本變動都必須人工重測日文輸入（組字 Enter 兩段式、multiple textarea、Tab 行為）
+- cell editor 的 destroy 必須 defer（tool.js select2 editor 註解）：4.1.0 clear 流程
+  在 change 後還會 toggleDropdown，同步 destroy 會拋 dataAdapter null
 
 ### DB 連線
 - `database.js` 的 `ping()` 有 3 秒 timeout 保護

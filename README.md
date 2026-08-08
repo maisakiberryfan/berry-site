@@ -54,12 +54,14 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 
 - **後端**：Hono 4.13（雙入口：`entry-worker.js` / `entry-lambda.js`）+ mysql2
 - **前端**：jQuery 3.7 + Bootstrap 5.3（SCSS 客製編譯，苺主題亮暗雙模式）+
-  Tabulator 6.5 + Select2 4.1.0-rc.0（IME 支援，版本鎖定勿升）+ DuckDB-WASM
+  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ DuckDB-WASM
 - **建置**：esbuild（bundle）+ sass（Bootstrap / Tabulator 主題編譯，產物進 git）
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
 
 > 依賴升級原則：minor/patch 隨 `npm update` 跟進；jQuery 4（Select2 相容未驗）、
-> marked 18（major、低收益）暫緩，Select2 鎖 4.1.0-rc.0（IME 實測版本）。
+> marked 18（major、低收益）暫緩；Select2 任何升級都需人工重測 IME 組字；
+> DB driver 升級後需 grep 後端裸 `JSON.parse(DB 欄位)`（mysql2 3.23 曾因
+> JSON 欄位自動 parse 造成寫入路徑 500）。
 
 ## CI/CD
 
