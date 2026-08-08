@@ -161,7 +161,9 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - `songlist`：歌曲資訊
 - `streamlist`：直播資訊
 - `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist，YTLink 含 `?t=startTime`）
-  - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補
+  - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補；
+    亦可前端編輯模式直接編輯（timeEditor：h:mm:ss/m:ss/秒；PUT 驗證 null 或 0~360000，
+    與 fansite-v2 同一套 API 更新方法）
 - `aliases`：歌曲/歌手別名
   - title 別名可綁 `songID`（精準對應、同名異曲不互染）；artist 別名為字串表（跨曲共用，設計如此）
   - 快速新增別名（setlist 右鍵）title 模式自動帶 songID

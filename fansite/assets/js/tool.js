@@ -677,7 +677,7 @@ $(()=>{
         // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時
         // 由當時的表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
         const rebuildHeaderFilters = () => {
-          if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(jsonTable.getColumnDefinitions())
+          if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(applyTimestampVisibility(jsonTable.getColumnDefinitions()))
         }
         if (recent.length === 0) {
           // 無任何真月份（空庫或只有不留檔場）
@@ -1531,6 +1531,60 @@ $(()=>{
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }
 
+  // setlist startTime/endTime 輸入解析：空→null（清空）、純數字→秒、
+  // h:mm:ss / m:ss →秒、認不得→NaN。規則與 fansite-v2 的 parseHmsToSeconds
+  // 完全一致——兩站對同一 API 的更新方法必須相同
+  function parseHmsToSeconds(v) {
+    const s = String(v ?? '').trim()
+    if (!s) return null
+    if (/^\d+$/.test(s)) return Number(s)
+    const m = s.match(/^(?:(\d+):)?([0-5]?\d):([0-5]\d)$/)
+    if (!m) return NaN
+    const h = m[1] ? Number(m[1]) : 0
+    return h * 3600 + Number(m[2]) * 60 + Number(m[3])
+  }
+
+  // 時間戳欄位編輯器（startTime/endTime）：顯示與輸入都用 h:mm:ss；
+  // 無效輸入以 cancel 收場（保留原值），API 驗證上限 360000 秒與後端一致
+  function timeEditor(cell, onRendered, success, cancel) {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.style.width = '100%'
+    input.style.boxSizing = 'border-box'
+    input.placeholder = 'h:mm:ss / m:ss / sec'
+    const v = cell.getValue()
+    input.value = v == null ? '' : secondsToHMS(v)
+    onRendered(() => { input.focus(); input.select() })
+    let done = false
+    const commit = () => {
+      if (done) return
+      done = true
+      const parsed = parseHmsToSeconds(input.value)
+      if (Number.isNaN(parsed) || (parsed !== null && (parsed < 0 || parsed > 360000))) {
+        cancel()
+        return
+      }
+      success(parsed)
+    }
+    input.addEventListener('blur', commit)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit()
+      else if (e.key === 'Escape') { done = true; cancel() }
+    })
+    return input
+  }
+
+  // setlist 時間戳欄的顯示狀態以 checkbox 為準——Tabulator 的 showColumn()
+  // 不會回寫 definition 的 visible 屬性，任何 setColumns()（進出編輯模式、
+  // 語言切換）都會讓時間欄退回初始 visible:false（2026-08-08 用戶回報 bug），
+  // 重建欄位前先用本函數同步
+  function applyTimestampVisibility(defs) {
+    const shown = $('#toggleTimestamp').is(':checked')
+    return defs.map(col => (col.field === 'startTime' || col.field === 'endTime')
+      ? { ...col, visible: shown }
+      : col)
+  }
+
   function formatSongDisplay(name, nameEn) {
     if (nameEn) return `${name}(${nameEn})`
     return name
@@ -1869,6 +1923,7 @@ $(()=>{
     {title:t('段落', 'Seg', 'セグ'), field:"segmentNo", sorter:'number', width:60},
     {title:t('曲序', 'Track', 'トラック'), field:"trackNo", sorter:'number', width:80},
     {title:t('開始', 'Start', '開始'), field:"startTime", visible: false, sorter:'number', width:80, download:true,
+      editor: timeEditor, editable: false,
       formatter: function(cell) {
         const v = cell.getValue();
         if (v == null) return '';
@@ -1881,6 +1936,7 @@ $(()=>{
       }
     },
     {title:t('結束', 'End', '終了'), field:"endTime", visible: false, sorter:'number', width:80, download:true,
+      editor: timeEditor, editable: false,
       formatter: function(cell) {
         const v = cell.getValue();
         if (v == null) return '';
@@ -3025,6 +3081,18 @@ $(()=>{
           await apiRequest('PUT', `${endpoint}/${id}`, updateData)
         }
 
+        // setlist 的 YTLink 由後端 VIEW 以 startTime 生成（watch?v=ID&t=秒）；
+        // 編輯 startTime 後本地重算 t 參數，避免連結停留在舊時間點。
+        // 用 URL API 改參數——字串切 '?' 會把 ?v= 一起砍掉
+        if (p === 'setlist' && field === 'startTime' && rowData.YTLink) {
+          try {
+            const u = new URL(rowData.YTLink)
+            if (finalValue != null) u.searchParams.set('t', finalValue)
+            else u.searchParams.delete('t')
+            cell.getRow().update({ YTLink: u.toString() })
+          } catch { /* YTLink 非法時不動，下次重載由 VIEW 修正 */ }
+        }
+
         // 更新快取（不重載表格，避免全部 row 重新渲染導致閃爍）
         // setlist 例外：快取是月度結構，getData() 的扁平陣列會摧毀它；
         // 且 getData() 的 time 已被 mutator 改為顯示格式，不可入快取。
@@ -3340,6 +3408,16 @@ $(()=>{
             editable: true
           }
         }
+        // Setlist: 時間戳欄位每次進入編輯模式都要重新掛 timeEditor——
+        // 離開編輯模式的 viewColDef 會剝掉所有 editor，base 定義的函數
+        // editor 第一次退出後就不在 getColumnDefinitions() 裡了（同 songName pattern）
+        if (getProcess() === 'setlist' && (col.field === 'startTime' || col.field === 'endTime')) {
+          return {
+            ...col,
+            editor: timeEditor,
+            editable: true
+          }
+        }
         // Artist 欄位在 setlist 保持唯讀（由 Select2 自動填入）
         // 在 streamlist 添加 editor（允許手動編輯）
         if (col.field === 'artist') {
@@ -3376,7 +3454,7 @@ $(()=>{
         // 其他欄位添加預設 input editor
         return { ...col, editor: "input", editable: true }
       })
-      jsonTable.setColumns(editableColDef)
+      jsonTable.setColumns(applyTimestampVisibility(editableColDef))
       // YTLink 只存在於 setlist 的欄位定義（visible:false）；其他表沒有這欄，
       // 無條件 showColumn 會噴 "Column Show Error"。用 getColumns() 判斷存在性——
       // getColumn(field) 找不到時同樣會 console.warn，不能拿來當存在檢查
@@ -3412,7 +3490,7 @@ $(()=>{
         }
         return newCol
       })
-      jsonTable.setColumns(viewColDef)
+      jsonTable.setColumns(applyTimestampVisibility(viewColDef))
 
       // 重新載入資料以確保與後端同步
       const currentProcess = getProcess()
