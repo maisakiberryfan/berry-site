@@ -29,7 +29,8 @@ import {
   bulkUpdateCategories, getPendingStreams, getLatestStream
 } from './routes/streamlist.js'
 import {
-  getSetlist, getSetlistManifest, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry
+  getSetlist, getSetlistManifest, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry,
+  reorderSetlistSegment
 } from './routes/setlist.js'
 import aliasesApp from './routes/aliases.js'
 
@@ -145,7 +146,7 @@ app.use('/api/*', async (c, next) => {
     || 'unknown'
 
   // Expensive endpoints: stricter limit
-  const isExpensive = path.includes('/parse-setlist') || path.includes('/text-to-sql')
+  const isExpensive = path.includes('/parse-setlist')
   const limit = isExpensive ? 5 : 30
   const tier = isExpensive ? 'expensive' : 'write'
 
@@ -188,6 +189,8 @@ api.patch('/streamlist/bulk-categories', bulkUpdateCategories)
 api.get('/setlist/manifest', getSetlistManifest)
 api.get('/setlist', getSetlist)
 api.post('/setlist', createSetlistEntry)
+// ⚠️ 具體路徑必須排在 :trackNo 之前，否則 'reorder' 會被當成 trackNo（→ NaN → 400）
+api.put('/setlist/:streamID/:segmentNo/reorder', reorderSetlistSegment)
 api.put('/setlist/:streamID/:segmentNo/:trackNo', updateSetlistEntry)
 api.delete('/setlist/:streamID/:segmentNo/:trackNo', deleteSetlistEntry)
 
@@ -394,198 +397,6 @@ api.post('/get-comments', async (c) => {
   }
 })
 ============================================================ */
-
-// AI Text-to-SQL
-const AI_BUDGET_LIMIT = 0.1 // USD per day
-
-const AI_WHITELIST = [
-  '歌', '唱', '曲', '首', '音樂',
-  '年', '月', '日', '時間', '最近', '最新',
-  '最多', '最少', '前', '名', '排行', '排名', '統計',
-  '幾次', '次數', '數量', '總共', '共',
-  '列表', '清單', '歌單', '紀錄',
-  '搜尋', '找', '查', '顯示', '列出',
-  '類別', '分類', '歌枠', '雑談', 'asmr',
-  '直播', '影片', '動畫', '遊戲',
-  'song', 'artist', 'stream', 'setlist', 'track',
-  'count', 'top', 'list', 'search', 'find',
-  'year', 'month', 'genre', 'category'
-]
-
-const AI_BLACKLIST = [
-  '你是誰', '你的名字', '你叫什麼', '什麼模型', '哪個模型', '顯示模型',
-  '你的身份', '自我介紹', 'who are you', 'your name',
-  '天氣', '你好', '謝謝', '早安', '晚安',
-  '幫我寫', '寫一個', '寫程式', '寫代碼',
-  '翻譯', '什麼意思'
-]
-
-// localDate = 使用者本地日期（前端帶上），作為相對時間（今年/上個月/最近7天）的計算錨點
-const buildAiSystemPrompt = (localDate) => `Convert to DuckDB SQL. Output ONLY the SQL statement, no explanation or markdown.
-
-Today (user's local date): ${localDate}
-
-Table: berry_data (每 row = 一首歌在一場直播中被唱)
-Columns:
-- streamID (VARCHAR): 直播 ID
-- streamTitle (VARCHAR): 直播標題
-- time (TIMESTAMP): 直播時間（已是使用者當地時區，直接與字面日期比較即可）
-- categories (VARCHAR): 直播分類 (歌枠, 雑談, ASMR, ゲーム...)
-- setlistComplete (BOOLEAN): 該場歌單是否完整
-- segmentNo (INTEGER): 場次編號 (一場直播可能多段歌枠)
-- trackNo (INTEGER): 曲目順序 (1=第一首)
-- songID (INTEGER): 歌曲 ID
-- songName (VARCHAR): 歌名 ★主要搜尋欄位
-- songNameEn (VARCHAR): 歌名英文
-- artist (VARCHAR): 歌手 ★主要搜尋欄位
-- artistEn (VARCHAR): 歌手英文
-- genre (VARCHAR): 曲風
-- tieup (VARCHAR): 連動作品
-- setlistNote (VARCHAR): 歌單備註
-- songNote (VARCHAR): 歌曲備註
-
-DuckDB syntax rules:
-- Subquery MUST have alias: FROM (...) AS sub
-- Outer SELECT can ONLY reference columns/aliases from subquery's SELECT list
-- Relative dates: compute literal dates from Today above (do NOT use NOW(), it returns UTC not user-local)
-- Time aggregation: use alias, e.g. MAX(time) AS lastTime
-- YEAR(time) for year extraction, COUNT(*) for counting
-- LIKE '%keyword%' for text search
-- ROW_NUMBER() OVER (PARTITION BY x ORDER BY y DESC) for ranking
-- LIMIT 100 max
-
-Examples (assuming Today = 2026-07-10):
-- 唱最多的歌 → SELECT songName,artist,COUNT(*)as c FROM berry_data GROUP BY songName,artist ORDER BY c DESC LIMIT 20
-- 2024年歌單 → SELECT songName,artist,time FROM berry_data WHERE YEAR(time)=2024 ORDER BY time DESC
-- 各年前10名 → SELECT year,songName,artist,c FROM(SELECT YEAR(time)as year,songName,artist,COUNT(*)as c,ROW_NUMBER()OVER(PARTITION BY YEAR(time)ORDER BY COUNT(*)DESC)as rn FROM berry_data GROUP BY YEAR(time),songName,artist)AS sub WHERE rn<=10 ORDER BY year DESC,c DESC
-- 最近7天的歌 → SELECT songName,artist,time FROM berry_data WHERE time>='2026-07-03' ORDER BY time DESC
-- 上個月唱了什麼 → SELECT songName,artist,time FROM berry_data WHERE time>='2026-06-01' AND time<'2026-07-01' ORDER BY time DESC
-- 唱過幾次心做し → SELECT songName,artist,COUNT(*)as c FROM berry_data WHERE songName LIKE'%心做し%'GROUP BY songName,artist`
-
-function validateAiInput(query) {
-  const q = query.toLowerCase()
-  if (query.length < 2) return { valid: false, error: '查詢太短' }
-  if (query.length > 80) return { valid: false, error: '查詢太長（最多 80 字元）' }
-  for (const keyword of AI_BLACKLIST) {
-    if (q.includes(keyword.toLowerCase())) {
-      return { valid: false, error: '此問題與歌單資料庫無關，請詢問歌曲相關問題' }
-    }
-  }
-  const hasValidKeyword = AI_WHITELIST.some(k => q.includes(k.toLowerCase()))
-  if (!hasValidKeyword) {
-    return { valid: false, error: '請輸入與歌曲、歌單相關的查詢問題' }
-  }
-  return { valid: true }
-}
-
-api.post('/text-to-sql', async (c) => {
-  const anthropicKey = getSecret(c.env, 'ANTHROPIC_API_KEY')
-  if (!anthropicKey) return c.json({ error: 'AI service not configured' }, 503)
-
-  const db = c.get('db')
-  const dateKey = new Date().toISOString().slice(0, 10)
-  const HOLD = 0.005
-  let held = false, actualCost = 0
-
-  try {
-    const { query, localDate, failedSql, errorMessage } = await c.req.json()
-    if (!query || query.trim().length === 0) return c.json({ error: '請輸入查詢問題' }, 400)
-
-    // Input validation (whitelist/blacklist)
-    const validation = validateAiInput(query.trim())
-    if (!validation.valid) {
-      return c.json({ success: false, error: validation.error }, 400)
-    }
-
-    // 使用者本地日期（相對時間錨點）；格式不符則退回 server 端 UTC 日期
-    const safeLocalDate = /^\d{4}-\d{2}-\d{2}$/.test(localDate || '')
-      ? localDate : new Date().toISOString().slice(0, 10)
-
-    // Ensure ai_usage table exists (first-time setup)
-    try {
-      await db.execute(`CREATE TABLE IF NOT EXISTS ai_usage (
-        dateKey VARCHAR(10) PRIMARY KEY,
-        cost DECIMAL(10,6) DEFAULT 0,
-        count INT DEFAULT 0,
-        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )`)
-    } catch { /* table already exists */ }
-
-    // Budget check + 原子預扣：INSERT IGNORE 確保 row 存在，UPDATE 用 WHERE cost < LIMIT
-    // 把「檢查額度」與「扣款」合成一次 DB 操作，取代原本 read-then-write 的競態窗口。
-    // HOLD 是預估上限，實際花費在 API 回應後算出，finally 統一結算（見下）
-    await db.execute('INSERT IGNORE INTO ai_usage (dateKey, cost, count) VALUES (?, 0, 0)', [dateKey])
-    const r = await db.execute(
-      'UPDATE ai_usage SET cost = cost + ?, count = count + 1 WHERE dateKey = ? AND cost < ?',
-      [HOLD, dateKey, AI_BUDGET_LIMIT])
-    if (r.meta.changes === 0) {
-      return c.json({ success: false, error: '今日 AI 額度已用完，請明天再試' }, 429)
-    }
-    held = true
-
-    // 修復模式：前端試跑失敗後帶回失敗 SQL 與錯誤訊息，請 AI 修正（限制長度防濫用）
-    const messages = [{ role: 'user', content: query }]
-    if (typeof failedSql === 'string' && typeof errorMessage === 'string' && failedSql.length > 0) {
-      messages.push({ role: 'assistant', content: failedSql.slice(0, 2000) })
-      messages.push({
-        role: 'user',
-        content: `That SQL failed with DuckDB error: ${errorMessage.slice(0, 500)}\nFix it. Output ONLY the corrected SQL.`
-      })
-    }
-
-    // Call Claude Haiku with system prompt
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
-        system: buildAiSystemPrompt(safeLocalDate),
-        messages
-      })
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.error?.message || `API error: ${response.status}`)  // actualCost 維持 0，finally 全額退款
-    }
-
-    const result = await response.json()
-    let sql = result.content?.[0]?.text || ''
-    sql = sql.replace(/```sql\n?/gi, '').replace(/```\n?/g, '').trim()
-
-    // Calculate actual cost (Haiku 4.5: $1/MTok input, $5/MTok output)
-    // 必須放在下面「非 select」早退之前算出——API 已消耗 token，早退前不算會漏計費
-    const inputTokens = result.usage?.input_tokens || 0
-    const outputTokens = result.usage?.output_tokens || 0
-    actualCost = (inputTokens / 1_000_000) + (outputTokens / 1_000_000 * 5)
-
-    if (!sql.toLowerCase().startsWith('select')) {
-      return c.json({ success: false, error: '無法生成有效的 SQL 查詢', raw: sql })
-    }
-
-    return c.json({
-      success: true,
-      sql,
-      query,
-      usage: { inputTokens, outputTokens, cost: actualCost.toFixed(6) }
-    })
-  } catch (error) {
-    console.error('AI text-to-sql error:', error)
-    return c.json({ success: false, error: 'AI processing failed' }, 500)
-  } finally {
-    // 結算：預扣的 HOLD 換成實際花費（actualCost 未賦值到的路徑維持 0，等同全額退款）。
-    // 結算本身失敗只記錄不重試——寧可多扣 HOLD 不少扣，方向對安全側有利
-    if (held) {
-      await db.execute('UPDATE ai_usage SET cost = cost + ? WHERE dateKey = ?',
-        [actualCost - HOLD, dateKey]).catch(e => console.error('AI 結算失敗（保留預扣）:', e.message))
-    }
-  }
-})
 
 // PubSubHubbub webhook
 app.get('/webhook/youtube', (c) => {

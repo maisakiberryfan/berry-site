@@ -79,11 +79,25 @@
     inputEl?.focus()
   }
 
+  // 組字中間態（ローマ字→かな未確定）不拿去過濾——否則下拉會瞬間 0 筆（SearchBox 同款防護）
+  let composing = $state(false)
+
   function onInput(e) {
     editing = true
+    open = true
+    if (composing) return
     query = e.currentTarget.value
     active = 0
-    open = true
+  }
+
+  function onCompositionStart() {
+    composing = true
+  }
+
+  function onCompositionEnd(e) {
+    composing = false
+    query = e.currentTarget.value
+    active = 0
   }
 
   function onKeyDown(e) {
@@ -141,6 +155,8 @@
       bind:this={inputEl}
       value={display}
       oninput={onInput}
+      oncompositionstart={onCompositionStart}
+      oncompositionend={onCompositionEnd}
       onkeydown={onKeyDown}
       onfocus={openList}
       onblur={() => {

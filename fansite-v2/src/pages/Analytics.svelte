@@ -200,9 +200,16 @@
 
   const TREND_MONTHS = 24
 
-  /** time（ISO UTC 字串）→ 'YYYY-MM'；不留檔場（time 為 null）不計入趨勢 */
+  /**
+   * time（ISO UTC 字串）→ 使用者本地 'YYYY-MM'；不留檔場（time 為 null）不計入趨勢。
+   * 與查詢寬表的 month 欄同語意（本地月）——同頁兩種月定義會讓跨月深夜場對不上
+   * （main 側 625f67e 已統一，此處同步）。
+   */
   function monthKeyOf(time) {
-    return typeof time === 'string' && time.length >= 7 ? time.slice(0, 7) : null
+    if (typeof time !== 'string' || !time) return null
+    const d = new Date(time)
+    if (Number.isNaN(d.getTime())) return null
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   }
 
   function monthsEndingAt(end, count) {

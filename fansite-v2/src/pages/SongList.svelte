@@ -303,7 +303,7 @@
     />
 
     {#snippet actions()}
-      <Button variant="primary" onclick={() => openForm(null)}>
+      <Button variant="primary" class="hidden md:inline-flex" onclick={() => openForm(null)}>
         <span class="text-base leading-none">＋</span>
         {t('common.add')}
       </Button>

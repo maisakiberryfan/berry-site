@@ -13,14 +13,20 @@
   // columns: [{ key, label, width: '1fr'|'80px', sortable?: boolean, sortValue?: (row)=>any, align?: 'right'|'center' }]
   // 排序本身由頁面負責（applySort），DataTable 只負責欄頭互動與指示箭頭。
   //
-  // onedit 有給時，桌面在行尾補一個 44px 窄欄放鉛筆鈕、手機在卡片右上角放鉛筆鈕；
-  // 列本身不吃點擊（整列可點會在選取表格文字時誤觸編輯）。
+  // onedit 有給時，桌面在行尾補一個窄欄放鉛筆鈕；列本身不吃點擊（整列可點會在選取表格文字時誤觸編輯）。
+  // **手機不渲染鉛筆**——用戶裁示 2026-08-08「手機＝查資料、PC＝編輯」，四頁通用，各頁不必自己藏。
+  //
+  // rowActions snippet：行尾（桌面）／卡片右上角（手機）在鉛筆旁再補自訂鈕，例如 StreamList 的「⋯」。
+  // 與鉛筆不同，rowActions 手機照樣渲染（查閱類入口）。
+  //
+  // onrowcontextmenu(row, event)：桌面整列右鍵。DataTable 只負責轉發＋擋掉會誤觸的情境
+  // （手機無右鍵、使用者正在選字時讓原生選單走），要不要 preventDefault 由頁面決定。
   //
   // 欄寬拖拉（桌面）：欄頭右緣的把手可拖動改該欄寬度，改過的欄以 px 覆寫 col.width，
   // 未改的欄維持原本的 fr/minmax 定義（因此拖寬一欄＝其餘彈性欄讓出空間）。
   // 刻意不持久化：重整即回到預設欄寬。
   import { t } from '../../i18n.svelte.js'
-  import { nextSort } from './utils.js'
+  import { nextSort, MOBILE_MQ } from './utils.js'
 
   let {
     rows = [],
@@ -32,6 +38,8 @@
     sort = null,
     onsort = undefined,
     onedit = undefined,
+    /** (row, event) — 桌面整列右鍵 */
+    onrowcontextmenu = undefined,
     loading = false,
     // 頁面上下留白收斂後（Page.svelte）表格可用高度跟著放大
     height = 'clamp(320px, calc(100dvh - 18rem), 1100px)',
@@ -39,11 +47,15 @@
     loadingText = '',
     cell,
     card,
+    /** (row) — 行尾/卡片角落的額外動作鈕 */
+    rowActions,
   } = $props()
 
   const HEADER_H = 38
   const OVERSCAN = 6
   const MIN_COL_W = 48
+  const ACTION_W_1 = 44
+  const ACTION_W_2 = 76
 
   let scroller = $state(null)
   let scrollTop = $state(0)
@@ -60,16 +72,17 @@
   const start = $derived(Math.max(0, Math.floor(bodyTop / rowH) - OVERSCAN))
   const end = $derived(Math.min(total, Math.ceil((bodyTop + viewH) / rowH) + OVERSCAN))
   const visible = $derived(rows.slice(start, end))
-  // 行尾固定窄欄放鉛筆鈕：整列點擊會在選取表格文字時誤觸編輯（回饋 2026-08-08 第三輪回退）
-  const ACTION_W = 44
+  // 行尾固定窄欄放鉛筆／⋯ 鈕：整列點擊會在選取表格文字時誤觸編輯（回饋 2026-08-08 第三輪回退）
+  const hasActionCol = $derived(!!onedit || !!rowActions)
+  const ACTION_W = $derived(onedit && rowActions ? ACTION_W_2 : ACTION_W_1)
   const template = $derived(
     columns.map((c) => (colWidths[c.key] ? `${colWidths[c.key]}px` : (c.width ?? '1fr'))).join(' ') +
-      (onedit ? ` ${ACTION_W}px` : ''),
+      (hasActionCol ? ` ${ACTION_W}px` : ''),
   )
   const sortableCols = $derived(columns.filter((c) => c.sortable !== false))
 
   $effect(() => {
-    const mq = window.matchMedia('(max-width: 767px)')
+    const mq = window.matchMedia(MOBILE_MQ)
     const apply = () => (isMobile = mq.matches)
     apply()
     mq.addEventListener('change', apply)
@@ -102,6 +115,16 @@
   function headerClick(col) {
     if (col.sortable === false || !onsort) return
     onsort(nextSort(sort, col.key))
+  }
+
+  /**
+   * 整列右鍵：手機沒有右鍵語意（長按會被當成選字/系統選單）故不攔；
+   * 已有選取文字時也放行——使用者正要對選取內容用瀏覽器原生選單。
+   */
+  function rowContext(e, row) {
+    if (!onrowcontextmenu || isMobile) return
+    if (window.getSelection?.()?.toString().trim()) return
+    onrowcontextmenu(row, e)
   }
 
   /* ---------- 欄寬拖拉 ---------- */
@@ -247,7 +270,7 @@
               </button>
             </div>
           {/each}
-          {#if onedit}
+          {#if hasActionCol}
             <div aria-hidden="true"></div>
           {/if}
         </div>
@@ -264,28 +287,27 @@
               rowH}px); will-change: transform"
           >
             {#each visible as row, i (keyOf(row, start + i))}
+              <!-- 右鍵是滑鼠專屬的便利入口，列本身不進 Tab 序；鍵盤／無障礙走行尾的鈕 -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions, a11y_interactive_supports_focus -->
               <div
                 class="group relative border-b border-berry-border transition-colors hover:bg-berry-bg-3"
                 style="height: {rowH}px"
                 role="row"
+                oncontextmenu={onrowcontextmenu ? (e) => rowContext(e, row) : undefined}
               >
                 {#if isMobile}
-                  <!-- 右側留白給鉛筆鈕，長標題才不會被蓋住 -->
-                  <div class="flex h-full items-center px-3 {onedit ? 'pr-10' : ''}">
+                  <!-- 右側留白給動作鈕，長標題才不會被蓋住 -->
+                  <div class="flex h-full items-center px-3 {rowActions ? 'pr-10' : ''}">
                     <div class="min-w-0 flex-1 overflow-hidden">
                       {@render card?.(row)}
                     </div>
                   </div>
-                  {#if onedit}
-                    <!-- 卡片右上角：卡片本體不吃點擊，避免選字誤觸 -->
-                    <button
-                      type="button"
-                      class="absolute right-1.5 top-1.5 rounded p-1.5 text-berry-fg-3 transition-colors hover:text-[var(--berry-primary)]"
-                      aria-label={t('common.edit')}
-                      onclick={() => onedit(row)}
-                    >
-                      {@render pencil()}
-                    </button>
+                  {#if rowActions}
+                    <!-- 卡片右上角：卡片本體不吃點擊，避免選字誤觸。
+                         手機不放鉛筆（唯讀），只留查閱類的自訂動作鈕。 -->
+                    <div class="absolute right-1.5 top-1.5 flex items-center">
+                      {@render rowActions(row)}
+                    </div>
                   {/if}
                 {:else}
                   <div class="grid h-full" style="grid-template-columns: {template}">
@@ -302,17 +324,20 @@
                         {@render cell?.(row, col)}
                       </div>
                     {/each}
-                    {#if onedit}
-                      <div class="flex items-center justify-center">
-                        <button
-                          type="button"
-                          class="rounded p-1.5 text-berry-fg-3 opacity-80 transition group-hover:opacity-100 hover:text-[var(--berry-primary)]"
-                          aria-label={t('common.edit')}
-                          title={t('common.edit')}
-                          onclick={() => onedit(row)}
-                        >
-                          {@render pencil()}
-                        </button>
+                    {#if hasActionCol}
+                      <div class="flex items-center justify-center gap-0.5">
+                        {#if onedit}
+                          <button
+                            type="button"
+                            class="rounded p-1.5 text-berry-fg-3 opacity-80 transition group-hover:opacity-100 hover:text-[var(--berry-primary)]"
+                            aria-label={t('common.edit')}
+                            title={t('common.edit')}
+                            onclick={() => onedit(row)}
+                          >
+                            {@render pencil()}
+                          </button>
+                        {/if}
+                        {@render rowActions?.(row)}
                       </div>
                     {/if}
                   </div>

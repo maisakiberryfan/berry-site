@@ -14,11 +14,14 @@
   import TextInput from '../lib/table/TextInput.svelte'
   import TagInput from '../lib/table/TagInput.svelte'
   import Alert from '../lib/table/Alert.svelte'
+  import RowMenu from '../lib/table/RowMenu.svelte'
 
   import { t, getLang } from '../i18n.svelte.js'
+  import { navigate } from '../router.svelte.js'
   import { streamlist } from '../api/store.svelte.js'
   import { apiPost, apiPut, apiDelete } from '../api/client.js'
   import {
+    MOBILE_MQ,
     tokenize,
     matchesQuery,
     applySort,
@@ -62,6 +65,11 @@
       filtered: '篩選後 {n} 筆',
       noCategory: '無分類',
       openYt: '在 YouTube 開啟',
+      rowMenu: '更多動作',
+      viewSetlist: '查看歌單',
+      editSetlist: '新增／編輯歌單',
+      copyUrl: '複製網址',
+      copyFailed: '複製失敗',
     },
     en: {
       searchPlaceholder: 'Search all columns… (title:xx category:xx)',
@@ -85,6 +93,11 @@
       filtered: '{n} filtered',
       noCategory: 'Uncategorised',
       openYt: 'Open in YouTube',
+      rowMenu: 'More actions',
+      viewSetlist: 'View set list',
+      editSetlist: 'Add / edit set list',
+      copyUrl: 'Copy URL',
+      copyFailed: 'Copy failed',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（タイトル:xx カテゴリ:xx）',
@@ -108,6 +121,11 @@
       filtered: '絞り込み {n} 件',
       noCategory: 'カテゴリなし',
       openYt: 'YouTube で開く',
+      rowMenu: 'その他の操作',
+      viewSetlist: 'セットリストを表示',
+      editSetlist: 'セットリストを追加・編集',
+      copyUrl: 'URL をコピー',
+      copyFailed: 'コピーできませんでした',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
@@ -210,6 +228,118 @@
     t('common.rowCount', { n: streamlist.rows.length }) +
       (view.length !== streamlist.rows.length ? ` · ${m.filtered.replace('{n}', view.length)}` : ''),
   )
+
+  /* ---------- 手機／桌面 ---------- */
+  // 用戶裁示 2026-08-08：手機＝查資料、PC＝編輯。編輯類入口（＋新增、選單裡的歌單編輯）
+  // 只在桌面出現；斷點與 DataTable 切卡片模式共用同一條 MOBILE_MQ。
+  let isMobile = $state(false)
+  $effect(() => {
+    const mq = window.matchMedia(MOBILE_MQ)
+    const apply = () => (isMobile = mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  })
+
+  /* ---------- 列動作選單 ---------- */
+  // 原站對「歌枠」類直播有右鍵選單；這裡兩個入口共用：桌面右鍵整列、⋯ 鈕（含手機卡片）。
+  const KARAOKE_RE = /歌枠|singing|karaoke/i
+  const isKaraoke = (row) => (row.categories ?? []).some((c) => KARAOKE_RE.test(String(c)))
+
+  /** { row, x, y, align, src } | null；src='btn' 讓 ⋯ 鈕能再按一次收起 */
+  let menu = $state(null)
+  let copied = $state(false)
+  let copyFailed = $state(false)
+  let copyTimer
+
+  function closeMenu() {
+    menu = null
+  }
+
+  // 選單一關就把「已複製」狀態歸零，下次開啟不會殘留
+  $effect(() => {
+    if (menu) return
+    clearTimeout(copyTimer)
+    copied = false
+    copyFailed = false
+  })
+
+  $effect(() => () => clearTimeout(copyTimer))
+
+  function openRowMenuFromButton(row, e) {
+    if (menu?.row === row && menu.src === 'btn') {
+      closeMenu()
+      return
+    }
+    const r = e.currentTarget.getBoundingClientRect()
+    // 錨在鈕下方、右緣對齊（選單比鈕寬很多，靠右才不會衝出視窗）
+    menu = { row, x: r.right, y: r.bottom + 4, align: 'right', src: 'btn' }
+  }
+
+  function openRowMenuFromContext(row, e) {
+    e.preventDefault()
+    menu = { row, x: e.clientX, y: e.clientY, align: 'left', src: 'context' }
+  }
+
+  async function copyUrl(row) {
+    const url = ytWatchUrl(row.streamID)
+    if (!url) return
+    let ok = false
+    try {
+      await navigator.clipboard.writeText(url)
+      ok = true
+    } catch {
+      // 非安全來源／權限被擋時的退路
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = url
+        ta.setAttribute('readonly', '')
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        ok = document.execCommand('copy')
+        ta.remove()
+      } catch {
+        ok = false
+      }
+    }
+    copied = ok
+    copyFailed = !ok
+    // 就地把選項標籤換成「已複製」再收起，比另外做 toast 輕
+    clearTimeout(copyTimer)
+    copyTimer = setTimeout(closeMenu, 900)
+  }
+
+  const menuItems = $derived.by(() => {
+    const row = menu?.row
+    if (!row) return []
+    const out = []
+    if (isKaraoke(row)) {
+      out.push({
+        label: m.viewSetlist,
+        onselect: () => navigate(`/setlist?stream=${encodeURIComponent(row.streamID)}`),
+      })
+      // 編輯類：桌面限定
+      if (!isMobile) {
+        out.push({
+          label: m.editSetlist,
+          onselect: () => navigate(`/setlist?add=${encodeURIComponent(row.streamID)}`),
+        })
+      }
+      out.push({ divider: true })
+    }
+    out.push({
+      label: copied ? t('common.copied') : copyFailed ? m.copyFailed : m.copyUrl,
+      keepOpen: true, // 標籤要留著顯示結果，稍後自動收起
+      onselect: () => copyUrl(row),
+    })
+    out.push({
+      label: m.openYt,
+      onselect: () => window.open(ytWatchUrl(row.streamID), '_blank', 'noopener'),
+    })
+    return out
+  })
 
   function onThumbError(e) {
     const img = e.currentTarget
@@ -379,10 +509,13 @@
     />
 
     {#snippet actions()}
-      <Button variant="primary" onclick={() => openForm(null)}>
-        <span class="text-base leading-none">＋</span>
-        {t('common.add')}
-      </Button>
+      <!-- ＋新增＝編輯類入口，手機不出現（下載是查閱類，兩邊都留） -->
+      {#if !isMobile}
+        <Button variant="primary" onclick={() => openForm(null)}>
+          <span class="text-base leading-none">＋</span>
+          {t('common.add')}
+        </Button>
+      {/if}
       <DownloadMenu rows={view} cols={exportCols} basename="streamlist" />
     {/snippet}
   </Toolbar>
@@ -407,8 +540,28 @@
     {sort}
     onsort={(s) => (sort = s)}
     onedit={openForm}
+    onrowcontextmenu={openRowMenuFromContext}
     loading={streamlist.loading}
   >
+    {#snippet rowActions(row)}
+      <button
+        type="button"
+        data-rowmenu-trigger
+        class="rounded p-1.5 text-berry-fg-3 transition-colors hover:text-[var(--berry-primary)]"
+        aria-haspopup="menu"
+        aria-expanded={menu?.row === row}
+        aria-label={m.rowMenu}
+        title={m.rowMenu}
+        onclick={(e) => openRowMenuFromButton(row, e)}
+      >
+        <svg class="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.7" />
+          <circle cx="12" cy="12" r="1.7" />
+          <circle cx="19" cy="12" r="1.7" />
+        </svg>
+      </button>
+    {/snippet}
+
     {#snippet cell(row, col)}
       {#if col.key === 'thumb'}
         <img
@@ -488,6 +641,17 @@
     {/snippet}
   </DataTable>
 </Page>
+
+<!-- 掛在頁面頂層：RowMenu 用 position:fixed，放進表格的 transform 容器會失去視窗座標系 -->
+<RowMenu
+  open={!!menu}
+  x={menu?.x ?? 0}
+  y={menu?.y ?? 0}
+  align={menu?.align ?? 'left'}
+  items={menuItems}
+  label={m.rowMenu}
+  onclose={closeMenu}
+/>
 
 <Drawer
   open={drawerOpen}
