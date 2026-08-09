@@ -466,6 +466,156 @@ export async function updateSetlistEntry(c) {
   return c.json(successResponse(updatedEntry));
 }
 
+// ─── Reorder（曲序修正）───
+// trackNo 是 composite key 的一部分，「兩首對調」用單列 PUT 原理上做不到（必撞主鍵）。
+// 本端點在單一 transaction 內以「高位偏移暫存區」兩段式重寫整段的 trackNo。
+const REORDER_MAX_ROWS = 200;
+// 暫存區起點：第一段把每一列搬到 100000+新順位（護欄保證新順位 ≤200），
+// 第二段再整段減回。負數暫存區不可用——trackNo 是 int(10) unsigned。
+const REORDER_TEMP_OFFSET = 100000;
+
+// PUT /setlist/:streamID/:segmentNo/reorder - 重排整個段落的曲序
+// Body: { order: [3, 1, 2, ...] }（該段落現有 trackNo 的完整排列，
+//        第 i 個元素＝新的第 i+1 順位要放原本的哪一首）
+// ⚠️ 寫回後 trackNo 一律重編為 1..N 連續，原有空洞（1,2,5,7）會被正規化——
+//    前端不可假設 trackNo 不變，請以回應帶回的整段列替換畫面。
+export async function reorderSetlistSegment(c) {
+  const db = c.get("db");
+  const streamID = c.req.param("streamID");
+  const segmentNo = parseInt(c.req.param("segmentNo"));
+  if (Number.isNaN(segmentNo)) {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "segmentNo must be an integer"), 400);
+  }
+
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(createErrorResponse("VALIDATION_ERROR", "Request body must be valid JSON"), 400);
+  }
+
+  // ── 語法驗證（不需要碰 DB，先擋掉再開 transaction）──
+  const order = body?.order;
+  if (!Array.isArray(order) || order.length === 0) {
+    return c.json(
+      createErrorResponse("VALIDATION_ERROR", "order must be a non-empty array of integers",
+        { order: "must be a non-empty array of integers" }),
+      400,
+    );
+  }
+  if (order.length > REORDER_MAX_ROWS) {
+    return c.json(
+      createErrorResponse("VALIDATION_ERROR", `order must contain at most ${REORDER_MAX_ROWS} items`,
+        { order: `at most ${REORDER_MAX_ROWS} items` }),
+      400,
+    );
+  }
+  if (!order.every((n) => Number.isInteger(n))) {
+    return c.json(
+      createErrorResponse("VALIDATION_ERROR", "order must contain integers only",
+        { order: "all items must be integers" }),
+      400,
+    );
+  }
+  if (new Set(order).size !== order.length) {
+    return c.json(
+      createErrorResponse("VALIDATION_ERROR", "order must not contain duplicate trackNo values",
+        { order: "duplicate trackNo" }),
+      400,
+    );
+  }
+
+  try {
+    // transaction 全程走同一條連線：Lambda 是模組級單一 cachedConnection（單容器一次
+    // 只處理一個請求），CF/Hyperdrive 是 per-instance 連線（Database 實例 per-request 建立）——
+    // 兩條路徑都不是連線池 fan-out，START/COMMIT/ROLLBACK 語意成立（同 createSetlistEntry）。
+    await db.execute("START TRANSACTION");
+
+    // FOR UPDATE 鎖住整段：驗證與重寫之間別人插不進來（併發下第二者會等鎖，
+    // 拿到鎖時讀到新集合 → 集合比對失敗 → 400，不會蓋掉對方剛加的列）
+    const existing = await db.query(
+      "SELECT trackNo FROM setlist_ori WHERE streamID = ? AND segmentNo = ? ORDER BY trackNo ASC FOR UPDATE",
+      [streamID, segmentNo],
+    );
+
+    if (existing.length === 0) {
+      await db.execute("ROLLBACK");
+      return c.json(createErrorResponse("NOT_FOUND", "Setlist segment not found"), 404);
+    }
+
+    const current = existing.map((row) => Number(row.trackNo));
+
+    // 暫存區碰撞防護：正常資料 trackNo 遠小於 100000，真出現就拒絕而不是靜默覆寫
+    if (current.some((t) => t >= REORDER_TEMP_OFFSET)) {
+      await db.execute("ROLLBACK");
+      return c.json(
+        createErrorResponse("VALIDATION_ERROR",
+          `Segment contains trackNo >= ${REORDER_TEMP_OFFSET}, cannot reorder safely`,
+          { order: "segment out of supported range" }),
+        400,
+      );
+    }
+
+    // 集合必須完全一致（無缺、無多、無重複——重複已於前面擋掉）
+    const currentSet = new Set(current);
+    const orderSet = new Set(order);
+    const missing = current.filter((t) => !orderSet.has(t));
+    const unknown = order.filter((t) => !currentSet.has(t));
+    if (missing.length > 0 || unknown.length > 0) {
+      await db.execute("ROLLBACK");
+      return c.json(
+        createErrorResponse("VALIDATION_ERROR",
+          "order must be a permutation of the segment's existing trackNo values",
+          {
+            order: `missing: [${missing.join(", ")}], unknown: [${unknown.join(", ")}]`,
+          }),
+        400,
+      );
+    }
+
+    // 第一段：逐列搬進暫存區（新順位 i+1 → 100000+i+1），避開與現值的主鍵衝突
+    for (let i = 0; i < order.length; i++) {
+      const result = await db.execute(
+        "UPDATE setlist_ori SET trackNo = ? WHERE streamID = ? AND segmentNo = ? AND trackNo = ?",
+        [REORDER_TEMP_OFFSET + i + 1, streamID, segmentNo, order[i]],
+      );
+      // FOR UPDATE 之後理應恆為 1；不是就代表狀態與剛才讀到的不一致，整批放棄
+      if (result?.meta?.changes !== 1) {
+        await db.execute("ROLLBACK");
+        return c.json(
+          createErrorResponse("CONFLICT", "Segment changed during reorder, please reload"),
+          409,
+        );
+      }
+    }
+
+    // 第二段：單語句整段減回，trackNo 落在 1..N 連續
+    await db.execute(
+      "UPDATE setlist_ori SET trackNo = trackNo - ? WHERE streamID = ? AND segmentNo = ? AND trackNo >= ?",
+      [REORDER_TEMP_OFFSET, streamID, segmentNo, REORDER_TEMP_OFFSET],
+    );
+
+    await db.execute("COMMIT");
+  } catch (error) {
+    // ROLLBACK 自身再拋錯不可掩蓋原始錯誤（原錯才是 onError 要分類的那個）
+    try { await db.execute("ROLLBACK"); } catch { /* 連線已死時 rollback 由 server 端隱含完成 */ }
+    console.error(`Setlist reorder failed: ${error.message} (streamID=${streamID}, segmentNo=${segmentNo}, count=${order.length})`);
+    throw error;
+  }
+
+  // 回應整段重排後的完整列（與 GET /setlist?streamID= 同格式與 formatter），
+  // 讓前端直接整段替換
+  const rows = await db.query(
+    "SELECT * FROM setlist WHERE streamID = ? AND segmentNo = ? ORDER BY trackNo ASC",
+    [streamID, segmentNo],
+  );
+
+  return c.json(successResponse(rows.map((entry) => ({
+    ...entry,
+    time: mysqlToISO8601(entry.time),
+  }))));
+}
+
 // DELETE /setlist/:streamID/:segmentNo/:trackNo - Delete setlist entry
 export async function deleteSetlistEntry(c) {
   const db = c.get("db");

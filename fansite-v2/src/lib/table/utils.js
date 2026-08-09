@@ -3,6 +3,14 @@
 // 內容：全文搜尋、排序、日期/秒數格式化、CSV / JSON 匯出、YouTube URL 解析、
 //       ApiError 的 fieldErrors 正規化。
 
+/* ========================= 版面 ========================= */
+
+/**
+ * 手機版斷點（與 Tailwind `md` 同界）。DataTable 切卡片模式、頁面決定要不要露出
+ * 編輯類入口都比對這一條——常數共用才不會兩邊斷點各走各的。
+ */
+export const MOBILE_MQ = '(max-width: 767px)'
+
 /* ========================= 搜尋 ========================= */
 
 // 查詢語法（各頁 placeholder 即提示，不另外放說明文字）：
@@ -124,7 +132,12 @@ export function matchesQuery(row, tokens, fields, aliases) {
   let hay = null
   for (let i = 0; i < tokens.length; i++) {
     const tk = tokens[i]
-    const spec = tk.field && aliases ? aliases[tk.field] : null
+    // Object.hasOwn＋Array.isArray 把關：`constructor:x` 這類欄位名會撈到
+    // Object.prototype 成員（truthy 但非陣列），直接餵 buildHaystack 會拋 not iterable
+    const spec =
+      tk.field && aliases && Object.hasOwn(aliases, tk.field) && Array.isArray(aliases[tk.field])
+        ? aliases[tk.field]
+        : null
     if (spec) {
       // `欄位:*`＝該欄不為空（備註欄稀疏，讓使用者先撈出「有寫東西的列」）
       if (tk.value === '*' || tk.value === '＊') {

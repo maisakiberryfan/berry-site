@@ -16,6 +16,7 @@
   import Alert from '../lib/table/Alert.svelte'
 
   import { t, getLang } from '../i18n.svelte.js'
+  import { route, navigate } from '../router.svelte.js'
   import {
     setlist,
     setlistJoined,
@@ -31,6 +32,7 @@
   } from '../api/store.svelte.js'
   import { apiPut, apiDelete } from '../api/client.js'
   import {
+    MOBILE_MQ,
     tokenize,
     matchesQuery,
     applySort,
@@ -84,6 +86,17 @@
       endLabel: '結束時間',
       timeHint: '影片內時間點，格式 h:mm:ss、m:ss 或秒數；留空＝未知',
       timeInvalid: '格式無效（例：1:23:45、23:45 或 5025）',
+      reorderOpen: '調整此段曲序',
+      reorderTitle: '調整曲序：{date} 第 {seg} 段',
+      reorderHint: '用 ↑ ↓ 或拖曳調整順序，按「儲存順序」一次送出。儲存後曲序會重新編號為 1…N。',
+      reorderSave: '儲存順序',
+      reorderReset: '還原',
+      moveUp: '上移',
+      moveDown: '下移',
+      wasTrack: '原 {n}',
+      reorderSingle: '此段落只有一首曲目，沒有可調整的順序。',
+      reorderStale: '此段落已被其他人修改，請重新載入。',
+      reorderGone: '此段落已不存在（可能已被刪除）。',
     },
     en: {
       searchPlaceholder: 'Search all columns… (artist:xx month:2026-07)',
@@ -118,6 +131,18 @@
       endLabel: 'End time',
       timeHint: 'Position in the video: h:mm:ss, m:ss or seconds; blank = unknown',
       timeInvalid: 'Invalid format (e.g. 1:23:45, 23:45 or 5025)',
+      reorderOpen: 'Reorder this segment',
+      reorderTitle: 'Reorder: {date} segment {seg}',
+      reorderHint:
+        'Use ↑ ↓ or drag to rearrange, then press “Save order” to submit once. Track numbers are renumbered 1…N on save.',
+      reorderSave: 'Save order',
+      reorderReset: 'Reset',
+      moveUp: 'Move up',
+      moveDown: 'Move down',
+      wasTrack: 'was {n}',
+      reorderSingle: 'This segment has only one track — nothing to reorder.',
+      reorderStale: 'This segment was modified by someone else. Please reload.',
+      reorderGone: 'This segment no longer exists (it may have been deleted).',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（アーティスト:xx 月:2026-07）',
@@ -152,6 +177,18 @@
       endLabel: '終了時間',
       timeHint: '動画内の位置。h:mm:ss・m:ss・秒数のいずれか。空欄＝不明',
       timeInvalid: '形式が無効です（例：1:23:45、23:45、5025）',
+      reorderOpen: 'この区間の曲順を調整',
+      reorderTitle: '曲順の調整：{date} 第 {seg} 区間',
+      reorderHint:
+        '↑ ↓ またはドラッグで並べ替え、「曲順を保存」で一括送信します。保存後は曲順が 1…N に振り直されます。',
+      reorderSave: '曲順を保存',
+      reorderReset: '元に戻す',
+      moveUp: '上へ',
+      moveDown: '下へ',
+      wasTrack: '元 {n}',
+      reorderSingle: 'この区間は 1 曲のみのため、並べ替えできません。',
+      reorderStale: 'この区間は他の人に変更されました。再読み込みしてください。',
+      reorderGone: 'この区間は存在しません（削除された可能性があります）。',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
@@ -238,9 +275,17 @@
     }
   })
 
-  let query = $state('')
+  /* ---------- 網址參數（StreamList 的列選單導過來） ----------
+     ?stream=<id> 搜尋框預填該 streamID（SEARCH_FIELDS 含 streamID＝篩出該場全部曲目）
+     ?add=<id>    直接開「新增場次歌單」批次 drawer 並預填網址欄
+     兩者都在套用後把 query 從網址移除（replaceState），避免重整/分享時殘留。
+     初值同步取用：SearchBox 的輸入值在 mount 時就定案，等 effect 再塞會慢一拍。 */
+  const initialQuery = typeof location === 'undefined' ? null : route.query
+  let query = $state(initialQuery?.get('stream') ?? '')
   let month = $state('')
   let sort = $state(null)
+  /** 程式化改寫搜尋字串時遞增：SearchBox 內部有 draft 副本，得重建才會跟上 */
+  let searchSeq = $state(0)
 
   /** 月份下拉：70+ 項太長，按年份 optgroup 分組（年降序、月降序） */
   const monthGroups = $derived.by(() => {
@@ -326,8 +371,20 @@
     })),
   )
 
+  /* ---------- 手機／桌面 ---------- */
+  // 用戶裁示 2026-08-08：手機＝查資料、PC＝編輯。曲序調整入口只在桌面出現；
+  // 斷點與 DataTable 切卡片模式共用同一條 MOBILE_MQ。
+  let isMobile = $state(false)
+  $effect(() => {
+    const mq = window.matchMedia(MOBILE_MQ)
+    const apply = () => (isMobile = mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  })
+
   /* ---------- Drawer 狀態 ---------- */
-  let mode = $state(null) // 'edit' | 'batch'
+  let mode = $state(null) // 'edit' | 'batch' | 'reorder'
   let drawerOpen = $state(false)
   let drawerSeq = $state(0)
   let saving = $state(false)
@@ -348,14 +405,49 @@
   let batch = $state({ url: '', segmentNo: 1, startTrack: 1, count: 5, drafts: [] })
   let batchSnapshot = $state('')
 
+  // 曲序調整模式（同一個 drawer 換內容）
+  /** { streamID, segmentNo, month, date, streamTitle } | null */
+  let reorderCtx = $state(null)
+  /** 草稿順序：整包替換（$state.raw），元素為 setlist 列 */
+  let reorderDraft = $state.raw([])
+  /** 進入排序模式時的原始 trackNo 序列，用於 dirty 比對與「原 n」標示 */
+  let reorderOriginal = $state.raw([])
+  /** 集合不一致（400/409）：顯示「請重新載入」＋重新載入鈕 */
+  let reorderStale = $state(false)
+  let dragIndex = $state(-1)
+
   const batchStreamID = $derived(parseYouTubeId(batch.url))
   const batchStream = $derived(batchStreamID ? (streamIndex.map.get(batchStreamID) ?? null) : null)
 
-  const dirty = $derived(
-    mode === 'edit'
-      ? JSON.stringify(form) !== snapshot
-      : JSON.stringify(batch) !== batchSnapshot,
+  const reorderDirty = $derived(
+    reorderDraft.length > 0 &&
+      reorderDraft.some((r, i) => Number(r.trackNo) !== Number(reorderOriginal[i])),
   )
+
+  const dirty = $derived(
+    mode === 'edit' ? JSON.stringify(form) !== snapshot
+    : mode === 'reorder' ? reorderDirty
+    : JSON.stringify(batch) !== batchSnapshot,
+  )
+
+  const reorderTitle = $derived(
+    reorderCtx
+      ? m.reorderTitle
+          .replace('{date}', reorderCtx.date)
+          .replace('{seg}', String(reorderCtx.segmentNo))
+      : m.reorderTitle,
+  )
+
+  /** 編輯中這一列所屬段落的曲數（<2 時沒有可調整的順序） */
+  const editingSegmentSize = $derived.by(() => {
+    if (!editing) return 0
+    const seg = editing.segmentNo ?? 1
+    let n = 0
+    for (const r of setlist.rows) {
+      if (r.streamID === editing.streamID && (r.segmentNo ?? 1) === seg) n++
+    }
+    return n
+  })
 
   function openEdit(row) {
     mode = 'edit'
@@ -374,10 +466,12 @@
     drawerOpen = true
   }
 
-  function openBatch() {
+  /** @param {string|null} prefillId 預填的 streamID（?add= 導過來時用） */
+  function openBatch(prefillId = null) {
     mode = 'batch'
     editing = null
-    batch = { url: '', segmentNo: 1, startTrack: 1, count: 5, drafts: [] }
+    // url 欄吃裸 ID（parseYouTubeId 同時支援 ID 與網址），填進去即觸發既有的解析／場次驗證
+    batch = { url: prefillId ?? '', segmentNo: 1, startTrack: 1, count: 5, drafts: [] }
     batchSnapshot = JSON.stringify(batch)
     formError = ''
     fieldErrors = {}
@@ -385,9 +479,37 @@
     drawerOpen = true
   }
 
+  /**
+   * 套用網址參數並把它清掉。
+   * 已套過的簽章記下來：replaceState 後 route.query 會再變一次，不能又跑一遍。
+   */
+  let appliedParams = ''
+  $effect(() => {
+    const q = route.query
+    const stream = q.get('stream')
+    const add = q.get('add')
+    if (!stream && !add) return
+    const sig = `${stream ?? ''}|${add ?? ''}`
+    if (sig === appliedParams) return
+    appliedParams = sig
+
+    if (stream) {
+      query = stream
+      month = '' // 月份篩選會與單場搜尋互斥，先清掉
+      searchSeq++
+    }
+    if (add) openBatch(add)
+
+    navigate(location.pathname, { replace: true, scroll: false })
+  })
+
+  /** 確認放棄後要做什麼：關掉 drawer，或切進排序模式（編輯表單有未存變更時） */
+  let discardAction = $state('close')
+
   function requestClose() {
     if (saving) return
     if (dirty) {
+      discardAction = 'close'
       discardOpen = true
       return
     }
@@ -396,7 +518,142 @@
 
   function forceClose() {
     discardOpen = false
-    drawerOpen = false
+    if (discardAction === 'reorder') enterReorder()
+    else drawerOpen = false
+  }
+
+  /* ---------- 曲序調整 ---------- */
+  /** 取某段落的全部列（依 trackNo 升序）；setlist VIEW 已含 songName/artist，不需 join */
+  function segmentRows(streamID, segmentNo) {
+    return setlist.rows
+      .filter((r) => r.streamID === streamID && (r.segmentNo ?? 1) === segmentNo)
+      .sort((a, b) => Number(a.trackNo) - Number(b.trackNo))
+  }
+
+  /** 從編輯 drawer 切進排序模式；表單有未存變更時先問要不要放棄 */
+  function requestReorder() {
+    if (saving || !editing) return
+    if (dirty) {
+      discardAction = 'reorder'
+      discardOpen = true
+      return
+    }
+    enterReorder()
+  }
+
+  function enterReorder() {
+    if (!editing) return
+    const streamID = editing.streamID
+    const segmentNo = editing.segmentNo ?? 1
+    reorderCtx = {
+      streamID,
+      segmentNo,
+      month: monthOf(editing), // refreshMonth 用；不留檔場＝'none' bucket
+      date: editing.time ? formatDate(editing.time) : m.noArchive,
+      streamTitle: editing.streamTitle ?? streamID,
+    }
+    const list = segmentRows(streamID, segmentNo)
+    reorderDraft = list
+    reorderOriginal = list.map((r) => Number(r.trackNo))
+    reorderStale = false
+    dragIndex = -1
+    formError = ''
+    fieldErrors = {}
+    mode = 'reorder'
+    drawerSeq++
+  }
+
+  function resetReorder() {
+    if (!reorderCtx) return
+    const byTrack = new Map(reorderDraft.map((r) => [Number(r.trackNo), r]))
+    reorderDraft = reorderOriginal.map((t) => byTrack.get(t)).filter(Boolean)
+    dragIndex = -1
+  }
+
+  /** ↑ ↓：只動本地草稿，不打 API */
+  function moveRow(i, delta) {
+    const j = i + delta
+    if (j < 0 || j >= reorderDraft.length) return
+    const next = [...reorderDraft]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    reorderDraft = next
+  }
+
+  /* HTML5 拖曳排序（盡力而為，↑↓ 是保底） */
+  function onDragStart(i, e) {
+    dragIndex = i
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+      // Firefox 沒有 setData 就不會啟動拖曳
+      try {
+        e.dataTransfer.setData('text/plain', String(i))
+      } catch {
+        /* 某些瀏覽器在 dragstart 外會擋，忽略即可 */
+      }
+    }
+  }
+
+  function onDragOver(i, e) {
+    if (dragIndex < 0) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    if (dragIndex === i) return
+    const next = [...reorderDraft]
+    const [item] = next.splice(dragIndex, 1)
+    next.splice(i, 0, item)
+    reorderDraft = next
+    dragIndex = i
+  }
+
+  async function saveReorder() {
+    if (saving || !reorderCtx || !reorderDirty) return
+    saving = true
+    formError = ''
+    fieldErrors = {}
+    reorderStale = false
+    try {
+      await apiPut(
+        `/api/setlist/${encodeURIComponent(reorderCtx.streamID)}/${reorderCtx.segmentNo}/reorder`,
+        { order: reorderDraft.map((r) => Number(r.trackNo)) },
+      )
+      // trackNo 被重編為 1..N，composite key 全變 → 逐列 applyLocal 不可行，整月重抓
+      await setlist.refreshMonth(reorderCtx.month)
+      drawerOpen = false
+    } catch (err) {
+      // 400（集合不一致）／409（重寫途中段落被改）都是「別人動過了」
+      if (err?.status === 400 || err?.status === 409) {
+        reorderStale = true
+        formError = m.reorderStale
+      } else {
+        handleError(err)
+      }
+    } finally {
+      saving = false
+    }
+  }
+
+  /** 衝突後的「重新載入」：重抓該月 → 用新資料重建草稿 */
+  async function reloadSegment() {
+    if (!reorderCtx || saving) return
+    saving = true
+    try {
+      await setlist.refreshMonth(reorderCtx.month)
+      const list = segmentRows(reorderCtx.streamID, reorderCtx.segmentNo)
+      if (!list.length) {
+        formError = m.reorderGone
+        reorderDraft = []
+        reorderOriginal = []
+        return
+      }
+      reorderDraft = list
+      reorderOriginal = list.map((r) => Number(r.trackNo))
+      reorderStale = false
+      formError = ''
+    } catch (err) {
+      handleError(err)
+    } finally {
+      saving = false
+    }
   }
 
   function handleError(err) {
@@ -570,12 +827,15 @@
   {/snippet}
 
   <Toolbar>
-    <SearchBox
-      bind:value={query}
-      placeholder={m.searchPlaceholder}
-      helpFields={searchHelp.fields}
-      helpExamples={searchHelp.examples}
-    />
+    <!-- key：SearchBox 保有自己的 draft，程式化改寫 query 時要重建才會顯示新值 -->
+    {#key searchSeq}
+      <SearchBox
+        bind:value={query}
+        placeholder={m.searchPlaceholder}
+        helpFields={searchHelp.fields}
+        helpExamples={searchHelp.examples}
+      />
+    {/key}
 
     <select
       class="rounded-md border border-berry-border bg-berry-bg-3 px-2 py-1.5 text-sm text-berry-fg outline-none focus:border-[var(--berry-primary)]"
@@ -596,7 +856,7 @@
     </select>
 
     {#snippet actions()}
-      <Button variant="primary" onclick={openBatch}>
+      <Button variant="primary" class="hidden md:inline-flex" onclick={() => openBatch()}>
         <span class="text-base leading-none">＋</span>
         {t('common.add')}
       </Button>
@@ -680,16 +940,25 @@
 
 <Drawer
   open={drawerOpen}
-  title={mode === 'edit' ? m.editTitle : m.addTitle}
+  title={mode === 'edit' ? m.editTitle : mode === 'reorder' ? reorderTitle : m.addTitle}
   subtitle={mode === 'edit' && editing
     ? `${editing.streamID} · ${editing.segmentNo ?? 1}-${editing.trackNo}`
-    : ''}
-  width={mode === 'batch' ? '620px' : '460px'}
+    : mode === 'reorder' && reorderCtx
+      ? reorderCtx.streamTitle
+      : ''}
+  width={mode === 'batch' ? '620px' : mode === 'reorder' ? '520px' : '460px'}
   onclose={requestClose}
 >
   {#key drawerSeq}
     {#if formError}
-      <Alert>{formError}</Alert>
+      <Alert>
+        {formError}
+        {#if reorderStale}
+          <div class="mt-2">
+            <Button onclick={reloadSegment} disabled={saving}>{t('common.reload')}</Button>
+          </div>
+        {/if}
+      </Alert>
     {/if}
 
     {#if mode === 'edit' && editing}
@@ -810,6 +1079,83 @@
       {:else}
         <p class="text-sm text-berry-fg-3">{m.noDrafts}</p>
       {/if}
+    {:else if mode === 'reorder'}
+      <p class="mb-3 text-sm text-berry-fg-3">{m.reorderHint}</p>
+
+      {#if reorderDraft.length <= 1}
+        <p class="text-sm text-berry-fg-3">{m.reorderSingle}</p>
+      {:else}
+        <!-- keyed each：拖曳/上下移時保留節點，焦點才不會掉 -->
+        <ul class="space-y-1.5">
+          {#each reorderDraft as row, i (setlistKeyOf(row))}
+            {@const moved = Number(row.trackNo) !== Number(reorderOriginal[i])}
+            <li
+              draggable="true"
+              ondragstart={(e) => onDragStart(i, e)}
+              ondragover={(e) => onDragOver(i, e)}
+              ondragend={() => (dragIndex = -1)}
+              ondrop={(e) => {
+                e.preventDefault()
+                dragIndex = -1
+              }}
+              class="flex items-center gap-2 rounded-md border px-2 py-1.5 {dragIndex === i
+                ? 'opacity-60'
+                : ''}"
+              style={moved
+                ? 'border-color: var(--berry-subtle-border); background: var(--berry-subtle-bg)'
+                : 'border-color: var(--berry-border); background: var(--berry-bg-3)'}
+            >
+              <span class="cursor-grab select-none text-berry-fg-3" aria-hidden="true">⠿</span>
+              <span
+                class="w-6 shrink-0 text-right text-sm font-medium tabular-nums"
+                style={moved ? 'color: var(--berry-text-emphasis)' : ''}
+              >
+                {i + 1}
+              </span>
+
+              <div class="min-w-0 flex-1">
+                <div class="truncate text-sm" title={row.songName || undefined}>
+                  {row.songName ?? m.unmatched}
+                </div>
+                {#if row.artist}
+                  <div class="truncate text-sm text-berry-fg-3" title={row.artist}>{row.artist}</div>
+                {/if}
+              </div>
+
+              {#if moved}
+                <span class="shrink-0 text-sm tabular-nums" style="color: var(--berry-text-emphasis)">
+                  {m.wasTrack.replace('{n}', String(row.trackNo))}
+                </span>
+              {/if}
+
+              <div class="flex shrink-0 items-center gap-1">
+                <Button
+                  size="icon"
+                  ariaLabel={m.moveUp}
+                  title={m.moveUp}
+                  disabled={i === 0}
+                  onclick={() => moveRow(i, -1)}
+                >
+                  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </Button>
+                <Button
+                  size="icon"
+                  ariaLabel={m.moveDown}
+                  title={m.moveDown}
+                  disabled={i === reorderDraft.length - 1}
+                  onclick={() => moveRow(i, 1)}
+                >
+                  <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </Button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     {/if}
   {/key}
 
@@ -824,11 +1170,21 @@
       >
         {t('common.delete')}
       </Button>
+      <!-- 手機唯讀裁示：曲序調整只在桌面出現 -->
+      {#if !isMobile && editingSegmentSize > 1}
+        <Button onclick={requestReorder} disabled={saving}>{m.reorderOpen}</Button>
+      {/if}
+    {:else if mode === 'reorder'}
+      <Button onclick={resetReorder} disabled={saving || !reorderDirty}>{m.reorderReset}</Button>
     {/if}
     <div class="flex-1"></div>
     <Button onclick={requestClose} disabled={saving}>{t('common.cancel')}</Button>
     {#if mode === 'edit'}
       <Button variant="primary" busy={saving} onclick={save}>{t('common.save')}</Button>
+    {:else if mode === 'reorder'}
+      <Button variant="primary" busy={saving} disabled={!reorderDirty} onclick={saveReorder}>
+        {m.reorderSave}
+      </Button>
     {:else}
       <Button
         variant="primary"
