@@ -29,7 +29,8 @@ import {
   bulkUpdateCategories, getPendingStreams, getLatestStream
 } from './routes/streamlist.js'
 import {
-  getSetlist, getSetlistManifest, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry
+  getSetlist, getSetlistManifest, createSetlistEntry, updateSetlistEntry, deleteSetlistEntry,
+  reorderSetlistSegment
 } from './routes/setlist.js'
 import aliasesApp from './routes/aliases.js'
 
@@ -188,6 +189,8 @@ api.patch('/streamlist/bulk-categories', bulkUpdateCategories)
 api.get('/setlist/manifest', getSetlistManifest)
 api.get('/setlist', getSetlist)
 api.post('/setlist', createSetlistEntry)
+// ⚠️ 具體路徑必須排在 :trackNo 之前，否則 'reorder' 會被當成 trackNo（→ NaN → 400）
+api.put('/setlist/:streamID/:segmentNo/reorder', reorderSetlistSegment)
 api.put('/setlist/:streamID/:segmentNo/:trackNo', updateSetlistEntry)
 api.delete('/setlist/:streamID/:segmentNo/:trackNo', deleteSetlistEntry)
 

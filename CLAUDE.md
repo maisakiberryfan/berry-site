@@ -202,6 +202,7 @@ npm run snapshot                       # repo 根：產生 CDN 快照 → fansit
 | `/api/streamlist/pending` | 待解析歌枠 |
 | `/api/setlist` | 歌單 CRUD（composite key: streamID/segmentNo/trackNo）；GET 支援 `?from=YYYY-MM&to=YYYY-MM` 月度區段、`from=none`＝不留檔場 bucket |
 | `/api/setlist/manifest` | 每月 {month, count, maxUpdated} 清單（前端月度增量比對用，與全量端點共用 meta ETag） |
+| `/api/setlist/:streamID/:segmentNo/reorder` | PUT 曲序修正，body `{order:[現有 trackNo 的完整排列]}`；⚠️ 寫回後 trackNo **重編為 1..N 連續**（原有空洞被正規化），回應帶該段落重排後完整列供前端整段替換。路由**必須註冊在 `:trackNo` param 路由之前** |
 | `/api/aliases` | 別名管理 |
 | `/api/yt?id={videoId}` | 單一影片資訊 |
 | `/api/yt/latest` | 最新影片（從 DB） |
