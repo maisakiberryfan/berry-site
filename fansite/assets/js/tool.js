@@ -2004,7 +2004,11 @@ $(()=>{
           songDisplay: song ? `${song.songName} - ${song.artist}` : '',
           songName: song ? song.songName : '',
           artist: song ? song.artist : '',
-          note: entry.note || ''
+          note: entry.note || '',
+          // 時間戳掛在列上：movableRows 拖曳搬的是整個 row data，時間戳自然跟著列
+          // （歌）移動；送出時一併寫回，否則調順序後時間戳留在原 trackNo、與歌錯配
+          startTime: entry.startTime ?? null,
+          endTime: entry.endTime ?? null
         }
       })
 
@@ -5187,7 +5191,10 @@ function getYTlatest(){
         trackNo: row.trackNo,
         segmentNo: segment,
         songID: row.songID,
-        note: row.note || null
+        note: row.note || null,
+        // 跟著列走的時間戳（載入時掛上、拖曳時隨列移動）；新建的空列為 null
+        startTime: row.startTime ?? null,
+        endTime: row.endTime ?? null
       }))
 
       // Send batch POST request with user source header (to enable overwrite mode)
