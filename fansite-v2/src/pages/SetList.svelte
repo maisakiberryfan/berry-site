@@ -22,6 +22,7 @@
     setlistJoined,
     songlist,
     streamlist,
+    aliases,
     songIndex,
     streamIndex,
     hydrateSetlistRow,
@@ -30,12 +31,14 @@
     createSetlistEntry,
     setlistKeyOf,
   } from '../api/store.svelte.js'
-  import { apiPut, apiDelete } from '../api/client.js'
+  import { request, apiPut, apiDelete } from '../api/client.js'
   import {
     MOBILE_MQ,
     tokenize,
     matchesQuery,
     applySort,
+    compileColumnFilters,
+    matchesColumnFilters,
     syntaxName,
     labelWithTz,
     fieldErrorMap,
@@ -97,6 +100,23 @@
       reorderSingle: '此段落只有一首曲目，沒有可調整的順序。',
       reorderStale: '此段落已被其他人修改，請重新載入。',
       reorderGone: '此段落已不存在（可能已被刪除）。',
+      aliasOpen: '新增別名',
+      aliasTitle: '快速新增別名',
+      aliasHint: '把留言裡被認錯的寫法登記成別名，之後解析歌單就會對應到這一首／這一位。',
+      aliasTypeTitle: '曲名',
+      aliasTypeArtist: '歌手',
+      aliasCanonicalTitleHint: '這一列對應的歌曲；別名會綁定 songID，同名異曲不互染',
+      aliasCanonicalArtistHint: '歌手正式名稱（可修改；歌手別名跨曲共用）',
+      aliasValueHint: '留言裡出現的錯誤寫法或別寫法',
+      aliasPickSong: '改選其他歌曲',
+      aliasNoSong: '此列尚未對應歌曲，請先選一首作為正式名稱。',
+      aliasCanonicalRequired: '正式名稱為必填',
+      aliasValueRequired: '別名為必填',
+      aliasSame: '別名與正式名稱相同，不需要新增。',
+      aliasAdded: '已新增別名「{v}」',
+      aliasUpdated: '已更新別名「{v}」',
+      aliasSubmit: '新增別名',
+      aliasBack: '返回編輯',
     },
     en: {
       searchPlaceholder: 'Search all columns… (artist:xx month:2026-07)',
@@ -143,6 +163,25 @@
       reorderSingle: 'This segment has only one track — nothing to reorder.',
       reorderStale: 'This segment was modified by someone else. Please reload.',
       reorderGone: 'This segment no longer exists (it may have been deleted).',
+      aliasOpen: 'Add alias',
+      aliasTitle: 'Quick add alias',
+      aliasHint:
+        'Register the spelling the parser got wrong, so future set lists map to this song / artist.',
+      aliasTypeTitle: 'Song title',
+      aliasTypeArtist: 'Artist',
+      aliasCanonicalTitleHint:
+        'The song this row maps to. The alias binds its songID so same-name songs stay separate.',
+      aliasCanonicalArtistHint: 'Canonical artist name (editable; artist aliases are shared).',
+      aliasValueHint: 'The wrong or alternate spelling seen in the comment',
+      aliasPickSong: 'Pick another song',
+      aliasNoSong: 'This row has no song yet — pick one to use as the canonical name.',
+      aliasCanonicalRequired: 'Canonical name is required',
+      aliasValueRequired: 'Alias is required',
+      aliasSame: 'The alias equals the canonical name — nothing to add.',
+      aliasAdded: 'Alias “{v}” added',
+      aliasUpdated: 'Alias “{v}” updated',
+      aliasSubmit: 'Add alias',
+      aliasBack: 'Back to edit',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（アーティスト:xx 月:2026-07）',
@@ -189,28 +228,74 @@
       reorderSingle: 'この区間は 1 曲のみのため、並べ替えできません。',
       reorderStale: 'この区間は他の人に変更されました。再読み込みしてください。',
       reorderGone: 'この区間は存在しません（削除された可能性があります）。',
+      aliasOpen: 'エイリアス追加',
+      aliasTitle: 'エイリアスを追加',
+      aliasHint:
+        'コメント内の誤った表記をエイリアスとして登録すると、次回の解析からこの曲／この人に対応します。',
+      aliasTypeTitle: '曲名',
+      aliasTypeArtist: 'アーティスト',
+      aliasCanonicalTitleHint: 'この行に対応する曲。songID を紐づけるため同名異曲でも混同しません',
+      aliasCanonicalArtistHint: 'アーティストの正式名称（変更可・エイリアスは曲をまたいで共有）',
+      aliasValueHint: 'コメントに出てきた誤表記・別表記',
+      aliasPickSong: '別の曲を選ぶ',
+      aliasNoSong: 'この行はまだ曲に対応していません。正式名称にする曲を選んでください。',
+      aliasCanonicalRequired: '正式名称は必須です',
+      aliasValueRequired: 'エイリアスは必須です',
+      aliasSame: 'エイリアスが正式名称と同じです。追加する必要はありません。',
+      aliasAdded: 'エイリアス「{v}」を追加しました',
+      aliasUpdated: 'エイリアス「{v}」を更新しました',
+      aliasSubmit: 'エイリアスを追加',
+      aliasBack: '編集に戻る',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
 
   /* ---------- 表格 ---------- */
+  // filterValue：場次欄的儲存格只印日期、標題在 tooltip，兩者都要能篩；曲名／歌手同時顯示
+  // 日英兩行也一起比。段／曲序是數字欄走精確比對（打 1 不該連 10、11 一起撈出來）。
   const columns = $derived([
     {
       key: 'stream',
       label: labelWithTz(t('field.stream')),
       width: '140px',
       sortValue: (r) => r.time ?? '',
+      filterValue: (r) => `${r.time ? formatDate(r.time) : m.noArchive} ${r.streamTitle ?? ''}`,
     },
-    { key: 'segmentNo', label: t('field.segmentNo'), width: '58px', align: 'center' },
-    { key: 'trackNo', label: t('field.trackNo'), width: '74px', align: 'center' },
-    { key: 'songName', label: t('field.songName'), width: 'minmax(180px, 2fr)' },
-    { key: 'artist', label: t('field.artist'), width: 'minmax(120px, 1.4fr)' },
+    {
+      key: 'segmentNo',
+      label: t('field.segmentNo'),
+      width: '58px',
+      align: 'center',
+      filterExact: true,
+      filterValue: (r) => String(r.segmentNo ?? 1),
+    },
+    {
+      key: 'trackNo',
+      label: t('field.trackNo'),
+      width: '74px',
+      align: 'center',
+      filterExact: true,
+      filterValue: (r) => String(r.trackNo ?? ''),
+    },
+    {
+      key: 'songName',
+      label: t('field.songName'),
+      width: 'minmax(180px, 2fr)',
+      filterValue: (r) => `${r.songName ?? ''} ${r.songNameEn ?? ''}`,
+    },
+    {
+      key: 'artist',
+      label: t('field.artist'),
+      width: 'minmax(120px, 1.4fr)',
+      filterValue: (r) => `${r.artist ?? ''} ${r.artistEn ?? ''}`,
+    },
     { key: 'note', label: t('field.note'), width: 'minmax(110px, 1fr)' },
     {
       key: 'duration',
       label: m.duration,
       width: '92px',
       align: 'right',
+      filter: false,
       sortValue: (r) =>
         r.startTime != null && r.endTime != null ? Number(r.endTime) - Number(r.startTime) : null,
     },
@@ -284,6 +369,8 @@
   let query = $state(initialQuery?.get('stream') ?? '')
   let month = $state('')
   let sort = $state(null)
+  /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
+  let colFilters = $state({})
   /** 程式化改寫搜尋字串時遞增：SearchBox 內部有 draft 副本，得重建才會跟上 */
   let searchSeq = $state(0)
 
@@ -318,14 +405,17 @@
     }
   })
 
+  // 全域搜尋 ∧ 月份 ∧ 欄位篩選（AND 疊加）；15k 列，便宜的條件排前面先淘汰
   const filtered = $derived.by(() => {
     const tokens = tokenize(query)
     const mo = month
+    const active = compileColumnFilters(colFilters, columns)
     const rows = setlistJoined.rows
-    if (!tokens.length && !mo) return rows
+    if (!tokens.length && !mo && !active) return rows
     const out = []
     for (const row of rows) {
       if (mo && monthOf(row) !== mo) continue
+      if (active && !matchesColumnFilters(row, active)) continue
       if (tokens.length && !matchesQuery(row, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) continue
       out.push(row)
     }
@@ -371,6 +461,13 @@
     })),
   )
 
+  /** 歌手建議（別名面板 artist 模式的 datalist）：正式名稱打錯就等於白建，給既有值挑 */
+  const artistSuggestions = $derived.by(() => {
+    const set = new Set()
+    for (const s of songlist.rows) if (s.artist) set.add(s.artist)
+    return [...set].sort((a, b) => a.localeCompare(b))
+  })
+
   /* ---------- 手機／桌面 ---------- */
   // 用戶裁示 2026-08-08：手機＝查資料、PC＝編輯。曲序調整入口只在桌面出現；
   // 斷點與 DataTable 切卡片模式共用同一條 MOBILE_MQ。
@@ -384,7 +481,7 @@
   })
 
   /* ---------- Drawer 狀態 ---------- */
-  let mode = $state(null) // 'edit' | 'batch' | 'reorder'
+  let mode = $state(null) // 'edit' | 'batch' | 'reorder' | 'alias'
   let drawerOpen = $state(false)
   let drawerSeq = $state(0)
   let saving = $state(false)
@@ -416,6 +513,13 @@
   let reorderStale = $state(false)
   let dragIndex = $state(-1)
 
+  // 快速新增別名模式（同一個 drawer 換內容；來源列＝editing）
+  let aliasForm = $state({ aliasType: 'title', canonicalName: '', aliasValue: '', songID: null, note: '' })
+  /** title 模式改選曲目時展開 Combobox（該列本來就沒對應歌曲時預設展開） */
+  let aliasPicking = $state(false)
+  /** 送出成功訊息（連續新增時每次覆蓋） */
+  let aliasResult = $state('')
+
   const batchStreamID = $derived(parseYouTubeId(batch.url))
   const batchStream = $derived(batchStreamID ? (streamIndex.map.get(batchStreamID) ?? null) : null)
 
@@ -424,9 +528,13 @@
       reorderDraft.some((r, i) => Number(r.trackNo) !== Number(reorderOriginal[i])),
   )
 
+  /** 別名面板：填了別名值＝有東西可丟，離開前要確認 */
+  const aliasDirty = $derived(!!String(aliasForm.aliasValue ?? '').trim())
+
   const dirty = $derived(
     mode === 'edit' ? JSON.stringify(form) !== snapshot
     : mode === 'reorder' ? reorderDirty
+    : mode === 'alias' ? aliasDirty
     : JSON.stringify(batch) !== batchSnapshot,
   )
 
@@ -503,7 +611,7 @@
     navigate(location.pathname, { replace: true, scroll: false })
   })
 
-  /** 確認放棄後要做什麼：關掉 drawer，或切進排序模式（編輯表單有未存變更時） */
+  /** 確認放棄後要做什麼：關掉 drawer、切進排序／別名模式，或退回編輯（各自的表單有未存內容時） */
   let discardAction = $state('close')
 
   function requestClose() {
@@ -519,7 +627,133 @@
   function forceClose() {
     discardOpen = false
     if (discardAction === 'reorder') enterReorder()
+    else if (discardAction === 'alias') enterAlias()
+    else if (discardAction === 'backToEdit') openEdit(editing)
     else drawerOpen = false
+  }
+
+  /* ---------- 快速新增別名 ----------
+     維運主迴路：matcher 認錯歌時，把留言裡的那個寫法登記成別名，下次解析就對得上。
+     title 模式的正式名稱＝該列對應的歌曲，並帶 songID（同名異曲不互染）；
+     artist 模式的正式名稱是字串（歌手別名跨曲共用），可自行修改。 */
+  function requestAlias() {
+    if (saving || !editing) return
+    if (dirty) {
+      discardAction = 'alias'
+      discardOpen = true
+      return
+    }
+    enterAlias()
+  }
+
+  function enterAlias() {
+    if (!editing) return
+    const hasSong = editing.songID != null
+    aliasForm = {
+      // 沒對應到歌、但有歌手字串的列（幾乎不會出現）預設從歌手別名開始
+      aliasType: hasSong || !editing.artist ? 'title' : 'artist',
+      canonicalName: hasSong ? (editing.songName ?? '') : (editing.artist ?? ''),
+      aliasValue: '',
+      songID: hasSong ? editing.songID : null,
+      note: '',
+    }
+    aliasPicking = aliasForm.aliasType === 'title' && !hasSong
+    aliasResult = ''
+    formError = ''
+    fieldErrors = {}
+    mode = 'alias'
+    drawerSeq++
+  }
+
+  /** 切換別名類型：兩種模式的正式名稱語意不同，各自重新 seed */
+  function setAliasType(type) {
+    if (aliasForm.aliasType === type) return
+    aliasForm.aliasType = type
+    aliasResult = ''
+    fieldErrors = {}
+    if (type === 'artist') {
+      aliasForm.songID = null
+      aliasForm.canonicalName = editing?.artist ?? ''
+      aliasPicking = false
+    } else {
+      aliasForm.songID = editing?.songID ?? null
+      aliasForm.canonicalName = editing?.songName ?? ''
+      aliasPicking = aliasForm.songID == null
+    }
+  }
+
+  function pickAliasSong(o) {
+    aliasForm.songID = o ? o.id : null
+    aliasForm.canonicalName = o ? o.label : ''
+    if (o) aliasPicking = false
+  }
+
+  /** 返回編輯表單（未送出的別名值會丟掉，先問過） */
+  function requestBackToEdit() {
+    if (saving || !editing) return
+    if (aliasDirty) {
+      discardAction = 'backToEdit'
+      discardOpen = true
+      return
+    }
+    openEdit(editing)
+  }
+
+  async function submitAlias() {
+    if (saving) return
+    formError = ''
+    fieldErrors = {}
+    aliasResult = ''
+
+    const canonicalName = nullIfBlank(aliasForm.canonicalName)
+    const aliasValue = nullIfBlank(aliasForm.aliasValue)
+    const errs = {}
+    if (!canonicalName) {
+      errs.canonicalName = aliasForm.aliasType === 'title' ? m.aliasNoSong : m.aliasCanonicalRequired
+    }
+    if (!aliasValue) errs.aliasValue = m.aliasValueRequired
+    else if (canonicalName && aliasValue === canonicalName) errs.aliasValue = m.aliasSame
+    if (Object.keys(errs).length) {
+      fieldErrors = errs
+      return
+    }
+
+    const payload = {
+      aliasType: aliasForm.aliasType,
+      canonicalName,
+      aliasValue,
+      note: nullIfBlank(aliasForm.note),
+    }
+    if (aliasForm.aliasType === 'title' && aliasForm.songID != null) payload.songID = aliasForm.songID
+
+    saving = true
+    try {
+      // quick-add 是 upsert，信封帶 isNew（apiPost 會吃掉信封，故用 request 讀 raw）
+      const res = await request('/api/aliases/quick-add', { method: 'POST', body: payload })
+      const row = res.data
+      const isNew = res.raw?.isNew !== false
+
+      // 別名表這一頁沒載入（load 是 Aliases 頁才呼叫的），沒載入就別為了同步硬拉整表
+      if (aliases.synced || aliases.rows.length) {
+        if (row && typeof row === 'object' && row.aliasID != null) {
+          // upsert：一律以「這筆 aliasID 在不在」為準，插入重複 key 會讓別名頁的 {#each} 炸掉
+          const exists = aliases.rows.some((r) => r.aliasID === row.aliasID)
+          if (exists) await aliases.applyLocalUpdate(row)
+          else await aliases.applyLocalInsert(row)
+        } else {
+          await aliases.reload()
+        }
+      }
+
+      aliasResult = (isNew ? m.aliasAdded : m.aliasUpdated).replace('{v}', aliasValue)
+      // 連續新增：保留類型與正式名稱，只清別名值並把游標送回去
+      aliasForm.aliasValue = ''
+      queueMicrotask(() => document.getElementById('setlist-alias-value')?.focus())
+    } catch (err) {
+      handleError(err)
+    } finally {
+      saving = false
+    }
   }
 
   /* ---------- 曲序調整 ---------- */
@@ -873,6 +1107,8 @@
     minWidth={960}
     {sort}
     onsort={(s) => (sort = s)}
+    columnFilters={colFilters}
+    onfilterchange={(next) => (colFilters = next)}
     onedit={openEdit}
     loading={setlist.loading}
     loadingText={m.loadingBig}
@@ -940,12 +1176,17 @@
 
 <Drawer
   open={drawerOpen}
-  title={mode === 'edit' ? m.editTitle : mode === 'reorder' ? reorderTitle : m.addTitle}
+  title={mode === 'edit' ? m.editTitle
+    : mode === 'reorder' ? reorderTitle
+    : mode === 'alias' ? m.aliasTitle
+    : m.addTitle}
   subtitle={mode === 'edit' && editing
     ? `${editing.streamID} · ${editing.segmentNo ?? 1}-${editing.trackNo}`
     : mode === 'reorder' && reorderCtx
       ? reorderCtx.streamTitle
-      : ''}
+      : mode === 'alias' && editing
+        ? `${editing.segmentNo ?? 1}-${editing.trackNo} · ${editing.songName ?? m.unmatched}`
+        : ''}
   width={mode === 'batch' ? '620px' : mode === 'reorder' ? '520px' : '460px'}
   onclose={requestClose}
 >
@@ -1156,6 +1397,100 @@
           {/each}
         </ul>
       {/if}
+    {:else if mode === 'alias' && editing}
+      <p class="mb-3 text-sm text-berry-fg-3">{m.aliasHint}</p>
+
+      {#if aliasResult}
+        <Alert kind="success">{aliasResult}</Alert>
+      {/if}
+
+      <Field label={t('field.aliasType')}>
+        <div class="flex gap-2">
+          {#each ['title', 'artist'] as type (type)}
+            <button
+              type="button"
+              class="rounded-md border px-3 py-1.5 text-sm transition-colors"
+              style={aliasForm.aliasType === type
+                ? 'background: var(--berry-subtle-bg); border-color: var(--berry-subtle-border); color: var(--berry-text-emphasis)'
+                : 'background: var(--berry-bg-3); border-color: var(--berry-border)'}
+              onclick={() => setAliasType(type)}
+            >
+              {type === 'title' ? m.aliasTypeTitle : m.aliasTypeArtist}
+            </button>
+          {/each}
+        </div>
+      </Field>
+
+      {#if aliasForm.aliasType === 'title'}
+        <Field
+          label={t('field.canonicalName')}
+          required
+          hint={m.aliasCanonicalTitleHint}
+          error={fieldErrors.canonicalName}
+        >
+          {#if aliasPicking}
+            <Combobox
+              options={songOptions}
+              value={aliasForm.songID}
+              placeholder={m.pickSong}
+              invalid={!!fieldErrors.canonicalName}
+              onselect={pickAliasSong}
+            />
+          {:else}
+            <!-- 正式名稱＝該列對應的歌曲（唯讀）；要指到別首歌時才展開選歌下拉 -->
+            <div class="flex items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <TextInput value={aliasForm.canonicalName} readonly class="text-berry-fg-2" />
+              </div>
+              <Button onclick={() => (aliasPicking = true)}>{m.aliasPickSong}</Button>
+            </div>
+            {#if aliasForm.songID != null}
+              <p class="mt-1 font-mono text-sm text-berry-fg-3">songID #{aliasForm.songID}</p>
+            {/if}
+          {/if}
+        </Field>
+      {:else}
+        <datalist id="setlist-artist-suggestions">
+          {#each artistSuggestions as a (a)}
+            <option value={a}></option>
+          {/each}
+        </datalist>
+
+        <Field
+          label={t('field.canonicalName')}
+          required
+          hint={m.aliasCanonicalArtistHint}
+          error={fieldErrors.canonicalName}
+          forId="setlist-alias-canonical"
+        >
+          <TextInput
+            id="setlist-alias-canonical"
+            bind:value={aliasForm.canonicalName}
+            maxlength={500}
+            list="setlist-artist-suggestions"
+            invalid={!!fieldErrors.canonicalName}
+          />
+        </Field>
+      {/if}
+
+      <Field
+        label={t('field.aliasValue')}
+        required
+        hint={m.aliasValueHint}
+        error={fieldErrors.aliasValue}
+        forId="setlist-alias-value"
+      >
+        <TextInput
+          id="setlist-alias-value"
+          bind:value={aliasForm.aliasValue}
+          maxlength={500}
+          invalid={!!fieldErrors.aliasValue}
+        />
+      </Field>
+
+      <Field label={t('field.note')} error={fieldErrors.note}>
+        <TextInput multiline rows={2} bind:value={aliasForm.note} maxlength={500} />
+      </Field>
     {/if}
   {/key}
 
@@ -1170,12 +1505,17 @@
       >
         {t('common.delete')}
       </Button>
-      <!-- 手機唯讀裁示：曲序調整只在桌面出現 -->
+      <!-- 手機唯讀裁示：曲序調整／新增別名只在桌面出現 -->
+      {#if !isMobile}
+        <Button onclick={requestAlias} disabled={saving}>{m.aliasOpen}</Button>
+      {/if}
       {#if !isMobile && editingSegmentSize > 1}
         <Button onclick={requestReorder} disabled={saving}>{m.reorderOpen}</Button>
       {/if}
     {:else if mode === 'reorder'}
       <Button onclick={resetReorder} disabled={saving || !reorderDirty}>{m.reorderReset}</Button>
+    {:else if mode === 'alias'}
+      <Button onclick={requestBackToEdit} disabled={saving}>{m.aliasBack}</Button>
     {/if}
     <div class="flex-1"></div>
     <Button onclick={requestClose} disabled={saving}>{t('common.cancel')}</Button>
@@ -1185,6 +1525,8 @@
       <Button variant="primary" busy={saving} disabled={!reorderDirty} onclick={saveReorder}>
         {m.reorderSave}
       </Button>
+    {:else if mode === 'alias'}
+      <Button variant="primary" busy={saving} onclick={submitAlias}>{m.aliasSubmit}</Button>
     {:else}
       <Button
         variant="primary"

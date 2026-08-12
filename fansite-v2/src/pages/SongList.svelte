@@ -21,6 +21,9 @@
     tokenize,
     filterRows,
     applySort,
+    compileColumnFilters,
+    matchesColumnFilters,
+    countDistinct,
     fieldErrorMap,
     nullIfBlank,
     syntaxName,
@@ -43,6 +46,7 @@
       discardMessage: '表單有尚未儲存的修改，關閉後將遺失。',
       discardOk: '關閉不儲存',
       filtered: '篩選後 {n} 筆',
+      artistHint: '可從既有歌手選取（選定會自動帶入英文名）',
     },
     en: {
       searchPlaceholder: 'Search all columns… (artist:xx genre:xx)',
@@ -57,6 +61,7 @@
       discardMessage: 'The form has unsaved edits that will be lost.',
       discardOk: 'Close without saving',
       filtered: '{n} filtered',
+      artistHint: 'Pick an existing artist (the English name is filled in automatically).',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（アーティスト:xx ジャンル:xx）',
@@ -71,15 +76,27 @@
       discardMessage: '保存していない編集内容が失われます。',
       discardOk: '保存せずに閉じる',
       filtered: '絞り込み {n} 件',
+      artistHint: '既存のアーティストから選べます（選ぶと英語名が自動入力されます）',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
 
   /* ---------- 表格 ---------- */
+  // filterValue：曲名／歌手欄的儲存格同時顯示日英兩行，篩選也一起比才不會「看得到卻篩不到」
   const columns = $derived([
-    { key: 'songName', label: t('field.songName'), width: 'minmax(180px, 2.2fr)' },
-    { key: 'artist', label: t('field.artist'), width: 'minmax(140px, 1.6fr)' },
-    { key: 'genre', label: t('field.genre'), width: '120px' },
+    {
+      key: 'songName',
+      label: t('field.songName'),
+      width: 'minmax(180px, 2.2fr)',
+      filterValue: (r) => `${r.songName ?? ''} ${r.songNameEn ?? ''}`,
+    },
+    {
+      key: 'artist',
+      label: t('field.artist'),
+      width: 'minmax(140px, 1.6fr)',
+      filterValue: (r) => `${r.artist ?? ''} ${r.artistEn ?? ''}`,
+    },
+    { key: 'genre', label: t('field.genre'), width: '120px', filter: 'select' },
     { key: 'tieup', label: t('field.tieup'), width: 'minmax(120px, 1.2fr)' },
     { key: 'songNote', label: t('field.songNote'), width: 'minmax(120px, 1.2fr)' },
   ])
@@ -138,11 +155,36 @@
 
   let query = $state('')
   let sort = $state(null)
+  /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
+  let colFilters = $state({})
 
-  const filtered = $derived(
-    filterRows(songlist.rows, tokenize(query), SEARCH_FIELDS, SEARCH_ALIASES),
-  )
+  // 兩段套用：先算「類型以外的全部條件」——類型 select 的選項計數以此為基準（cascade：
+  // 不裁選項，只更新計數）——再補上類型本身。
+  const beforeGenre = $derived.by(() => {
+    const rows = filterRows(songlist.rows, tokenize(query), SEARCH_FIELDS, SEARCH_ALIASES)
+    const active = compileColumnFilters(colFilters, columns, 'genre')
+    return active ? rows.filter((r) => matchesColumnFilters(r, active)) : rows
+  })
+
+  /** 類型選項：值與排序取自全部資料（選項不隨篩選消失），計數隨其他條件重算 */
+  const genreOptions = $derived.by(() => {
+    const counts = countDistinct(beforeGenre, (r) => r.genre)
+    return [...countDistinct(songlist.rows, (r) => r.genre).entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([value]) => ({ value, label: value, count: counts.get(value) ?? 0 }))
+  })
+
+  const filtered = $derived.by(() => {
+    const g = String(colFilters.genre ?? '')
+    return g ? beforeGenre.filter((r) => String(r.genre ?? '') === g) : beforeGenre
+  })
+
   const view = $derived(applySort(filtered, sort, columns))
+
+  /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
+  const tableColumns = $derived(
+    columns.map((c) => (c.key === 'genre' ? { ...c, filterOptions: genreOptions } : c)),
+  )
 
   const exportCols = $derived([
     { key: 'songID', label: t('field.songID') },
@@ -159,6 +201,35 @@
     t('common.rowCount', { n: songlist.rows.length }) +
       (view.length !== songlist.rows.length ? ` · ${m.filtered.replace('{n}', view.length)}` : ''),
   )
+
+  /* ---------- 歌手自動完成 ----------
+     資料源＝本地 songlist 快取的 distinct artist（不打 /api/songlist/artists——v3 全量在手）。
+     artist → artistEn 對照一併建起來，選定建議項時兩欄一起帶入。 */
+  const artistPairs = $derived.by(() => {
+    const map = new Map()
+    for (const s of songlist.rows) {
+      const name = (s.artist ?? '').trim()
+      if (!name) continue
+      const en = (s.artistEn ?? '').trim()
+      // 同一歌手在不同曲目可能只有部分列填了英文名，取第一個非空的
+      if (!map.has(name) || (!map.get(name) && en)) map.set(name, en)
+    }
+    return map
+  })
+
+  const artistSuggestions = $derived([...artistPairs.keys()].sort((a, b) => a.localeCompare(b)))
+
+  /** 上一次由建議自動帶入的英文名：只覆寫自己寫過的值，不踩使用者手打的 */
+  let autoArtistEn = ''
+
+  function onArtistInput(e) {
+    const en = artistPairs.get((e.currentTarget.value ?? '').trim())
+    if (!en) return
+    const cur = (form.artistEn ?? '').trim()
+    if (cur && cur !== autoArtistEn) return
+    form.artistEn = en
+    autoArtistEn = en
+  }
 
   /* ---------- Drawer 表單 ---------- */
   const blank = () => ({
@@ -204,6 +275,7 @@
     formError = ''
     fieldErrors = {}
     deleteError = ''
+    autoArtistEn = ''
     drawerSeq++
     drawerOpen = true
   }
@@ -313,13 +385,15 @@
 
   <DataTable
     rows={view}
-    {columns}
+    columns={tableColumns}
     keyOf={(r) => r.songID}
     rowHeight={64}
     mobileRowHeight={104}
     minWidth={820}
     {sort}
     onsort={(s) => (sort = s)}
+    columnFilters={colFilters}
+    onfilterchange={(next) => (colFilters = next)}
     onedit={openForm}
     loading={songlist.loading}
   >
@@ -355,6 +429,13 @@
   </DataTable>
 </Page>
 
+<!-- 歌手建議：drawer 外掛一份即可（datalist 不渲染，靠 input 的 list 屬性關聯） -->
+<datalist id="songlist-artist-suggestions">
+  {#each artistSuggestions as a (a)}
+    <option value={a}></option>
+  {/each}
+</datalist>
+
 <Drawer
   open={drawerOpen}
   title={editing ? m.editTitle : m.addTitle}
@@ -374,8 +455,19 @@
       <TextInput id="song-name-en" bind:value={form.songNameEn} maxlength={500} />
     </Field>
 
-    <Field label={t('field.artist')} error={fieldErrors.artist} forId="song-artist">
-      <TextInput id="song-artist" bind:value={form.artist} maxlength={500} />
+    <Field
+      label={t('field.artist')}
+      hint={m.artistHint}
+      error={fieldErrors.artist}
+      forId="song-artist"
+    >
+      <TextInput
+        id="song-artist"
+        bind:value={form.artist}
+        maxlength={500}
+        list="songlist-artist-suggestions"
+        oninput={onArtistInput}
+      />
     </Field>
 
     <Field label={t('field.artistEn')} error={fieldErrors.artistEn} forId="song-artist-en">
