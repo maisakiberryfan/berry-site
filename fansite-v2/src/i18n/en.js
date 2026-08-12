@@ -43,6 +43,8 @@ export default {
     themeDark: 'Dark',
     backHome: 'Back to home',
     resizeColumn: 'Resize column',
+    filterColumn: 'Filter: {label}',
+    clearColumnFilters: 'Clear column filters',
   },
   page: {
     home: 'Home',

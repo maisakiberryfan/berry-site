@@ -44,6 +44,8 @@ export default {
     themeDark: '暗色',
     backHome: '回首頁',
     resizeColumn: '調整欄寬',
+    filterColumn: '篩選：{label}',
+    clearColumnFilters: '清除欄位篩選',
   },
   page: {
     home: '首頁',

@@ -15,16 +15,20 @@
   import TagInput from '../lib/table/TagInput.svelte'
   import Alert from '../lib/table/Alert.svelte'
   import RowMenu from '../lib/table/RowMenu.svelte'
+  import KLSetlistDialog from '../lib/table/KLSetlistDialog.svelte'
 
   import { t, getLang } from '../i18n.svelte.js'
   import { navigate } from '../router.svelte.js'
-  import { streamlist } from '../api/store.svelte.js'
-  import { apiPost, apiPut, apiDelete } from '../api/client.js'
+  import { streamlist, setlist } from '../api/store.svelte.js'
+  import { apiGet, apiPost, apiPut, apiDelete } from '../api/client.js'
   import {
     MOBILE_MQ,
     tokenize,
     matchesQuery,
     applySort,
+    compileColumnFilters,
+    matchesColumnFilters,
+    countDistinct,
     syntaxName,
     labelWithTz,
     fieldErrorMap,
@@ -70,6 +74,16 @@
       editSetlist: '新增／編輯歌單',
       copyUrl: '複製網址',
       copyFailed: '複製失敗',
+      klSetlist: 'KL 格式歌單',
+      klCopyAll: '複製全部',
+      klEmpty: '這場尚無歌單資料',
+      klFailed: '歌單載入失敗',
+      ytLooking: '正在取得影片資訊…',
+      ytFailed: '無法取得影片資訊，請手動填寫標題與時間。',
+      ytNotFound: '找不到這部影片（ID 可能有誤），請確認後手動填寫。',
+      ytNotBerry: '此影片不屬於 berry 的頻道。確認無誤才繼續新增。',
+      ytNotBerryConfirm: '仍要新增',
+      ytBlocked: '請先確認這部非 berry 頻道的影片，或改貼其他網址。',
     },
     en: {
       searchPlaceholder: 'Search all columns… (title:xx category:xx)',
@@ -98,6 +112,16 @@
       editSetlist: 'Add / edit set list',
       copyUrl: 'Copy URL',
       copyFailed: 'Copy failed',
+      klSetlist: 'KL-format set list',
+      klCopyAll: 'Copy all',
+      klEmpty: 'No set list for this stream yet',
+      klFailed: 'Failed to load the set list',
+      ytLooking: 'Fetching video info…',
+      ytFailed: 'Could not fetch video info. Please fill in title and time manually.',
+      ytNotFound: 'Video not found (check the ID). Please fill in the fields manually.',
+      ytNotBerry: 'This video is not from a berry channel. Confirm before adding it.',
+      ytNotBerryConfirm: 'Add anyway',
+      ytBlocked: 'Confirm this non-berry video first, or paste another URL.',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（タイトル:xx カテゴリ:xx）',
@@ -126,16 +150,43 @@
       editSetlist: 'セットリストを追加・編集',
       copyUrl: 'URL をコピー',
       copyFailed: 'コピーできませんでした',
+      klSetlist: 'KL 形式のセットリスト',
+      klCopyAll: 'すべてコピー',
+      klEmpty: 'この配信のセットリストはまだありません',
+      klFailed: 'セットリストを読み込めませんでした',
+      ytLooking: '動画情報を取得中…',
+      ytFailed: '動画情報を取得できませんでした。タイトルと時間は手入力してください。',
+      ytNotFound: '動画が見つかりません（ID をご確認ください）。手入力してください。',
+      ytNotBerry: 'この動画は berry のチャンネルではありません。確認のうえ追加してください。',
+      ytNotBerryConfirm: 'それでも追加',
+      ytBlocked: 'berry 以外のチャンネルの動画です。確認するか、別の URL を貼ってください。',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
 
   /* ---------- 表格 ---------- */
+  // filterValue：標題欄的儲存格同時顯示 streamID、時間欄顯示格式化後的字串，篩選跟著比同一份
   const columns = $derived([
-    { key: 'thumb', label: '', width: '176px', sortable: false },
-    { key: 'title', label: t('field.title'), width: 'minmax(200px, 2.4fr)' },
-    { key: 'time', label: labelWithTz(t('field.time')), width: '176px' },
-    { key: 'categories', label: t('field.categories'), width: 'minmax(140px, 1.2fr)', sortable: false },
+    { key: 'thumb', label: '', width: '176px', sortable: false, filter: false },
+    {
+      key: 'title',
+      label: t('field.title'),
+      width: 'minmax(200px, 2.4fr)',
+      filterValue: (r) => `${r.title ?? ''} ${r.streamID ?? ''}`,
+    },
+    {
+      key: 'time',
+      label: labelWithTz(t('field.time')),
+      width: '176px',
+      filterValue: (r) => formatDateTime(r.time),
+    },
+    {
+      key: 'categories',
+      label: t('field.categories'),
+      width: 'minmax(140px, 1.2fr)',
+      sortable: false,
+      filter: 'select',
+    },
     { key: 'note', label: t('field.note'), width: 'minmax(120px, 1fr)' },
   ])
 
@@ -186,34 +237,68 @@
   let query = $state('')
   let sort = $state(null)
   let catFilter = $state([])
+  /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
+  let colFilters = $state({})
 
-  /** 分類 distinct（依出現次數排序） */
+  /**
+   * 分類 chips：值與排序取全量（選項與順序不隨篩選跳動），
+   * 計數 cascade——隨「chips 群以外的全部條件」（全域搜尋 ∧ 欄位篩選）收斂，
+   * 與表頭 select 同一套語意，同頁不出現兩套數字。
+   */
+  const beforeChips = $derived.by(() => {
+    const tokens = tokenize(query)
+    const active = compileColumnFilters(colFilters, columns)
+    if (!tokens.length && !active) return streamlist.rows
+    return streamlist.rows.filter(
+      (r) =>
+        (!tokens.length || matchesQuery(r, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) &&
+        (!active || matchesColumnFilters(r, active)),
+    )
+  })
+
   const categoryOptions = $derived.by(() => {
-    const counts = new Map()
-    for (const row of streamlist.rows) {
-      for (const c of row.categories ?? []) counts.set(c, (counts.get(c) ?? 0) + 1)
-    }
-    return [...counts.entries()]
+    const cascade = countDistinct(beforeChips, (r) => r.categories)
+    return [...countDistinct(streamlist.rows, (r) => r.categories).entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([value, count]) => ({ value, label: value, count }))
+      .map(([value]) => ({ value, label: value, count: cascade.get(value) ?? 0 }))
   })
 
   const allCategoryNames = $derived(categoryOptions.map((o) => o.value))
 
-  const filtered = $derived.by(() => {
+  // 兩段套用：先算「分類欄篩選以外的全部條件」（全域搜尋 ∧ chips ∧ 其他欄位篩選）——
+  // 分類 select 的計數以此為基準（cascade：不裁選項，只更新計數）——再補分類 select 本身。
+  const beforeCat = $derived.by(() => {
     const tokens = tokenize(query)
     const cats = catFilter
-    if (!tokens.length && !cats.length) return streamlist.rows
+    const active = compileColumnFilters(colFilters, columns, 'categories')
+    if (!tokens.length && !cats.length && !active) return streamlist.rows
     return streamlist.rows.filter((row) => {
       if (cats.length) {
         const rowCats = row.categories ?? []
         if (!cats.some((c) => rowCats.includes(c))) return false
       }
+      if (active && !matchesColumnFilters(row, active)) return false
       return !tokens.length || matchesQuery(row, tokens, SEARCH_FIELDS, SEARCH_ALIASES)
     })
   })
 
+  /** 分類欄 select：選項與排序取自全部資料（不裁選項），計數隨其他條件重算 */
+  const catSelectOptions = $derived.by(() => {
+    const counts = countDistinct(beforeCat, (r) => r.categories)
+    return categoryOptions.map((o) => ({ ...o, count: counts.get(o.value) ?? 0 }))
+  })
+
+  const filtered = $derived.by(() => {
+    const c = String(colFilters.categories ?? '')
+    return c ? beforeCat.filter((row) => (row.categories ?? []).some((x) => String(x) === c)) : beforeCat
+  })
+
   const view = $derived(applySort(filtered, sort, columns))
+
+  /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
+  const tableColumns = $derived(
+    columns.map((c) => (c.key === 'categories' ? { ...c, filterOptions: catSelectOptions } : c)),
+  )
 
   const exportCols = $derived([
     { key: 'streamID', label: t('field.streamID') },
@@ -327,6 +412,8 @@
           onselect: () => navigate(`/setlist?add=${encodeURIComponent(row.streamID)}`),
         })
       }
+      // KL 格式＝查閱類（核對留言／貼社群用），手機也給
+      out.push({ label: m.klSetlist, onselect: () => openKL(row) })
       out.push({ divider: true })
     }
     out.push({
@@ -340,6 +427,85 @@
     })
     return out
   })
+
+  /* ---------- KL 格式歌單（唯讀檢視＋複製） ---------- */
+  // 原站 formatKLSetlist 的輸出逐字照抄（站主拿去和 YouTube 留言對照／貼社群）：
+  //   ♬セトリ/Set List♬
+  //   (空行)
+  //   00:06:43 ~ 00:09:42 01| 曲名(英名) | 歌手(英名)
+  // 時間戳兩者皆有才寫區間，只有 startTime 就單寫；兩者皆無則只有曲序。
+
+  let klOpen = $state(false)
+  let klRow = $state(null)
+  let klText = $state('')
+  let klLoading = $state(false)
+  let klError = $state('')
+  /** 併發保護：連開兩場時只認最後一次的結果 */
+  let klSeq = 0
+
+  const pad2 = (n) => String(n).padStart(2, '0')
+
+  function klHms(v) {
+    if (v == null) return ''
+    const total = Math.max(0, Math.floor(Number(v)))
+    if (!Number.isFinite(total)) return ''
+    return `${pad2(Math.floor(total / 3600))}:${pad2(Math.floor((total % 3600) / 60))}:${pad2(total % 60)}`
+  }
+
+  /** 原站 formatSongDisplay：有英文名就括號附註（與本名相同時原站也照括，沿用） */
+  function klName(name, nameEn) {
+    return nameEn ? `${name ?? ''}(${nameEn})` : (name ?? '')
+  }
+
+  function formatKLSetlist(rows) {
+    const lines = ['♬セトリ/Set List♬', '']
+    for (const row of rows) {
+      const trackNo = String(row.trackNo ?? '').padStart(2, '0')
+      let timePart = ''
+      if (row.startTime != null && row.endTime != null) {
+        timePart = `${klHms(row.startTime)} ~ ${klHms(row.endTime)} `
+      } else if (row.startTime != null) {
+        timePart = `${klHms(row.startTime)} `
+      }
+      lines.push(
+        `${timePart}${trackNo}| ${klName(row.songName, row.songNameEn)} | ${klName(row.artist, row.artistEn)}`,
+      )
+    }
+    return lines.join('\n')
+  }
+
+  /**
+   * 取單場歌單：setlist store 已有資料（全量快取）就直接篩，避免為了看一場而打 API；
+   * store 還沒載入（多數情況——本頁只 load streamlist）才走單場端點，比 setlist.load()
+   * 拉全站便宜得多。
+   */
+  async function fetchStreamSetlist(streamID) {
+    if (setlist.rows.length) return setlist.rows.filter((r) => r.streamID === streamID)
+    const { data } = await apiGet(`/api/setlist?streamID=${encodeURIComponent(streamID)}`)
+    return Array.isArray(data) ? data : []
+  }
+
+  async function openKL(row) {
+    const seq = ++klSeq
+    klRow = row
+    klText = ''
+    klError = ''
+    klLoading = true
+    klOpen = true
+    try {
+      const rows = await fetchStreamSetlist(row.streamID)
+      if (seq !== klSeq) return
+      const sorted = [...rows].sort(
+        (a, b) => (a.segmentNo ?? 1) - (b.segmentNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0),
+      )
+      klText = sorted.length ? formatKLSetlist(sorted) : ''
+    } catch (err) {
+      if (seq !== klSeq) return
+      klError = `${m.klFailed}：${err?.message || String(err)}`
+    } finally {
+      if (seq === klSeq) klLoading = false
+    }
+  }
 
   function onThumbError(e) {
     const img = e.currentTarget
@@ -367,6 +533,38 @@
 
   const dirty = $derived(JSON.stringify(form) !== snapshot)
 
+  /* ---------- 新增時自動帶回 YouTube 資訊 ---------- */
+  // 原站 fillVedioInfo 的行為：解析出 videoID → GET /api/yt?id= → 帶回標題與開播時間，
+  // 並比對 berry 三頻道白名單（同 CLAUDE.md PubSub 節）。非白名單時原站不自動填、
+  // 要使用者按「確認」才繼續——這裡沿用同一條線（警告 ＋ 明確確認才解除阻擋）。
+  const BERRY_CHANNELS = [
+    'UC7A7bGRVdIwo93nqnA3x-OQ',
+    'UCBOGwPeBtaPRU59j8jshdjQ',
+    'UC2cgr_UtYukapRUt404In-A',
+  ]
+
+  let ytLoading = $state(false)
+  /** 查不到／查詢失敗的弱提示：不擋手填流程 */
+  let ytNotice = $state('')
+  /** 非白名單頻道的暫存影片資訊 { id, title, time, channelId }；null＝無此情況 */
+  let ytForeign = $state(null)
+  let ytConfirmed = $state(false)
+  /** 已查過的 ID（同一支只打一次 API） */
+  let ytLookupId = ''
+  let ytSeq = 0
+  /** 使用者手動改過的欄位不被自動回填覆蓋 */
+  let touched = $state({ title: false, time: false, categories: false })
+
+  function resetYtLookup() {
+    ytSeq++ // 讓進行中的查詢作廢
+    ytLoading = false
+    ytNotice = ''
+    ytForeign = null
+    ytConfirmed = false
+    ytLookupId = ''
+    touched = { title: false, time: false, categories: false }
+  }
+
   function openForm(row) {
     editing = row
     form = row
@@ -383,17 +581,104 @@
     formError = ''
     fieldErrors = {}
     deleteError = ''
+    resetYtLookup()
     drawerSeq++
     drawerOpen = true
   }
 
-  /** 新增模式：貼上網址即時解析出 streamID */
+  /** 原站 preCategory 的移植：由標題猜分類；只保留資料裡真的存在的分類名（避免造出新分類） */
+  function guessCategories(title) {
+    const s = String(title ?? '')
+    const low = s.toLowerCase()
+    const out = []
+    if (s.includes('歌枠')) out.push('歌枠 / Singing')
+    if (low.includes('gam')) out.push('ゲーム / Gaming')
+    if (low.includes('short')) out.push('ショート / Shorts')
+    if (low.includes('歌ってみた')) out.push('歌ってみた動画 / Cover movie')
+    if (['xfd', 'オリジナル', 'music video'].some((k) => low.includes(k)))
+      out.push('オリジナル曲 / Original Songs')
+    if (['chat', 'talk', '雑談'].some((k) => low.includes(k))) out.push('雑談 / Chatting')
+    const known = new Set(allCategoryNames)
+    return out.filter((c) => known.has(c))
+  }
+
+  function applyVideoInfo(info) {
+    if (!touched.title && info.title) form.title = info.title
+    if (!touched.time && info.time) {
+      const local = toDatetimeLocalValue(info.time)
+      if (local) form.time = local
+    }
+    if (!touched.categories && form.categories.length === 0) {
+      const guess = guessCategories(info.title)
+      if (guess.length) form.categories = guess
+    }
+    fieldErrors = { ...fieldErrors, title: '', time: '' }
+  }
+
+  async function lookupVideo(id) {
+    if (editing || !id || !YT_ID_RE.test(id) || id === ytLookupId) return
+    ytLookupId = id
+    const seq = ++ytSeq
+    ytLoading = true
+    ytNotice = ''
+    ytForeign = null
+    ytConfirmed = false
+    try {
+      // 查詢類：不必等滿 30s／重試 3 輪，查不到就讓使用者手填
+      const { data } = await apiGet(`/api/yt?id=${encodeURIComponent(id)}`, {
+        retries: 1,
+        timeout: 8000,
+      })
+      if (seq !== ytSeq) return
+      // 回應為 YouTube Data API 原始形狀包一層 time：
+      //   { items: [{ id, snippet: { title, channelId, publishedAt }, liveStreamingDetails?, time }] }
+      //   time = scheduledStartTime ?? publishedAt（後端 getVideoInfo 補的）
+      const item = data?.items?.[0]
+      if (!item) {
+        ytNotice = m.ytNotFound
+        return
+      }
+      const info = {
+        id,
+        title: item.snippet?.title ?? '',
+        time: item.time || item.liveStreamingDetails?.scheduledStartTime || item.snippet?.publishedAt || '',
+        channelId: item.snippet?.channelId ?? '',
+      }
+      if (!BERRY_CHANNELS.includes(info.channelId)) {
+        ytForeign = info // 等使用者確認才填入（原站同樣把資料暫存起來）
+        return
+      }
+      applyVideoInfo(info)
+    } catch (err) {
+      if (seq !== ytSeq) return
+      ytNotice = m.ytFailed
+    } finally {
+      if (seq === ytSeq) ytLoading = false
+    }
+  }
+
+  function confirmForeign() {
+    if (!ytForeign) return
+    ytConfirmed = true
+    // 先前的「請先確認…」阻擋訊息隨確認一起消失
+    if (formError === m.ytBlocked) formError = ''
+    applyVideoInfo(ytForeign)
+  }
+
+  /** 新增模式：貼上網址即時解析出 streamID，順手把影片資訊帶回來 */
   function onUrlInput() {
     const id = parseYouTubeId(form.url)
     if (id) {
       form.streamID = id
       fieldErrors = { ...fieldErrors, streamID: '' }
+      lookupVideo(id)
     }
+  }
+
+  /** 直接手打／貼 ID 到影片 ID 欄時也查（離開欄位才查，免得打到一半就打 API） */
+  function onStreamIdBlur() {
+    if (editing) return
+    lookupVideo(String(form.streamID ?? '').trim())
   }
 
   function requestClose() {
@@ -424,6 +709,12 @@
     if (saving) return
     formError = ''
     fieldErrors = {}
+
+    // 非 berry 頻道的影片要先確認過才放行（原站也是確認後才繼續）
+    if (!editing && ytForeign && !ytConfirmed) {
+      formError = m.ytBlocked
+      return
+    }
 
     const errs = {}
     const id = String(form.streamID ?? '').trim()
@@ -532,13 +823,15 @@
 
   <DataTable
     rows={view}
-    {columns}
+    columns={tableColumns}
     keyOf={(r) => r.streamID}
     rowHeight={108}
     mobileRowHeight={110}
     minWidth={880}
     {sort}
     onsort={(s) => (sort = s)}
+    columnFilters={colFilters}
+    onfilterchange={(next) => (colFilters = next)}
     onedit={openForm}
     onrowcontextmenu={openRowMenuFromContext}
     loading={streamlist.loading}
@@ -653,6 +946,19 @@
   onclose={closeMenu}
 />
 
+<KLSetlistDialog
+  open={klOpen}
+  title={m.klSetlist}
+  subtitle={klRow ? `${formatDate(klRow.time)} ${klRow.title ?? klRow.streamID}` : ''}
+  text={klText}
+  loading={klLoading}
+  error={klError}
+  emptyMessage={m.klEmpty}
+  copyLabel={m.klCopyAll}
+  copyFailedLabel={m.copyFailed}
+  onclose={() => (klOpen = false)}
+/>
+
 <Drawer
   open={drawerOpen}
   title={editing ? m.editTitle : m.addTitle}
@@ -662,6 +968,16 @@
   {#key drawerSeq}
     {#if formError}
       <Alert>{formError}</Alert>
+    {/if}
+
+    <!-- 非 berry 頻道：警告＋明確確認才解除送出阻擋（確認後才自動帶入標題／時間） -->
+    {#if !editing && ytForeign && !ytConfirmed}
+      <Alert>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span>⚠️ {m.ytNotBerry}</span>
+          <Button size="sm" onclick={confirmForeign}>{m.ytNotBerryConfirm}</Button>
+        </div>
+      </Alert>
     {/if}
 
     {#if !editing}
@@ -683,11 +999,24 @@
         invalid={!!fieldErrors.streamID}
         maxlength={11}
         class="font-mono"
+        onblur={onStreamIdBlur}
       />
     </Field>
 
+    {#if !editing && (ytLoading || ytNotice)}
+      <p class="-mt-2 mb-3.5 text-sm text-berry-fg-3" role="status">
+        {ytLoading ? m.ytLooking : ytNotice}
+      </p>
+    {/if}
+
     <Field label={t('field.title')} required error={fieldErrors.title} forId="stream-title">
-      <TextInput id="stream-title" bind:value={form.title} maxlength={500} invalid={!!fieldErrors.title} />
+      <TextInput
+        id="stream-title"
+        bind:value={form.title}
+        maxlength={500}
+        invalid={!!fieldErrors.title}
+        oninput={() => (touched = { ...touched, title: true })}
+      />
     </Field>
 
     <Field label={labelWithTz(m.localTime)} required error={fieldErrors.time} forId="stream-time">
@@ -696,6 +1025,7 @@
         type="datetime-local"
         bind:value={form.time}
         invalid={!!fieldErrors.time}
+        oninput={() => (touched = { ...touched, time: true })}
       />
     </Field>
 
@@ -703,7 +1033,10 @@
       <TagInput
         tags={form.categories}
         suggestions={allCategoryNames}
-        onchange={(next) => (form.categories = next)}
+        onchange={(next) => {
+          form.categories = next
+          touched = { ...touched, categories: true }
+        }}
       />
     </Field>
 

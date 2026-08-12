@@ -43,6 +43,8 @@ export default {
     themeDark: 'ダーク',
     backHome: 'ホームへ',
     resizeColumn: '列幅を調整',
+    filterColumn: '絞り込み：{label}',
+    clearColumnFilters: '列の絞り込みを解除',
   },
   page: {
     home: 'ホーム',

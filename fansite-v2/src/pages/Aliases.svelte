@@ -24,6 +24,9 @@
     tokenize,
     matchesQuery,
     applySort,
+    compileColumnFilters,
+    matchesColumnFilters,
+    countDistinct,
     syntaxName,
     fieldErrorMap,
     nullIfBlank,
@@ -126,16 +129,22 @@
   const typeLabel = (type) => (type === 'artist' ? m.typeArtist : m.typeTitle)
 
   /* ---------- 表格 ---------- */
-  const columns = $derived([
-    { key: 'aliasType', label: t('field.aliasType'), width: '96px' },
-    { key: 'canonicalName', label: t('field.canonicalName'), width: 'minmax(150px, 1.6fr)' },
-    { key: 'aliasValue', label: t('field.aliasValue'), width: 'minmax(150px, 1.6fr)' },
-    { key: 'songID', label: m.boundSong, width: 'minmax(120px, 1.2fr)' },
-    { key: 'note', label: t('field.note'), width: 'minmax(110px, 1fr)' },
-  ])
-
   const boundSongName = (row) =>
     row.songID != null ? (songIndex.map.get(row.songID)?.songName ?? `#${row.songID}`) : ''
+
+  // 綁定曲目欄存的是 songID、顯示的是曲名，篩選要比使用者看得到的那個
+  const columns = $derived([
+    { key: 'aliasType', label: t('field.aliasType'), width: '96px', filter: 'select' },
+    { key: 'canonicalName', label: t('field.canonicalName'), width: 'minmax(150px, 1.6fr)' },
+    { key: 'aliasValue', label: t('field.aliasValue'), width: 'minmax(150px, 1.6fr)' },
+    {
+      key: 'songID',
+      label: m.boundSong,
+      width: 'minmax(120px, 1.2fr)',
+      filterValue: boundSongName,
+    },
+    { key: 'note', label: t('field.note'), width: 'minmax(110px, 1fr)' },
+  ])
 
   const SEARCH_FIELDS = ['canonicalName', 'aliasValue', 'note', 'aliasType', 'songID', boundSongName]
 
@@ -181,27 +190,59 @@
   let query = $state('')
   let typeFilter = $state([])
   let sort = $state(null)
+  /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
+  let colFilters = $state({})
+
+  /** 上方 chips：計數 cascade（隨 chips 以外全部條件收斂），與表頭 select 同語意 */
+  const beforeChips = $derived.by(() => {
+    const tokens = tokenize(query)
+    const active = compileColumnFilters(colFilters, columns)
+    if (!tokens.length && !active) return aliases.rows
+    return aliases.rows.filter(
+      (r) =>
+        (!tokens.length || matchesQuery(r, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) &&
+        (!active || matchesColumnFilters(r, active)),
+    )
+  })
 
   const typeOptions = $derived.by(() => {
-    const counts = { title: 0, artist: 0 }
-    for (const r of aliases.rows) counts[r.aliasType] = (counts[r.aliasType] ?? 0) + 1
+    const counts = countDistinct(beforeChips, (r) => r.aliasType)
     return [
-      { value: 'title', label: m.typeTitle, count: counts.title },
-      { value: 'artist', label: m.typeArtist, count: counts.artist },
+      { value: 'title', label: m.typeTitle, count: counts.get('title') ?? 0 },
+      { value: 'artist', label: m.typeArtist, count: counts.get('artist') ?? 0 },
     ]
   })
 
-  const filtered = $derived.by(() => {
+  // 兩段套用：先算「類型欄篩選以外的全部條件」（全域搜尋 ∧ chips ∧ 其他欄位篩選）——
+  // 類型 select 的計數以此為基準（cascade：不裁選項，只更新計數）——再補類型 select 本身。
+  const beforeType = $derived.by(() => {
     const tokens = tokenize(query)
     const types = typeFilter
-    if (!tokens.length && !types.length) return aliases.rows
+    const active = compileColumnFilters(colFilters, columns, 'aliasType')
+    if (!tokens.length && !types.length && !active) return aliases.rows
     return aliases.rows.filter((row) => {
       if (types.length && !types.includes(row.aliasType)) return false
+      if (active && !matchesColumnFilters(row, active)) return false
       return !tokens.length || matchesQuery(row, tokens, SEARCH_FIELDS, SEARCH_ALIASES)
     })
   })
 
+  const typeSelectOptions = $derived.by(() => {
+    const counts = countDistinct(beforeType, (r) => r.aliasType)
+    return typeOptions.map((o) => ({ ...o, count: counts.get(o.value) ?? 0 }))
+  })
+
+  const filtered = $derived.by(() => {
+    const ty = String(colFilters.aliasType ?? '')
+    return ty ? beforeType.filter((row) => row.aliasType === ty) : beforeType
+  })
+
   const view = $derived(applySort(filtered, sort, columns))
+
+  /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
+  const tableColumns = $derived(
+    columns.map((c) => (c.key === 'aliasType' ? { ...c, filterOptions: typeSelectOptions } : c)),
+  )
 
   const exportCols = $derived([
     { key: 'aliasID', label: 'aliasID' },
@@ -448,13 +489,15 @@
 
   <DataTable
     rows={view}
-    {columns}
+    columns={tableColumns}
     keyOf={(r) => r.aliasID}
     rowHeight={58}
     mobileRowHeight={100}
     minWidth={820}
     {sort}
     onsort={(s) => (sort = s)}
+    columnFilters={colFilters}
+    onfilterchange={(next) => (colFilters = next)}
     onedit={openForm}
     loading={aliases.loading}
   >

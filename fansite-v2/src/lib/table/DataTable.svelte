@@ -13,6 +13,18 @@
   // columns: [{ key, label, width: '1fr'|'80px', sortable?: boolean, sortValue?: (row)=>any, align?: 'right'|'center' }]
   // 排序本身由頁面負責（applySort），DataTable 只負責欄頭互動與指示箭頭。
   //
+  // 欄位篩選列（桌面 only；手機卡片模式沒有欄的概念，全域搜尋已覆蓋）：
+  //   給了 onfilterchange 才會在表頭正下方多一列 sticky 篩選列。欄定義再吃：
+  //     filter: 'text'（預設）| 'select' | false（縮圖等裝飾欄由頁面指定 false）
+  //     filterValue: (row) => string | string[]   篩選取值，預設 row[key]
+  //     filterOptions: {value,label,count}[]      select 用，由頁面以 $derived 提供
+  //     filterExact: true                         text 欄改精確比對（段/曲序等數字欄）
+  //   與排序同一套分工：DataTable 只出 UI 與值（{ 欄key: 值 }），實際過濾在頁面端做
+  //   （才能與全域搜尋、FilterChips 疊成同一個 AND、共用同一次走訪）。
+  //   text 欄有 IME 組字防護與 debounce；select 立即生效。
+  //   注意：文字框的顯示值是元件內部草稿，頁面把 columnFilters 改掉不會回寫進輸入框
+  //   （清空一律走篩選列自己的 × / 清除鈕）。
+  //
   // onedit 有給時，桌面在行尾補一個窄欄放鉛筆鈕；列本身不吃點擊（整列可點會在選取表格文字時誤觸編輯）。
   // **手機不渲染鉛筆**——用戶裁示 2026-08-08「手機＝查資料、PC＝編輯」，四頁通用，各頁不必自己藏。
   //
@@ -37,6 +49,12 @@
     minWidth = 780,
     sort = null,
     onsort = undefined,
+    /** 目前生效的欄位篩選 { 欄key: 值 }（頁面持有） */
+    columnFilters = {},
+    /** (next) => void；有給才渲染篩選列（與 sort/onsort 同一套慣例） */
+    onfilterchange = undefined,
+    /** 文字篩選的 debounce（ms） */
+    filterDelay = 150,
     onedit = undefined,
     /** (row, event) — 桌面整列右鍵 */
     onrowcontextmenu = undefined,
@@ -52,6 +70,7 @@
   } = $props()
 
   const HEADER_H = 38
+  const FILTER_H = 36
   const OVERSCAN = 6
   const MIN_COL_W = 48
   const ACTION_W_1 = 44
@@ -65,8 +84,17 @@
   let colWidths = $state({})
   let resizing = $state(null) // { key, startX, startW }
 
+  const filterMode = (col) => col.filter ?? 'text'
+
   const rowH = $derived(isMobile ? mobileRowHeight : rowHeight)
-  const headerH = $derived(isMobile ? 0 : HEADER_H)
+  const showFilters = $derived(
+    !isMobile && !!onfilterchange && columns.some((c) => filterMode(c) !== false),
+  )
+  // 表頭＋篩選列都 sticky 在捲動容器頂端，虛擬滾動的起算高度要含兩者
+  const headerH = $derived(isMobile ? 0 : HEADER_H + (showFilters ? FILTER_H : 0))
+  const hasFilterValue = $derived(
+    Object.values(columnFilters ?? {}).some((v) => v != null && String(v) !== ''),
+  )
   const total = $derived(rows.length)
   const bodyTop = $derived(Math.max(0, scrollTop - headerH))
   const start = $derived(Math.max(0, Math.floor(bodyTop / rowH) - OVERSCAN))
@@ -127,6 +155,61 @@
     onrowcontextmenu(row, e)
   }
 
+  /* ---------- 欄位篩選列 ---------- */
+  // 文字框走「本地草稿 + debounce 提交」（同 SearchBox）：15k 列每敲一鍵重算會卡，
+  // 且 IME 組字中的片段不該觸發過濾。select 沒有這個問題，change 即提交。
+  /** { 欄key: 輸入框當下的字 } */
+  let drafts = $state({})
+  /** 正在 IME 組字的欄（同一時間只可能有一個輸入框在組字） */
+  let composingKey = null
+  const filterTimers = new Map()
+
+  $effect(() => () => {
+    for (const id of filterTimers.values()) clearTimeout(id)
+    filterTimers.clear()
+  })
+
+  function commitFilter(key, value) {
+    const next = { ...columnFilters }
+    const v = String(value ?? '').trim()
+    if (v) next[key] = v
+    else delete next[key]
+    onfilterchange?.(next)
+  }
+
+  function scheduleFilter(key, value) {
+    clearTimeout(filterTimers.get(key))
+    if (composingKey === key) return // 組字中不送出
+    filterTimers.set(key, setTimeout(() => commitFilter(key, value), filterDelay))
+  }
+
+  function onFilterInput(col, e) {
+    const v = e.currentTarget.value
+    drafts = { ...drafts, [col.key]: v }
+    scheduleFilter(col.key, v)
+  }
+
+  function onFilterCompositionEnd(col, e) {
+    composingKey = null
+    const v = e.currentTarget.value
+    drafts = { ...drafts, [col.key]: v }
+    scheduleFilter(col.key, v)
+  }
+
+  function clearFilter(key) {
+    clearTimeout(filterTimers.get(key))
+    filterTimers.delete(key)
+    drafts = { ...drafts, [key]: '' }
+    commitFilter(key, '')
+  }
+
+  function clearAllFilters() {
+    for (const id of filterTimers.values()) clearTimeout(id)
+    filterTimers.clear()
+    drafts = {}
+    onfilterchange?.({})
+  }
+
   /* ---------- 欄寬拖拉 ---------- */
   // 起始寬度量測自欄頭實際渲染寬（fr/minmax 也能拿到 px），拖拉期間用 pointer capture
   // 讓 move/up 都回到把手身上，不必掛 document 監聽。
@@ -179,6 +262,32 @@
     <path d="M4.5 19.5h4l9.6-9.6a2.55 2.55 0 0 0-3.6-3.6l-9.6 9.6v3.6z" />
     <path d="M13.2 7.2l3.6 3.6" />
   </svg>
+{/snippet}
+
+{#snippet clearAllBtn()}
+  <button
+    type="button"
+    class="rounded p-1 transition-colors hover:text-[var(--berry-primary)]"
+    style="color: var(--berry-text-emphasis)"
+    aria-label={t('common.clearColumnFilters')}
+    title={t('common.clearColumnFilters')}
+    onclick={clearAllFilters}
+  >
+    <!-- 漏斗加斜線＝解除篩選 -->
+    <svg
+      class="size-4"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 5h16l-6 7v5.5l-4 2V12z" />
+      <path d="M4 20L20 4" />
+    </svg>
+  </button>
 {/snippet}
 
 <div class="rounded-lg border border-berry-border bg-berry-bg">
@@ -272,6 +381,92 @@
           {/each}
           {#if hasActionCol}
             <div aria-hidden="true"></div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if showFilters}
+        <!-- 篩選列：跟著表頭一起 sticky（top = 表頭高）。背景與表頭同色，
+             兩者之間靠表頭自己的 border-b 分隔，讀起來是同一塊固定區。 -->
+        <div
+          class="sticky z-10 grid border-b border-berry-border bg-berry-bg-2"
+          style="top: {HEADER_H}px; grid-template-columns: {template}; height: {FILTER_H}px"
+          role="row"
+        >
+          {#each columns as col (col.key)}
+            <div class="flex min-w-0 items-center px-1.5">
+              {#if filterMode(col) === 'select'}
+                <select
+                  class="h-7 w-full min-w-0 rounded border border-berry-border bg-berry-bg-3 px-1 text-sm text-berry-fg outline-none focus:border-[var(--berry-primary)]"
+                  style={columnFilters[col.key] ? 'border-color: var(--berry-primary)' : ''}
+                  aria-label={t('common.filterColumn', { label: col.label })}
+                  title={t('common.filterColumn', { label: col.label })}
+                  value={columnFilters[col.key] ?? ''}
+                  onchange={(e) => commitFilter(col.key, e.currentTarget.value)}
+                >
+                  <option value="">{t('common.all')}</option>
+                  {#each col.filterOptions ?? [] as opt (opt.value)}
+                    <option value={opt.value}>
+                      {opt.label}{opt.count != null ? ` (${opt.count})` : ''}
+                    </option>
+                  {/each}
+                </select>
+              {:else if filterMode(col) !== false}
+                <div class="relative min-w-0 flex-1">
+                  <input
+                    type="text"
+                    class="h-7 w-full min-w-0 rounded border border-berry-border bg-berry-bg-3 pl-1.5 text-sm text-berry-fg outline-none transition-colors placeholder:text-berry-fg-3 focus:border-[var(--berry-primary)] {drafts[
+                      col.key
+                    ]
+                      ? 'pr-5'
+                      : 'pr-1.5'}"
+                    style={columnFilters[col.key] ? 'border-color: var(--berry-primary)' : ''}
+                    placeholder={col.label}
+                    aria-label={t('common.filterColumn', { label: col.label })}
+                    title={t('common.filterColumn', { label: col.label })}
+                    data-filter={col.key}
+                    value={drafts[col.key] ?? ''}
+                    oninput={(e) => onFilterInput(col, e)}
+                    oncompositionstart={() => (composingKey = col.key)}
+                    oncompositionend={(e) => onFilterCompositionEnd(col, e)}
+                  />
+                  {#if drafts[col.key]}
+                    <button
+                      type="button"
+                      class="absolute right-0.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-berry-fg-3 transition-colors hover:text-berry-fg"
+                      aria-label={t('common.clear')}
+                      title={t('common.clear')}
+                      onclick={() => clearFilter(col.key)}
+                    >
+                      <svg
+                        class="size-3"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.6"
+                        aria-hidden="true"
+                      >
+                        <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+                      </svg>
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/each}
+
+          {#if hasActionCol}
+            <!-- 行尾動作欄的位置不放篩選輸入，只在有條件時放「清除欄位篩選」 -->
+            <div class="flex items-center justify-center">
+              {#if hasFilterValue}
+                {@render clearAllBtn()}
+              {/if}
+            </div>
+          {:else if hasFilterValue}
+            <!-- 沒有行尾動作欄的表格：清除鈕改貼在列尾（sticky 已是絕對定位的容器） -->
+            <div class="absolute right-1 top-1/2 -translate-y-1/2">
+              {@render clearAllBtn()}
+            </div>
           {/if}
         </div>
       {/if}

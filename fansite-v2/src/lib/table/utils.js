@@ -173,6 +173,83 @@ export function filterRows(rows, tokens, fields, aliases) {
   return out
 }
 
+/* ===================== 欄位篩選（DataTable 篩選列） ===================== */
+
+// DataTable 只負責篩選列的 UI 與值（{ 欄key: 值 }），實際過濾在頁面端做，
+// 才能與全域搜尋、FilterChips 疊加成同一個 AND 條件、共用同一次走訪。
+//
+// 用法：
+//   const active = $derived(compileColumnFilters(colFilters, columns))
+//   ... rows.filter((r) => matchesColumnFilters(r, active))
+//
+// 取值來源：col.filterValue?.(row) ?? row[col.key]，回傳字串或字串陣列。
+// 比對方式：'select' 與 col.filterExact 為精確比對（陣列＝包含該值），其餘為
+//           大小寫不敏感的 contains。
+
+/**
+ * 把 { 欄key: 值 } 壓成只含「有值欄位」的比對器陣列；沒有任何條件時回 null
+ * （呼叫端可直接略過整輪過濾，不必為每列跑空迴圈）。
+ *
+ * @param {Record<string, string>} columnFilters
+ * @param {{key: string, filter?: 'text'|'select'|false, filterExact?: boolean, filterValue?: (row:any)=>any}[]} columns
+ * @param {string|null} [exclude] 略過某一欄（select 計數的 cascade 用：
+ *   算某欄選項的計數時，不能把該欄自己的條件算進去）
+ */
+export function compileColumnFilters(columnFilters, columns, exclude = null) {
+  if (!columnFilters) return null
+  const out = []
+  for (const col of columns) {
+    const mode = col.filter ?? 'text'
+    if (mode === false || col.key === exclude) continue
+    const raw = columnFilters[col.key]
+    const value = raw == null ? '' : String(raw).trim()
+    if (!value) continue
+    const get = col.filterValue ?? ((row) => row[col.key])
+    const exact = mode === 'select' || col.filterExact === true
+    out.push({ get, exact, needle: exact ? value : value.toLowerCase() })
+  }
+  return out.length ? out : null
+}
+
+/** @param {ReturnType<typeof compileColumnFilters>} compiled */
+export function matchesColumnFilters(row, compiled) {
+  if (!compiled) return true
+  for (let i = 0; i < compiled.length; i++) {
+    const { get, needle, exact } = compiled[i]
+    const v = get(row)
+    if (exact) {
+      if (Array.isArray(v)) {
+        if (!v.some((item) => String(item) === needle)) return false
+      } else if (String(v ?? '') !== needle) return false
+      continue
+    }
+    const s = Array.isArray(v) ? v.join(' ') : v == null ? '' : String(v)
+    if (!s.toLowerCase().includes(needle)) return false
+  }
+  return true
+}
+
+/**
+ * distinct 值計數（select 篩選的選項用）。getter 回陣列時逐項計數（分類等多值欄）。
+ * @returns {Map<string, number>}
+ */
+export function countDistinct(rows, getter) {
+  const counts = new Map()
+  for (const row of rows) {
+    const v = getter(row)
+    if (v == null || v === '') continue
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (item == null || item === '') continue
+        counts.set(String(item), (counts.get(String(item)) ?? 0) + 1)
+      }
+    } else {
+      counts.set(String(v), (counts.get(String(v)) ?? 0) + 1)
+    }
+  }
+  return counts
+}
+
 /* ========================= 排序 ========================= */
 
 // Intl.Collator 實例快取：15k 列排序時 localeCompare 逐次建構會慢一個量級
