@@ -234,9 +234,31 @@ curl -s -X POST -H "X-Trigger-Token: $TOKEN" -H "Content-Type: application/json"
 ```
 UTC 07:00       = 台灣 15:00     每日備援 runAutoUpdate
 UTC 14:00~19:00 = 台灣 22:00~03:00  每 10 分鐘 runPollingCheck
+UTC 07:30       = 台灣 15:30     runSnapshot（每日更新後重產 CDN 快照）
+UTC 20:00       = 台灣 04:00     runSnapshot（polling 末發 19:50 之後重產 CDN 快照）
 ```
 
 AWS EventBridge 為主要排程。CF cron 已停用。
+
+前三者走 `event.source === 'aws.events'` → `handleCronTrigger`（依 UTC 小時分派）；
+快照排程改帶 `Input: '{"source":"snapshot"}'`，在 `entry-lambda.js` 直接分流到
+`src/cron-jobs/snapshot.js`（同 warmup 的作法）。
+
+### CDN 快照 cron（src/cron-jobs/snapshot.js）
+
+`/data/*.json` 靜態快照原本只在部署時產（CI `npm run snapshot`），資料一更新就過期——
+前端有 API 背景校正兜底，但首訪體感差，故兩次／日重產：
+
+- 資料源用 Hono `app.request()` **內部調用自家 API**（零網路來回，輸出與前端拿到的一致）；
+  `history.md`／`changelog.json` 是現站靜態檔不是 API，走 HTTP 抓（`SNAPSHOT_STATIC_BASE`）
+- 檔名／信封解包／過期月份清理的基準是 `scripts/fetch-snapshot.mjs`（v2 CI 版）與
+  `fansite-v2/scripts/fetch-snapshot.mjs`（v3 版）——**三處改動必須同步**
+- 目標站台：`SNAPSHOT_TARGETS`＝`bucket:distributionId,bucket2:distributionId2`
+  （由 template 的 SnapshotBucketA/B ＋ SnapshotDistributionA/B 以 `!Sub` 拼成；
+  **未設＝整個步驟 skip 並 log**）。CacheControl 固定 `public, max-age=300`，
+  與 CI 的快照 sync 逐字一致；每站台寫完發一次 `/data/*` invalidation（1 path）
+- 失敗語意：單檔失敗只記錄不中斷（舊物件留在 S3 比缺檔安全）；某站台一個檔都沒寫成時
+  **不執行清理**（只刪不寫是最糟的組合）。manifest 失敗或有站台全滅 → 整體 ok=false
 
 ### 資料庫（MariaDB @ ConoHa 大阪）
 
@@ -319,7 +341,10 @@ Push 到 `main` 自動觸發：
 3. Invalidate CloudFront cache
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
-1. Build fansite JS → `wrangler deploy`
+1. **（v3 切換準備，`fansite-v2` 分支已改）** fansite-v2：`npm ci` → `npm run snapshot`
+   （best-effort，`continue-on-error`）→ `npm run build` → `wrangler deploy`
+2. `wrangler.toml` 的 `[assets] directory` 指向 `fansite-v2/dist`（Vite hash 檔名，
+   無 cache-bust sed 步驟）
 
 ### Secrets
 

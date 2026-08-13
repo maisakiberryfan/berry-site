@@ -109,6 +109,13 @@ async function main() {
     console.log(`[snapshot] 逐月抓 setlist（${manifest.months.length} 個 bucket）…`)
     for (const entry of manifest.months) {
       const month = entry.month
+      // month 會拼進寫檔路徑，只收 YYYY-MM 或 none（regex 同後端 monthStart()）。
+      // 現況不可利用（month 由 DATE_FORMAT 生成，字元集僅數字與 -），純縱深防禦。
+      if (month !== 'none' && !/^\d{4}-\d{2}$/.test(month)) {
+        failures++
+        console.warn(`  ✗ manifest month 格式非法，已跳過：${month}`)
+        continue
+      }
       const file = month === 'none' ? 'setlist-none.json' : `setlist-${month}.json`
       const query =
         month === 'none' ? '/api/setlist?from=none&to=none' : `/api/setlist?from=${month}&to=${month}`

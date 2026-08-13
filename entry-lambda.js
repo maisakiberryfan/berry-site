@@ -63,6 +63,19 @@ export const handler = async (event, context) => {
     return { statusCode: 200, body: 'async done' }
   }
 
+  // CDN 快照重產（EventBridge Schedule，Input '{"source":"snapshot"}'）
+  // 與 aws.events 分流分開：走自訂 Input 的排程不帶 detail-type，不會誤入 cron handler
+  if (event.source === 'snapshot') {
+    const { runSnapshot } = await import('./src/cron-jobs/snapshot.js')
+    try {
+      const result = await runSnapshot({})
+      return { statusCode: result.ok ? 200 : 500, body: JSON.stringify(result) }
+    } catch (error) {
+      console.error('Snapshot cron error:', error)
+      return { statusCode: 500, body: `snapshot failed: ${error.message}` }
+    }
+  }
+
   // EventBridge scheduled event
   if (event.source === 'aws.events' || event['detail-type'] === 'Scheduled Event') {
     // Pass env as empty object — Lambda uses process.env directly via platform.js
