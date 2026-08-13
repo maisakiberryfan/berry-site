@@ -3,9 +3,14 @@ main = "entry-worker.js"
 compatibility_date = "2024-11-06"
 compatibility_flags = ["nodejs_compat"]
 
-# Workers Static Assets — fansite 靜態檔案（備用站完整網站）
+# Workers Static Assets — 靜態檔案（備用站完整網站）
+# v3 切換：指向 fansite-v2 的 build 產物（Vite hash 檔名），不再是 fansite/ 原始目錄。
+# ⚠️ dist/ 是 gitignored 的建置產物——部署前必須先產生它，否則 wrangler 會找不到目錄：
+#     cd fansite-v2 && npm ci && npm run snapshot && npm run build
+#   （snapshot 抓 CDN 快照層 public/data/*.json；缺了仍能 build，只是首訪退回 API 校正）
+#   CI 已照此順序執行，見 .github/workflows/deploy-cf.yml
 [assets]
-directory = "fansite"
+directory = "fansite-v2/dist"
 binding = "ASSETS"
 # 預設行為是「請求命中靜態檔案就由資產伺服器直接回傳、完全不執行 worker」，
 # 那條路徑上 entry-worker.js 的 security header 注入不會發生（實測：/ 與
@@ -39,7 +44,7 @@ name = "berry-site-dev"
 main = "entry-worker.js"
 
 [env.dev.assets]
-directory = "fansite"
+directory = "fansite-v2/dist"
 binding = "ASSETS"
 run_worker_first = true
 

@@ -141,8 +141,15 @@ app.use('/api/*', async (c, next) => {
     if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
   }
 
+  // IP 來源優先序（防偽造）——限流 key 若可被請求方控制，整條限流形同虛設：
+  //   1. cf-connecting-ip            CF 站，Cloudflare 覆寫填入，外部不可偽造
+  //   2. requestContext.http.sourceIp Lambda（HTTP API v2），API Gateway 填入，client 不可偽造
+  //   3. x-forwarded-for **末段**     僅本地/SAM local 兜底；取最接近平台的一段
+  // ⚠️ 不可取 XFF 首段：CloudFront 會保留 viewer 自帶的 XFF 值於首段、真實 IP append 在後，
+  //    每次請求換一個偽造首段就是一把新 rate key，30/min 上限會被完全繞過。
   const ip = c.req.header('cf-connecting-ip')
-    || c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || c.env?.requestContext?.http?.sourceIp
+    || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
     || 'unknown'
 
   // Expensive endpoints: stricter limit
