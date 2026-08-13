@@ -16,11 +16,30 @@ npm run build        # 純靜態產物 → dist/
 
 v3 demo 站部署（獨立 CloudFront，與 git 無關）：
 ```bash
-VITE_ASSET_BASE=https://m-b.win npm run build
-aws s3 sync dist/ s3://berry-fansite-v3-495219733379/ --delete
-aws cloudfront create-invalidation --distribution-id E1ZENENQETM5MD --paths "/assets/*" "/index.html"
+npm run snapshot && VITE_ASSET_BASE=https://m-b.win npm run build
+BUCKET=berry-fansite-v3-495219733379 DISTRIBUTION_ID=E1ZENENQETM5MD bash scripts/deploy-sync.sh
 ```
 （demo 站 v3.m-b.win：distribution E1ZENENQETM5MD、/api/* 直通主站同一 API Gateway、SPA rewrite 用獨立 function `berry-v3-spa-rewrite`。上線切換的 TODO 見 README.md）
+
+**`scripts/deploy-sync.sh` 取代了裸 `aws s3 sync --delete`**——後者會在部署當下刪光舊
+hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃 404。腳本五步，
+上傳順序 **資產 → 資料 → index.html** 是刻意的（入口最後換，避免它指向還沒上傳的資產）：
+
+1. `dist/assets/` **不帶 --delete**，hash 資產只增不刪
+2. `dist/data/` 帶 `--delete` 清過期月度快照（本地端 fetch-snapshot.mjs 已先清過），
+   並帶 `--cache-control "public, max-age=300"`——**與後端快照 cron
+   （`src/cron-jobs/snapshot.js`）寫同一批 key 的值一致**，不然兩邊會讓同一支檔案的快取飄移
+3. 其餘根層檔（index.html／favicon／theme-init.js）帶 `--delete --exclude "assets/*"
+   --exclude "data/*"`——exclude 同時作用於目的地，assets/ 因此不受 --delete 影響，
+   保留窗口就靠這一點成立
+4. 回收孤兒 hash 資產：本地已無 ∧ LastModified 早於 `RETENTION_DAYS`（預設 14）天才刪；
+   此步失敗不讓部署判失敗（檔案已同步完成，下次再收）
+5. invalidation 只清 `/index.html` 與 `/data/*`——**hash 資產免清**（檔名含內容 hash，
+   內容變＝URL 變，同 URL 的邊緣快取永遠正確；舊命令的 `"/assets/*"` 是白花額度）
+
+`DRY_RUN=1` 可安全空跑（sync 走 `--dryrun`、刪除與 invalidation 只列印）。
+⚠️ 若日後把 `/img`、`/pages` 等現站靜態資源搬進同一 bucket，必須讓它們進 `dist/`
+或在步驟 2 加 `--exclude`，否則會被 `--delete` 清掉。
 
 ## 架構關鍵
 
@@ -52,7 +71,9 @@ aws cloudfront create-invalidation --distribution-id E1ZENENQETM5MD --paths "/as
 
 - **SongList**：歌手欄自動完成（本地 distinct＋datalist、選定帶日英雙欄）
 - **StreamList**：RowMenu（查看歌單→`/setlist?stream=`／快速新增→`?add=`／KL 格式歌單／複製／開 YT，歌單類僅歌枠列）；新增 drawer 貼網址自動查 `/api/yt` 帶標題時間分類（手改不覆蓋；三頻道白名單外→警告＋「仍要新增」確認）
-- **SetList**：編輯 drawer 四模式（edit／batch 新增／reorder 曲序／alias 快速新增別名）；`?stream=`/`?add=` query 直達；月份下拉年份分組；快速新增別名 title 模式自動綁該列 songID（防同名互染——維運核心迴路）
+- **SetList**：編輯 drawer 四模式（edit／batch 新增／reorder 曲序／alias 快速新增別名）；
+  reorder 面板有「依時間戳排序」鈕（有戳列升冪填回原位、無戳列不動）＋時間戳矛盾即時警告
+  （不阻擋儲存）——不變量：trackNo 順序 ≡ 時間戳順序；`?stream=`/`?add=` query 直達；月份下拉年份分組；快速新增別名 title 模式自動綁該列 songID（防同名互染——維運核心迴路）
 - **Aliases**：quick-add／test 端點接線；信封是 `{success,data}`（client 已統一解包，要 `isNew` 用 `request()` 讀 raw）
 - **Analytics**：統計／資料查詢分籤（`#query` 直達）；統計＝客端 JS 聚合；查詢＝建構器（白名單＋bind 防注入）＋進階 SQL（sql.js 659KB lazy self-host）；資料源＝瀏覽器快取攤平的 `berry_data` 寬表（time/month 為本地時區）
 - 全列表頁：全域搜尋（`欄位:值`／`欄位:*` 語法）∧ FilterChips ∧ 欄位篩選列，三層 AND；計數統一 cascade 語意（收斂計數、不裁選項）

@@ -293,14 +293,37 @@ export async function createSetlistEntry(c) {
     // Batch UPSERT with conditional update logic
     if (isUserRequest) {
       // User edit: Always overwrite (direct update)
+      // startTime/endTime 一併覆寫（slot 完整狀態語意）：批次編輯調順序時前端把
+      // 時間戳掛在列上隨列移動，這裡跟著寫回——否則時間戳留在原 trackNo、與歌
+      // 錯配（2026-08-09 發現的批次編輯時間戳錯位 bug）。worker 分支不動（COALESCE
+      // 保護留言回補資產）。呼叫端若為「整場新建」（如 v3 批次新增）不帶戳＝插 null，正確
+      for (const entry of entries) {
+        for (const f of ["startTime", "endTime"]) {
+          const v = entry[f];
+          if (v !== undefined && v !== null && (!Number.isInteger(v) || v < 0 || v > 360000)) {
+            await db.execute("ROLLBACK");
+            return c.json(
+              createErrorResponse("VALIDATION_ERROR", `${f} must be null or an integer between 0 and 360000 (seconds)`, { [f]: "invalid" }),
+              400,
+            );
+          }
+        }
+      }
+      const userPlaceholders = entries.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
+      const userValues = entries.flatMap((entry) => {
+        const { streamID, trackNo, segmentNo = 1, songID, note, startTime, endTime } = entry;
+        return [streamID, trackNo, segmentNo, songID || null, note || null, startTime ?? null, endTime ?? null];
+      });
       await db.execute(
-        `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note)
-         VALUES ${placeholders}
+        `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note, startTime, endTime)
+         VALUES ${userPlaceholders}
          ON DUPLICATE KEY UPDATE
            segmentNo = VALUES(segmentNo),
            songID = VALUES(songID),
-           note = VALUES(note)`,
-        values,
+           note = VALUES(note),
+           startTime = VALUES(startTime),
+           endTime = VALUES(endTime)`,
+        userValues,
       );
     } else {
       // Worker auto-update: Protect existing user edits

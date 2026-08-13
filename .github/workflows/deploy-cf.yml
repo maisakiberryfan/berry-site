@@ -7,9 +7,10 @@ on:
       - '*.md'
   workflow_dispatch:
 
+# ⚠️ CF 憑證刻意「不」放頂層 env——頂層 env 會進每個 step 的行程環境，
+# 連 npm ci／npm run build 都帶著部署 token，任一 devDep 被投毒即可讀走外傳
+# （不經 GitHub log，secret 遮蔽機制擋不到）。只掛在真正需要的 wrangler deploy 那步。
 env:
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -22,20 +23,40 @@ jobs:
         with:
           node-version: '22'
 
-      # Build fansite JS bundle
-      - name: Build fansite
-        working-directory: fansite
-        run: |
-          npm ci
-          npm run build:js
+      # ── fansite-v2（v3 站）build → dist/，即 wrangler.toml 的 [assets] directory ──
+      # 沒有 cache-bust 步驟：Vite 產物是內容 hash 檔名（assets/index-<hash>.js），
+      # 內容一變 URL 就變，不需要 ?v= query 這種手動破快取。
+      - name: Install fansite-v2 deps
+        working-directory: fansite-v2
+        run: npm ci
 
-      # Cache-bust：dist 資產引用加 commit hash（同 deploy.yml，兩站行為一致）
-      - name: Cache-bust asset references
-        run: |
-          sed -i "s|/assets/dist/tool\.js[^\"]*|/assets/dist/tool.js?v=${GITHUB_SHA::8}|; s|/assets/dist/tool\.css[^\"]*|/assets/dist/tool.css?v=${GITHUB_SHA::8}|" fansite/index.html
+      # CDN 快照層（public/data/*.json）——打的是 production 的公開唯讀 GET API
+      # （https://m-b.win/api/...），不需要任何 secret。
+      # continue-on-error：快照抓不完整不該擋部署——前端資料層是三層瀑布，
+      # 缺快照只是首訪退回 API 校正（慢一點），比整站不部署好。
+      # 注意 fetch-snapshot.mjs 單檔失敗會 exit 1，故這步在部分失敗時也會標紅但放行。
+      - name: Snapshot data (best-effort)
+        working-directory: fansite-v2
+        continue-on-error: true
+        run: npm run snapshot
+
+      - name: Build fansite-v2
+        working-directory: fansite-v2
+        run: npm run build
+
+      # 圖片/音訊併進 dist（同源方案）：備用站 build 不設 VITE_ASSET_BASE，
+      # 圖片走相對路徑 /img/*——dist 內必須自帶。同源也讓 entry-worker.js 的
+      # CSP（img-src/media-src 'self'）免改。/pages/history.md 與 changelog.json
+      # 不需要——v3 從 /data/ 快照讀它們（上面 snapshot 步驟已產）。
+      # 必須在 build 之後：vite build 會清空 dist/。
+      - name: Bundle site images into dist
+        run: cp -r fansite/img fansite-v2/dist/img
 
       # Install root dependencies
       - run: npm ci
 
-      # Deploy to Cloudflare Workers
+      # Deploy to Cloudflare Workers（憑證只在這一步注入，見檔頭 env 註解）
       - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

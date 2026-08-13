@@ -18,6 +18,7 @@
   import { songlist } from '../api/store.svelte.js'
   import { apiPost, apiPut, apiDelete } from '../api/client.js'
   import {
+    MOBILE_MQ,
     tokenize,
     filterRows,
     applySort,
@@ -28,6 +29,16 @@
     nullIfBlank,
     syntaxName,
   } from '../lib/table/utils.js'
+
+  // 手機唯讀（鐵則 2）：新增鈕條件渲染用
+  let isMobile = $state(false)
+  $effect(() => {
+    const mq = window.matchMedia(MOBILE_MQ)
+    const apply = () => (isMobile = mq.matches)
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  })
 
   songlist.load()
 
@@ -375,10 +386,13 @@
     />
 
     {#snippet actions()}
-      <Button variant="primary" class="hidden md:inline-flex" onclick={() => openForm(null)}>
-        <span class="text-base leading-none">＋</span>
-        {t('common.add')}
-      </Button>
+      <!-- 手機唯讀：條件渲染（CSS hidden 會被 Button 的 inline-flex 蓋掉——鐵則 2） -->
+      {#if !isMobile}
+        <Button variant="primary" onclick={() => openForm(null)}>
+          <span class="text-base leading-none">＋</span>
+          {t('common.add')}
+        </Button>
+      {/if}
       <DownloadMenu rows={view} cols={exportCols} basename="songlist" />
     {/snippet}
   </Toolbar>

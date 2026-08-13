@@ -379,6 +379,66 @@ export function durationOf(startTime, endTime) {
   return secondsToHms(d)
 }
 
+/* ========================= setlist 曲序 =========================
+   資料不變量：**trackNo 順序 ≡ 時間戳順序**（＝演唱順序的定義）。
+   有戳的列，正確順序已經寫在戳裡，不該靠人手動拖；手動拖曳主要服務無戳的資料。
+   下面兩支是 SetList 排序面板的核心（純函式，不就地修改輸入）。 */
+
+/** 列的 startTime 秒數；null/undefined/非有限數 → null（＝無戳） */
+function startSeconds(row) {
+  const v = row?.startTime
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * 依 startTime 重排，回傳新陣列。
+ *
+ * 語意：有戳的列按秒數升冪，依序填回「有戳列原本佔據的那些位置」；
+ * **無戳的列位置原封不動**——無戳列通常靠鄰近上下文（前後曲目）定位，
+ * 不能被有戳列擠走。同秒數維持原相對順序（穩定排序）。
+ *
+ * 例：[A(30s), B(null), C(10s)] → [C(10s), B(null), A(30s)]
+ *     （有戳列佔位置 0、2；C 先 A 後填回這兩格，B 留在 1）
+ */
+export function sortByStartTime(rows) {
+  const slots = [] // 有戳列原本佔據的索引
+  const timed = [] // 有戳列本身（帶原索引，作同值時的穩定鍵）
+  rows.forEach((row, i) => {
+    if (startSeconds(row) != null) {
+      slots.push(i)
+      timed.push({ row, i })
+    }
+  })
+  timed.sort((a, b) => startSeconds(a.row) - startSeconds(b.row) || a.i - b.i)
+  const next = [...rows]
+  slots.forEach((slot, k) => (next[slot] = timed[k].row))
+  return next
+}
+
+/** 有時間戳的列數（<2 就沒有可依據的排序） */
+export function countTimestamped(rows) {
+  let n = 0
+  for (const row of rows) if (startSeconds(row) != null) n++
+  return n
+}
+
+/**
+ * 目前排列是否與時間戳矛盾：存在 i<j、兩列皆有戳、且 time[i] > time[j]。
+ * 無戳列不參與判斷（只掃有戳列構成的子序列是否非遞減，相鄰比對即足夠）。
+ */
+export function hasTimeOrderConflict(rows) {
+  let prev = null
+  for (const row of rows) {
+    const t = startSeconds(row)
+    if (t == null) continue
+    if (prev != null && t < prev) return true
+    prev = t
+  }
+  return false
+}
+
 /* ========================= YouTube ========================= */
 
 export const YT_ID_RE = /^[A-Za-z0-9_-]{9,11}$/
@@ -389,7 +449,9 @@ const YT_URL_RE =
 /** 從貼上的網址或裸 ID 取出 videoID；取不到回 null */
 export function parseYouTubeId(input) {
   const text = String(input ?? '').trim()
-  if (!text) return null
+  // 長度護欄：合法 YouTube 網址遠短於 300。YT_URL_RE 對特製超長輸入呈 O(n²) 回溯
+  // （多個起點 × [^#]* 各自掃到尾），網址欄逐鍵重跑，貼入 ~1MB 可凍住分頁。
+  if (!text || text.length > 300) return null
   const m = text.match(YT_URL_RE)
   if (m) return m[1]
   if (YT_ID_RE.test(text)) return text
@@ -413,9 +475,15 @@ export function ytThumbUrl(id) {
 
 /* ========================= 匯出 ========================= */
 
+// CSV injection（公式／DDE）防護：首字元屬此集合時前置單引號，Excel/LibreOffice
+// 會將其視為「強制文字」前綴而不解析成公式。副作用：以 `-` 開頭的合法負數
+// （如 `-5`）也會被加上前綴——安全優先，屬標準防護的已知取捨。
+const CSV_FORMULA_RE = /^[=+\-@\t\r\n]/
+
 function csvCell(v) {
   if (v == null) return ''
-  const s = Array.isArray(v) ? v.join(' / ') : String(v)
+  let s = Array.isArray(v) ? v.join(' / ') : String(v)
+  if (CSV_FORMULA_RE.test(s)) s = `'${s}`
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 

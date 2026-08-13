@@ -27,6 +27,12 @@
   --berry-text-emphasis: #5a1b2a;
   --berry-brand: #b62450;
   --berry-brand-hover: #9c1d42;
+
+  /* 警示（黃）：subtle（草莓紅）是「錯誤／已變更」，這一組專給「可以存但請先確認」。
+     底色需與草莓牛奶底明顯區隔（純淺黃亮度太接近會看不出是警示），框線 ≥3:1 */
+  --berry-warn-bg: #f9e6a7;
+  --berry-warn-border: #dbab33;
+  --berry-warn-fg: #6b4a05;
 }
 :root[data-theme='dark'] {
   --berry-bg: #261a21;
@@ -44,6 +50,10 @@
   --berry-text-emphasis: #ee8ea4;
   --berry-brand: var(--berry-pink);
   --berry-brand-hover: #f6b3c5;
+
+  --berry-warn-bg: #33280d;
+  --berry-warn-border: #97771f;
+  --berry-warn-fg: #f0cf76;
 }
 
 @theme inline {
