@@ -20,6 +20,27 @@ export const LANG_LABELS = { zh: '中文', en: 'English', ja: '日本語' }
 const STORAGE_KEY = 'lang'
 const FALLBACK = 'zh'
 
+// <html lang> 的值（zh 是繁體，要寫 zh-Hant）
+const HTML_LANG = { zh: 'zh-Hant', ja: 'ja', en: 'en' }
+
+// meta description 的三語版本。
+// 只服務瀏覽器層面（分頁翻譯提示、書籤摘要）——SEO/分享預覽的爬蟲不執行 JS，
+// 吃的是 index.html 裡的靜態日文值，改這裡時記得兩邊語意保持一致。
+// 放模組常數而非共享字典：這是 document metadata，不是畫面上的 UI 文案。
+const META_DESCRIPTION = {
+  zh: '苺咲べりぃ(Maisaki Berry) 非官方粉絲網站。歌回歌單、歌曲資料庫、直播紀錄查詢。',
+  ja: '苺咲べりぃ(Maisaki Berry) の非公式ファンサイト。歌枠のセットリスト・楽曲データベース・配信アーカイブを検索できます。',
+  en: 'Unofficial fan site for VTuber Maisaki Berry — singing stream setlists, song database and stream archive.',
+}
+
+/** 把語言反映到 document 上（<html lang> ＋ meta description） */
+function applyDocumentLang(code) {
+  if (typeof document === 'undefined') return
+  document.documentElement.lang = HTML_LANG[code] ?? code
+  const meta = document.querySelector('meta[name="description"]')
+  if (meta && META_DESCRIPTION[code]) meta.setAttribute('content', META_DESCRIPTION[code])
+}
+
 function detect() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -55,9 +76,7 @@ export function setLang(next) {
   } catch {
     /* ignore */
   }
-  if (typeof document !== 'undefined') {
-    document.documentElement.lang = next === 'zh' ? 'zh-Hant' : next
-  }
+  applyDocumentLang(next)
 }
 
 function lookup(dict, path) {
@@ -88,7 +107,5 @@ export function pickLabel(item) {
   return item.label || ''
 }
 
-// 首次載入時把 <html lang> 對齊偵測結果（用 initial，避免讀 $state 觸發 state_referenced_locally）
-if (typeof document !== 'undefined') {
-  document.documentElement.lang = initial === 'zh' ? 'zh-Hant' : initial
-}
+// 首次載入時把 document 對齊偵測結果（用 initial，避免讀 $state 觸發 state_referenced_locally）
+applyDocumentLang(initial)

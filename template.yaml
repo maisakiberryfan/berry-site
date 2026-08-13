@@ -34,10 +34,6 @@ Parameters:
   YoutubeApiKey:
     Type: String
     NoEcho: true
-  AnthropicApiKey:
-    Type: String
-    NoEcho: true
-    Default: ''
   DiscordWebhookUrl:
     Type: String
     Default: ''
@@ -59,6 +55,30 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ''
+  # CDN 快照 cron（src/cron-jobs/snapshot.js）的目標站台：bucket ＋ 該站的 distribution。
+  # public repo 不寫死 bucket 名 → 由 CI secrets 傳入（deploy.yml）。
+  # 留白＝該站台不處理；兩組都留白＝整個快照步驟 skip 並 log（向後安全）。
+  # A＝現站（v2，fansite/data/ 由 CI 產、cron 保鮮）／B＝v3 站（demo 或切換後的新站）
+  SnapshotBucketA:
+    Type: String
+    Default: ''
+    Description: S3 bucket whose /data/ snapshot the cron refreshes (blank = skip)
+  SnapshotDistributionA:
+    Type: String
+    Default: ''
+    Description: CloudFront distribution to invalidate /data/* on (blank = no invalidation)
+  SnapshotBucketB:
+    Type: String
+    Default: ''
+  SnapshotDistributionB:
+    Type: String
+    Default: ''
+
+Conditions:
+  HasSnapshotA: !Not [!Equals [!Ref SnapshotBucketA, '']]
+  HasSnapshotB: !Not [!Equals [!Ref SnapshotBucketB, '']]
+  HasSnapshotDistA: !Not [!Equals [!Ref SnapshotDistributionA, '']]
+  HasSnapshotDistB: !Not [!Equals [!Ref SnapshotDistributionB, '']]
 
 Resources:
   # --- Lambda Function ---
@@ -77,7 +97,6 @@ Resources:
           DB_PASSWORD: !Ref DbPassword
           DB_NAME: !Ref DbName
           YOUTUBE_API_KEY: !Ref YoutubeApiKey
-          ANTHROPIC_API_KEY: !Ref AnthropicApiKey
           DISCORD_WEBHOOK_URL: !Ref DiscordWebhookUrl
           # MIGRATED to yt-setlist-discord (2026-05-02): DISCORD_SETLIST_WEBHOOK_URL removed
           # DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
@@ -87,6 +106,9 @@ Resources:
           GITHUB_TOKEN: !Ref GithubToken
           THUMBNAIL_BUCKET: !Ref ThumbnailBucket
           CLOUDFRONT_DISTRIBUTION_ID: !Ref CfDistributionId
+          # `bucket:distributionId,bucket:distributionId`；未設定的組留下空段（如 `:`），
+          # 由 snapshot.js 的 parseTargets 丟棄——故「參數留白＝該站台不處理」
+          SNAPSHOT_TARGETS: !Sub "${SnapshotBucketA}:${SnapshotDistributionA},${SnapshotBucketB}:${SnapshotDistributionB}"
       Policies:
         - Statement:
             # 縮圖上傳＋hash 比對（HeadObject 需 GetObject 權限）＋換圖後清 edge 快取
@@ -102,6 +124,54 @@ Resources:
             - Effect: Allow
               Action: lambda:InvokeFunction
               Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:berry-api"
+            # CDN 快照 cron：只寫 data/ 前綴（PutObject）＋清過期月份檔（DeleteObject），
+            # ListBucket 限定 data/* 前綴。參數留白時整條 statement 不附掛（AWS::NoValue）
+            - !If
+              - HasSnapshotA
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${SnapshotBucketA}/data/*"
+              - !Ref AWS::NoValue
+            - !If
+              - HasSnapshotA
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${SnapshotBucketA}"
+                Condition:
+                  StringLike:
+                    s3:prefix: "data/*"
+              - !Ref AWS::NoValue
+            - !If
+              - HasSnapshotB
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::${SnapshotBucketB}/data/*"
+              - !Ref AWS::NoValue
+            - !If
+              - HasSnapshotB
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::${SnapshotBucketB}"
+                Condition:
+                  StringLike:
+                    s3:prefix: "data/*"
+              - !Ref AWS::NoValue
+            - !If
+              - HasSnapshotDistA
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${SnapshotDistributionA}"
+              - !Ref AWS::NoValue
+            - !If
+              - HasSnapshotDistB
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${SnapshotDistributionB}"
+              - !Ref AWS::NoValue
       Events:
         HttpApi:
           Type: HttpApi
@@ -134,6 +204,22 @@ Resources:
             Description: "Keep Lambda warm to avoid cold start"
             Enabled: true
             Input: '{"source":"warmup"}'
+        # CDN 快照重產（src/cron-jobs/snapshot.js）：資料更新後 /data/*.json 就過期，
+        # 前端雖有 API 背景校正兜底，首訪體感差。兩次／日各挑在資料變動剛落地之後。
+        SnapshotAfterDailyUpdate:
+          Type: Schedule
+          Properties:
+            Schedule: cron(30 7 * * ? *)
+            Description: "Rebuild CDN snapshot (UTC 07:30 = Taiwan 15:30, after daily auto-update)"
+            Enabled: true
+            Input: '{"source":"snapshot"}'
+        SnapshotAfterLiveHours:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 20 * * ? *)
+            Description: "Rebuild CDN snapshot (UTC 20:00 = Taiwan 04:00, after last polling run at 19:50)"
+            Enabled: true
+            Input: '{"source":"snapshot"}'
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
@@ -312,7 +398,7 @@ Resources:
         Comment: Security headers for fansite static content
         SecurityHeadersConfig:
           ContentSecurityPolicy:
-            ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://sqldata.m-b.win; media-src 'self'; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+            ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self'; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
             Override: true
           ContentTypeOptions:
             Override: true          # → X-Content-Type-Options: nosniff

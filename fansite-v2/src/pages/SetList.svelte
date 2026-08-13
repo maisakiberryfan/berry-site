@@ -49,6 +49,9 @@
     parseHmsToSeconds,
     durationOf,
     parseYouTubeId,
+    sortByStartTime,
+    countTimestamped,
+    hasTimeOrderConflict,
   } from '../lib/table/utils.js'
 
   songlist.load()
@@ -94,6 +97,11 @@
       reorderHint: '用 ↑ ↓ 或拖曳調整順序，按「儲存順序」一次送出。儲存後曲序會重新編號為 1…N。',
       reorderSave: '儲存順序',
       reorderReset: '還原',
+      sortByTime: '依時間戳排序',
+      sortByTimeHint: '有時間戳的列按時間升冪排好，沒有時間戳的列位置不動。',
+      sortByTimeNone: '此段落的時間戳不足兩筆，無法依時間戳排序。',
+      timeConflict: '此順序與時間戳矛盾',
+      timeConflictHint: '曲序應與時間戳同序（＝演唱順序）。仍可儲存，但請先確認這是刻意的。',
       moveUp: '上移',
       moveDown: '下移',
       wasTrack: '原 {n}',
@@ -157,6 +165,13 @@
         'Use ↑ ↓ or drag to rearrange, then press “Save order” to submit once. Track numbers are renumbered 1…N on save.',
       reorderSave: 'Save order',
       reorderReset: 'Reset',
+      sortByTime: 'Sort by timestamp',
+      sortByTimeHint:
+        'Rows with a timestamp are sorted ascending; rows without one keep their position.',
+      sortByTimeNone: 'This segment has fewer than two timestamps to sort by.',
+      timeConflict: 'This order conflicts with the timestamps',
+      timeConflictHint:
+        'Track order should follow the timestamps (that is the performance order). You can still save — just make sure it is intentional.',
       moveUp: 'Move up',
       moveDown: 'Move down',
       wasTrack: 'was {n}',
@@ -222,6 +237,13 @@
         '↑ ↓ またはドラッグで並べ替え、「曲順を保存」で一括送信します。保存後は曲順が 1…N に振り直されます。',
       reorderSave: '曲順を保存',
       reorderReset: '元に戻す',
+      sortByTime: 'タイムスタンプ順に並べ替え',
+      sortByTimeHint:
+        'タイムスタンプのある行を昇順に並べ替えます。タイムスタンプのない行は位置を維持します。',
+      sortByTimeNone: 'この区間はタイムスタンプが 2 件未満のため、並べ替えできません。',
+      timeConflict: 'この順序はタイムスタンプと矛盾しています',
+      timeConflictHint:
+        '曲順はタイムスタンプ（＝歌唱順）と同じ順序であるべきです。保存は可能ですが、意図した順序かご確認ください。',
       moveUp: '上へ',
       moveDown: '下へ',
       wasTrack: '元 {n}',
@@ -528,6 +550,11 @@
       reorderDraft.some((r, i) => Number(r.trackNo) !== Number(reorderOriginal[i])),
   )
 
+  /** 可依時間戳排序＝這段至少有兩筆戳（一筆以下排了也是原樣） */
+  const reorderTimedCount = $derived(countTimestamped(reorderDraft))
+  /** 不變量檢查：目前排列中有戳的列必須非遞減，否則存出的是矛盾資料（警告不阻擋儲存） */
+  const reorderConflict = $derived(hasTimeOrderConflict(reorderDraft))
+
   /** 別名面板：填了別名值＝有東西可丟，離開前要確認 */
   const aliasDirty = $derived(!!String(aliasForm.aliasValue ?? '').trim())
 
@@ -802,6 +829,23 @@
     const byTrack = new Map(reorderDraft.map((r) => [Number(r.trackNo), r]))
     reorderDraft = reorderOriginal.map((t) => byTrack.get(t)).filter(Boolean)
     dragIndex = -1
+  }
+
+  /**
+   * 一鍵「依時間戳排序」：走與 ↑↓／拖曳同一條路（只改本地草稿），
+   * 變更高亮與「儲存順序」照舊——這裡不直接送出。
+   */
+  function sortDraftByTime() {
+    if (saving || reorderTimedCount < 2) return
+    reorderDraft = sortByStartTime(reorderDraft)
+    dragIndex = -1
+  }
+
+  /** 排序面板第二行：時間戳 · 歌手（有什麼顯示什麼；時間戳讓矛盾警告看得出所以然） */
+  function reorderSubline(row) {
+    return [row.startTime != null ? secondsToHms(row.startTime) : null, row.artist || null]
+      .filter(Boolean)
+      .join(' · ')
   }
 
   /** ↑ ↓：只動本地草稿，不打 API */
@@ -1090,10 +1134,13 @@
     </select>
 
     {#snippet actions()}
-      <Button variant="primary" class="hidden md:inline-flex" onclick={() => openBatch()}>
-        <span class="text-base leading-none">＋</span>
-        {t('common.add')}
-      </Button>
+      <!-- 手機唯讀：條件渲染（CSS hidden 會被 Button 的 inline-flex 蓋掉——鐵則 2） -->
+      {#if !isMobile}
+        <Button variant="primary" onclick={() => openBatch()}>
+          <span class="text-base leading-none">＋</span>
+          {t('common.add')}
+        </Button>
+      {/if}
       <DownloadMenu rows={view} cols={exportCols} basename="setlist" />
     {/snippet}
   </Toolbar>
@@ -1326,10 +1373,30 @@
       {#if reorderDraft.length <= 1}
         <p class="text-sm text-berry-fg-3">{m.reorderSingle}</p>
       {:else}
+        <!-- 有戳的資料正確順序已寫在戳裡，一鍵排好即可（結果同樣進「變更高亮＋儲存順序」流程） -->
+        <div class="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <Button onclick={sortDraftByTime} disabled={saving || reorderTimedCount < 2}>
+            {m.sortByTime}
+          </Button>
+          <!-- 停用時這行說明「為什麼不能按」，不另外掛 title 重複同一句 -->
+          <span class="text-sm text-berry-fg-3">
+            {reorderTimedCount < 2 ? m.sortByTimeNone : m.sortByTimeHint}
+          </span>
+        </div>
+
+        <!-- 不變量：trackNo 順序 ≡ 時間戳順序。矛盾只警告不擋（留特殊場景餘地） -->
+        {#if reorderConflict}
+          <Alert kind="warn">
+            <div class="font-medium">⚠️ {m.timeConflict}</div>
+            <div class="mt-0.5">{m.timeConflictHint}</div>
+          </Alert>
+        {/if}
+
         <!-- keyed each：拖曳/上下移時保留節點，焦點才不會掉 -->
         <ul class="space-y-1.5">
           {#each reorderDraft as row, i (setlistKeyOf(row))}
             {@const moved = Number(row.trackNo) !== Number(reorderOriginal[i])}
+            {@const subline = reorderSubline(row)}
             <li
               draggable="true"
               ondragstart={(e) => onDragStart(i, e)}
@@ -1358,8 +1425,10 @@
                 <div class="truncate text-sm" title={row.songName || undefined}>
                   {row.songName ?? m.unmatched}
                 </div>
-                {#if row.artist}
-                  <div class="truncate text-sm text-berry-fg-3" title={row.artist}>{row.artist}</div>
+                {#if subline}
+                  <div class="truncate text-sm text-berry-fg-3 tabular-nums" title={subline}>
+                    {subline}
+                  </div>
                 {/if}
               </div>
 

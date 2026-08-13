@@ -15,21 +15,21 @@ import app, { handleCronTrigger } from './src/app.js'
 // header middleware 覆蓋不到——CF 站要讓 HTML 帶 CSP，唯一位置就是這裡。
 //
 // CSP 各 source 的依據（改前端資源來源時必須同步檢查 template.yaml 的同一份字串）：
-//   script-src  https://cdn.jsdelivr.net  analytics.js:16 以 ESM import DuckDB-WASM；
-//                                         analytics.js:395 blob worker 內 importScripts 同源亦是它
-//               'wasm-unsafe-eval'        DuckDB-WASM 模組編譯（WebAssembly.instantiate）
-//   worker-src  blob:                     analytics.js:394-397 以 Blob 建立 Worker
-//   connect-src https://sqldata.m-b.win   analytics.js:25 Parquet 資料檔
-//               https://cdn.jsdelivr.net  DuckDB 的 .wasm / worker script 下載
-//   img-src     https://i.ytimg.com       tool.js:2022/4307 縮圖 fallback（/tb/ 缺圖時）
+//   script-src  'wasm-unsafe-eval'        sql.js（SQLite/WASM）模組編譯，
+//                                         analytics/engine.js self-host 於 /assets/vendor/
+//   img-src     https://i.ytimg.com       tool.js 縮圖 fallback（/tb/ 缺圖時）
 //               data:                     bootstrap/select2 CSS 內的 data:image/svg+xml（23 處）
 //   font-src    'self'                    bootstrap-icons woff/woff2 由 esbuild 落在 /assets/dist/
 //   media-src   'self'                    profile.js:16 BGM mp3（img/profile/bgm/*.mp3）
 //   style-src   'unsafe-inline'           index.html:20 的 <style> 與各處 style="" 屬性
 //                                         （Tabulator/Bootstrap/Fancybox 大量使用，無法收斂）
 //   script-src 刻意「不含」'unsafe-inline'：三頁 inline script 已外抽成 /assets/js/*.js
-//   走 dynamic import()，xlsx 走原生 <script src>（tool.js:57-69）。
-const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self'; connect-src 'self' https://cdn.jsdelivr.net https://sqldata.m-b.win; media-src 'self'; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+//   走 dynamic import()，xlsx 與 sql.js 走原生 <script src>（tool.js / analytics/engine.js）。
+//
+// 2026-08-09 收斂：Analytics 由 DuckDB-WASM＋parquet 改為 self-host 的 sql.js＋瀏覽器
+// 既有快取，外部來源 cdn.jsdelivr.net（script-src/connect-src）與 sqldata.m-b.win
+// （connect-src）全部移除；blob worker 也只有 DuckDB 用過，worker-src 收回 'self'。
+const CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://i.ytimg.com; font-src 'self'; connect-src 'self'; media-src 'self'; worker-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 
 const SECURITY_HEADERS = {
   'Content-Security-Policy': CSP,

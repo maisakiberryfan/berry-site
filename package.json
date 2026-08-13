@@ -8,6 +8,7 @@
     "dev:node": "node entry-dev.js",
     "dev:fansite": "cd fansite && npm run dev",
     "build:fansite": "cd fansite && npm run build",
+    "snapshot": "node scripts/fetch-snapshot.mjs",
     "deploy:cf": "wrangler deploy",
     "deploy:aws": "sam build && sam deploy --region ap-northeast-1"
   },

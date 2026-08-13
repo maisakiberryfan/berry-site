@@ -8,6 +8,14 @@
 
 const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g
 
+/**
+ * 連結 scheme 白名單 —— 只允許 http(s) 與站內絕對路徑，擋掉 javascript:/data: 等注入。
+ * ⚠️ 與 src/lib/home/util.js 的 safeHref() 邏輯逐字相同，刻意未抽共用（該檔改動範圍外）。
+ */
+function safeHref(url) {
+  return /^(https?:\/\/|\/)/i.test(url) ? url : null
+}
+
 /** 把一段文字拆成 {type:'text'} / {type:'link'} 片段陣列（供模板逐段渲染） */
 function parseInline(text) {
   const segments = []
@@ -16,7 +24,9 @@ function parseInline(text) {
   LINK_RE.lastIndex = 0
   while ((m = LINK_RE.exec(text))) {
     if (m.index > lastIndex) segments.push({ type: 'text', value: text.slice(lastIndex, m.index) })
-    segments.push({ type: 'link', text: m[1], url: m[2] })
+    const href = safeHref(m[2])
+    // scheme 未過白名單：不產生可點擊連結，退回原始 `[text](url)` 純文字呈現
+    segments.push(href ? { type: 'link', text: m[1], url: href } : { type: 'text', value: m[0] })
     lastIndex = m.index + m[0].length
   }
   if (lastIndex < text.length) segments.push({ type: 'text', value: text.slice(lastIndex) })
