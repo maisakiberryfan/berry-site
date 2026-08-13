@@ -13,6 +13,7 @@
   import Profile from './pages/Profile.svelte'
   import History from './pages/History.svelte'
   import Clothes from './pages/Clothes.svelte'
+  import Discography from './pages/Discography.svelte'
   import NotFound from './pages/NotFound.svelte'
 
   startRouter()
@@ -27,6 +28,7 @@
     '/profile': Profile,
     '/history': History,
     '/clothes': Clothes,
+    '/discography': Discography,
   }
 
   const Current = $derived(PAGES[route.path] ?? NotFound)

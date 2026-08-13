@@ -56,6 +56,7 @@ export default {
     profile: 'プロフィール',
     history: '沿革',
     clothes: '衣装',
+    discography: 'ディスコグラフィ',
     notFound: 'ページが見つかりません',
   },
   field: {

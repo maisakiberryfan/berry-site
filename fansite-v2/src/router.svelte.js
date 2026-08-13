@@ -20,6 +20,7 @@ export const ROUTES = [
   '/profile',
   '/history',
   '/clothes',
+  '/discography',
 ]
 
 function normalize(pathname) {

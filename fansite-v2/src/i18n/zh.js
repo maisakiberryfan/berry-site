@@ -57,6 +57,7 @@ export default {
     profile: '個人資料',
     history: '沿革',
     clothes: '服裝',
+    discography: '音樂作品',
     notFound: '找不到頁面',
   },
   field: {

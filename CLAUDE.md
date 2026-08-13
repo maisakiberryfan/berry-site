@@ -456,6 +456,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.10 | 2026-08-13 | 新增「音樂作品」（Discography）頁（v3/fansite-v2）：專輯 10・單曲 11・客座 9 的封面牆＋詳細面板（曲目/staff/特設・BOOTH・配信・XFD 連結/instrumental 註記），曲目 🎤N 鈕就地展開歌枠演唱場次（帶 ?t= 秒數）、`/setlist?song=` 跳轉；封面圖 `fansite/img/albums/`（隨 CI 上線）；dev 圖片改 vite middleware 直讀本地 `fansite/img`；資料權威序＝官方 discography 頁＞BOOTH＞特設頁＞iTunes＞wiki（wiki 累計漏曲 5 處不採信） |
 | v3.9 | 2026-08-09 | 表格快速搜尋語法（由 fansite-v2 移植）：四張表頁的進階搜尋卡片首列新增快速搜尋框，支援 `欄位:值`（三語別名表）、引號值、全形冒號／空白／彎引號、`欄位:*`＝非空、空白分隔 AND；認不得的欄位名整串退回全文比對（`12:34` 不誤拆）；「?」語法說明面板（三語＋可點擊套用的範例）；與既有多欄運算子搜尋並存（統一 `applyTableFilters()` 出口合併送 `setFilter`），刪空搜尋框不再誤清 headerFilter |
 | v3.8 | 2026-08-09 | Analytics 重寫（由 fansite-v2 移植）：新增統計面板（統計卡＋Top20 曲／Top10 歌手／24 月趨勢，純 JS 聚合既有快取、毫秒級零下載）＋自繪 SVG 圖表；查詢改「選取式建構器」（值全 bind、LIKE 加 ESCAPE）；進階 SQL 引擎 DuckDB-WASM→self-host sql.js；**text-to-sql（AI SQL 助手）全鏈移除**（前端 modal／`/api/text-to-sql`／預算控制／`ANTHROPIC_API_KEY`）；parquet 管線退役 ⇒ CSP 兩側移除 cdn.jsdelivr.net、sqldata.m-b.win，worker-src 收回 'self' |
 | v3.7 | 2026-08-09 | CDN 靜態快照資料層（由 fansite-v2 移植）：首訪改「IDB → /data/*.json 快照 → API 增量校正」三層瀑布，setlist 首訪由三段式 API 抓取（4 發、秒級）降為快照灌入＋僅重抓指紋變更的月份；快照由 `npm run snapshot` 於 CI 產生，AWS 側 max-age=300 獨立同步、CF 側隨 Static Assets 上傳；快照缺席無縫 fallback 原 API 路徑 |
@@ -470,4 +471,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-08-09
+**最後更新**：2026-08-13

@@ -21,6 +21,7 @@ export const groups = [
       { label: '個人資料', labelEn: 'Profile', labelJa: 'プロフィール', href: '/profile' },
       { label: '歷史', labelEn: 'History', labelJa: '沿革', href: '/history' },
       { label: '服裝', labelEn: 'Clothes', labelJa: '衣装', href: '/clothes' },
+      { label: '音樂作品', labelEn: 'Discography', labelJa: 'ディスコグラフィ', href: '/discography' },
     ],
   },
   {

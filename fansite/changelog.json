@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-13T12:00:00+08:00",
+  "time": "2026-08-13T23:42:59+08:00",
   "msg": {
-    "zh": "網站全面改版上線：全新介面、首次載入大幅加速，功能與網址不變。發現問題歡迎回報！",
-    "en": "The site has been fully redesigned: a brand-new interface with much faster first load — same features, same URLs. Feedback welcome!",
-    "ja": "サイトを全面リニューアルしました：新しいデザインで初回読み込みも大幅に高速化。機能とURLはそのままです。不具合があればお知らせください！"
+    "zh": "新增「音樂作品」頁面：專輯・單曲・客座演唱總覽，曲目可展開歌枠演唱紀錄、直接跳到該曲開唱的時間點",
+    "en": "New \"Discography\" page: albums, singles, and guest appearances — expand any track to see karaoke stream performances and jump straight to where the song starts",
+    "ja": "「ディスコグラフィ」ページを新設：アルバム・シングル・参加楽曲の一覧に加え、各曲の歌枠での歌唱記録を展開して該当時間から直接再生できます"
   }
 }
