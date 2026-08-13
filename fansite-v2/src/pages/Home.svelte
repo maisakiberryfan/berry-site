@@ -26,7 +26,7 @@
       cards: {
         songlist: '曲庫：曲名、歌手、類型與連動作品',
         streamlist: '直播與影片一覽，含縮圖與分類',
-        setlist: '每場歌枠唱了哪些歌、從第幾秒開始',
+        setlist: '每場歌枠唱了哪些歌，點曲名直接跳到該段',
         analytics: '演唱次數排行、月度趨勢與曲風分佈',
       },
     },
@@ -44,7 +44,7 @@
       cards: {
         songlist: 'Song library: titles, artists, genres and tie-ins',
         streamlist: 'Streams and videos with thumbnails and categories',
-        setlist: 'What was sung in each karaoke stream, with timestamps',
+        setlist: 'What was sung in each karaoke stream — click a song to jump to it',
         analytics: 'Rankings, monthly trends and genre mix',
       },
     },
@@ -62,7 +62,7 @@
       cards: {
         songlist: '楽曲データ：曲名・アーティスト・ジャンル・タイアップ',
         streamlist: '配信・動画の一覧（サムネイル＋カテゴリ）',
-        setlist: '各歌枠の曲目とタイムスタンプ',
+        setlist: '各歌枠の曲目、曲名クリックでその場面へジャンプ',
         analytics: '歌唱回数ランキング・月別推移・ジャンル分布',
       },
     },
