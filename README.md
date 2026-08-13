@@ -54,7 +54,7 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 
 - **後端**：Hono 4.13（雙入口：`entry-worker.js` / `entry-lambda.js`）+ mysql2
 - **前端**：jQuery 3.7 + Bootstrap 5.3（SCSS 客製編譯，苺主題亮暗雙模式）+
-  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ DuckDB-WASM
+  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ sql.js（Analytics）
 - **建置**：esbuild（bundle）+ sass（Bootstrap / Tabulator 主題編譯，產物進 git）
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
 
@@ -69,13 +69,15 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 
 ### AWS (`.github/workflows/deploy.yml`)
 1. Build fansite JS bundle
-2. `sam build` → `sam deploy`（Lambda + CloudFront + S3）
-3. Sync fansite 至 S3
-4. Invalidate CloudFront cache
+2. 產生 CDN 靜態快照（`npm run snapshot` → `fansite/data/`）
+3. `sam build` → `sam deploy`（Lambda + CloudFront + S3）
+4. Sync fansite 至 S3（快照獨立一輪，短 cache-control）
+5. Invalidate CloudFront cache
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
 1. Build fansite JS bundle
-2. `wrangler deploy`（Worker + Static Assets）
+2. 產生 CDN 靜態快照
+3. `wrangler deploy`（Worker + Static Assets）
 
 ### 需要的 Secrets
 
@@ -89,7 +91,6 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `DB_PASSWORD` | DB 密碼 |
 | `DB_NAME` | DB 名稱（mbdb） |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 |
-| `ANTHROPIC_API_KEY` | Claude API（text-to-sql） |
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
 | ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ | ~~Discord 歌單留言通知~~ ⚠️ **MIGRATED to yt-setlist-discord (2026-05-02)** |
 | `TRIGGER_TOKEN` | /trigger-* 端點驗證 |
@@ -104,7 +105,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `CLOUDFLARE_ACCOUNT_ID` | CF Account ID |
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
-- `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- `YOUTUBE_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
 
 ## 本地開發
 
@@ -127,6 +128,9 @@ sam build && sam local start-api --port 3001 --env-vars .env.json
 cd fansite && npm run build:js         # esbuild bundle（CI 跑這個）
 cd fansite && npm run build:bootstrap  # 主題 SCSS 改動後必跑（產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
+
+# CDN 靜態快照（首訪資料來源；輸出 fansite/data/，gitignored，CI 每次部署重建）
+npm run snapshot                       # 來源預設 https://m-b.win，可用 BERRY_API 覆寫
 ```
 
 ### 環境檔案

@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-08T14:20:00+08:00",
+  "time": "2026-08-09T12:00:00+08:00",
   "msg": {
-    "zh": "新增苺咲べりぃ主題色與亮暗雙主題（預設跟隨系統，右上角可切換）",
-    "en": "New Maisaki Berry theme with light/dark modes (follows system setting, toggle at top right)",
-    "ja": "苺咲べりぃテーマカラー＋ライト/ダークモード追加（システム設定に追従、右上で切替）"
+    "zh": "表格新增快速搜尋：直接打字搜全部欄位，或用「歌手:YOASOBI」限定欄位，旁邊的「?」有語法說明與範例",
+    "en": "New quick search on the tables: type to search every column, or narrow it with \"artist:YOASOBI\" — the \"?\" button shows the syntax and examples",
+    "ja": "テーブルにクイック検索を追加：そのまま入力で全項目を検索、「アーティスト:YOASOBI」で項目を限定。「?」ボタンに書き方と例があります"
   }
 }

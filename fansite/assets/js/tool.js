@@ -30,6 +30,9 @@ import '../css/theme-berry.css'
 // API configuration
 import { API_CONFIG, apiRequest, loadingManager, showError, escapeHtml } from '../../config.js'
 
+// 表格快速搜尋語法（`欄位:值`）——純函式＋各表欄位別名表，自 fansite-v2 移植
+import { tokenize, matchesQuery, syntaxName, getSearchSpec, SEARCH_HELP_TEXT } from './table-search.js'
+
 // Expose globals for libraries expecting window bindings
 window.$ = window.jQuery = $
 window.bootstrap = bootstrap
@@ -120,6 +123,10 @@ let currentLang = (() => {
   // 其他語言 → 英文
   return 'en'
 })()
+
+// analytics.js 是獨立的 ES module（不進 esbuild bundle），拿不到這裡的 currentLang；
+// 掛一支 getter 讓它取得目前語言（切語言時 tool.js 會重跑 setContent 使其重新初始化）
+window.berryLang = () => currentLang
 
 // Get label based on current language
 function getLabel(item) {
@@ -544,6 +551,48 @@ $(()=>{
   }
 
   // ============================================
+  // CDN 靜態快照（/data/*.json）
+  // ============================================
+  // 首訪載入的三層瀑布：IndexedDB 快取 →（無快取則）CDN 快照 → API 增量校正。
+  // 快照由 scripts/fetch-snapshot.mjs 在部署時向正式 API 產生，跟著靜態檔上
+  // CloudFront／Workers Assets，由 edge 直出——首訪不必等 Lambda 查 DB。
+  // 快照必然落後（上一次部署之後的編輯不在裡面），這是設計的一部分：灌進來之後照樣走
+  // 既有的 manifest 指紋／ETag 比對，過時的部分會被判定為變更並由 API 校正。
+  // 任何失敗（404、網路錯、SPA fallback 回 HTML 導致 JSON 解析失敗）一律回 null，
+  // 呼叫端無縫退回原本的 API 路徑。
+  const SNAPSHOT_BASE = '/data'
+  // 整包表的快照檔（setlist 是月度結構，另由 primeSetlistFromSnapshot 處理）
+  const SNAPSHOT_FILES = { songlist: 'songlist.json', streamlist: 'streamlist.json' }
+
+  async function fetchSnapshot(file) {
+    try {
+      // cache: 'default'——快照是純靜態檔，讓瀏覽器 HTTP 快取照常運作
+      // （API 那側才需要 no-store，因為 ETag 校驗由我們自己用 If-None-Match 做）
+      const res = await fetch(`${SNAPSHOT_BASE}/${file}`, { cache: 'default' })
+      if (!res.ok) return null
+      return await res.json()
+    } catch (e) {
+      console.warn(`[Snapshot] ${file} 取得失敗（改走 API）:`, e.message || e)
+      return null
+    }
+  }
+
+  // 併發上限版的 map：setlist 月度快照有 70+ 個檔，一次全發會塞滿瀏覽器的連線佇列
+  // （且讓後續的 manifest 校正排在最後面）；6 條足以吃滿 HTTP/2 又不失控
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length)
+    let cursor = 0
+    const worker = async () => {
+      while (cursor < items.length) {
+        const i = cursor++
+        out[i] = await fn(items[i], i)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+    return out
+  }
+
+  // ============================================
   // setlist 月度增量同步
   // 後端 /api/setlist/manifest 回每月 {month, count, maxUpdated}，
   // 前端按月存快取、只重抓指紋變更的月份（整月替換，刪除/舊資料回改都被涵蓋）
@@ -587,6 +636,40 @@ $(()=>{
     return rows.length
   }
 
+  // 首訪（IDB 無快取）用 CDN 快照灌 setlist：manifest 快照給月份清單與指紋，
+  // 逐月快照給資料。回傳與 getCache 同形狀的 { data: { months, fingerprints }, etag }，
+  // 讓 syncSetlistTable 之後的流程完全照既有的「有快取」路徑走。
+  // etag 刻意為 null：快照沒有 ETag，不帶 If-None-Match 必然拿 200 全 manifest，
+  // 指紋一比就知道快照哪幾個月過時（帶假 etag 反而可能 304 短路、把過時資料鎖死）。
+  // 全部月份都抓不到（無快照部署／CDN 未更新）時回 null，呼叫端退回原本的 API 首訪路徑。
+  async function primeSetlistFromSnapshot() {
+    const t0 = performance.now()
+    const mani = await fetchSnapshot('manifest.json')
+    if (!mani || !Array.isArray(mani.months) || mani.months.length === 0) return null
+
+    const version = mani.version || 'v1'
+    const files = await mapLimit(mani.months, 6, (entry) =>
+      fetchSnapshot(entry.month === 'none' ? 'setlist-none.json' : `setlist-${entry.month}.json`))
+
+    const months = {}
+    const fingerprints = {}
+    let missing = 0
+    mani.months.forEach((entry, i) => {
+      const rows = files[i]
+      if (!Array.isArray(rows)) { missing++; return }
+      months[entry.month] = rows
+      // 指紋只給「真的抓到的月份」——缺的月不寫指紋，之後與 API manifest 比對必然
+      // 判定為變更並重抓（同 readMonthly 缺件自癒的邏輯）
+      fingerprints[entry.month] = `${version}|${entry.count}|${entry.maxUpdated}`
+    })
+    const got = Object.keys(months).length
+    if (got === 0) return null
+
+    const rows = Object.values(months).reduce((s, r) => s + r.length, 0)
+    console.log(`[Snapshot] setlist 快照命中 ${got} 個月 / ${rows} 筆${missing ? `（${missing} 個月缺檔，將由 API 補）` : ''}，${Math.round(performance.now() - t0)}ms`)
+    return { data: { months, fingerprints }, etag: null, timestamp: null }
+  }
+
   // 延遲顯示的同步指示（304 在 1.5s 內完成則永不出現；真的要抓資料才會亮）
   // owner：發起同步時的頁面——回調觸發或清除時使用者已換頁就不觸碰 #setTableMsg
   function startSyncIndicator(owner) {
@@ -615,8 +698,8 @@ $(()=>{
     _setlistSyncBusy = true
     const endIndicator = startSyncIndicator('setlist')
     try {
-      const cached = opts.cached !== undefined ? opts.cached : await getCache('setlist')
-      const hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
+      let cached = opts.cached !== undefined ? opts.cached : await getCache('setlist')
+      let hasCache = !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
 
       // 表格重繪的統一入口：structuredClone 隔離表格與快取——Tabulator 的 time 欄
       // mutator 會就地改 row 物件（轉為本地顯示格式），共享參照會讓後續 setCache
@@ -626,6 +709,29 @@ $(()=>{
         _skipFilterClear = true
         jsonTable.replaceData(structuredClone(flattenMonths(months)))
         _skipFilterClear = false
+      }
+
+      // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時由當時的
+      // 表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
+      const rebuildHeaderFilters = () => {
+        if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(applyTimestampVisibility(jsonTable.getColumnDefinitions()))
+      }
+
+      // 三層瀑布第二層：IDB 無快取時先吃 CDN 靜態快照，灌完就當成「有快取」——
+      // 下面的 manifest 比對照常跑，快照過時的月份由指紋差異抓出來重抓，不另闢路徑。
+      // 快照缺席（未部署／404）時 primed 為 false，走下方原本的 API 首訪漸進載入。
+      if (!hasCache) {
+        const snap = await primeSetlistFromSnapshot()
+        if (snap) {
+          cached = snap
+          hasCache = true
+          endIndicator()   // 已有資料可看，延遲指示不必再亮
+          renderRows(snap.data.months)
+          rebuildHeaderFilters()
+          // 先落地一份：即使下面的 API 校正失敗（斷網等），下次開頁也能直接吃 IDB，
+          // 不必再拉 70+ 個快照檔。不 await——寫入是背景成本，不擋校正
+          setCache('setlist', snap.data, null).catch(console.warn)
+        }
       }
 
       const headers = (hasCache && cached.etag) ? { 'If-None-Match': cached.etag } : {}
@@ -674,11 +780,6 @@ $(()=>{
         const recent = monthKeys.slice(0, 12)
         const rest = monthKeys.slice(12)
         endIndicator()  // 首訪用自己的常駐提示，不用延遲 indicator
-        // 首訪的表格是以「空資料」建構的——header filter 的 select 選項在建構時
-        // 由當時的表內資料生成，會是空的；資料補完後以現行欄位定義重建 header 一次
-        const rebuildHeaderFilters = () => {
-          if (getProcess() === 'setlist' && jsonTable) jsonTable.setColumns(jsonTable.getColumnDefinitions())
-        }
         if (recent.length === 0) {
           // 無任何真月份（空庫或只有不留檔場）
           if (maniSet.has('none')) await fetchNoneInto(monthsDict)
@@ -755,6 +856,184 @@ $(()=>{
     } finally {
       _setlistSyncBusy = false
     }
+  }
+
+  // ============================================
+  // 分析頁資料供給（window.loadBerryTables）
+  // ============================================
+  // analytics.js 是獨立的 ES module（不進 esbuild bundle），取不到本閉包內的快取函式，
+  // 故在此掛一支唯讀入口。三張表各走與表格頁相同的瀑布：
+  //   IndexedDB 快取 →（無快取）CDN 靜態快照 →（無快照）API 全量
+  // 分析頁因此與表格頁共用同一份資料，不再需要 sqldata.m-b.win 的每日 parquet 管線。
+  // 只回傳資料、不觸碰任何表格 UI；走到 API 的路徑順手落地快取，之後開表格頁即秒開。
+  //
+  // _analyticsBase：本次載入實際用了哪份資料，供背景校正當比對基準。
+  // 刻意不讓校正端回頭讀 IDB——快照路徑的 setCache 是非同步排隊的（15,000 筆要 ~160ms），
+  // 讀回來時很可能還沒落地，會被誤判成「沒有快取」而整個跳過校正。
+  //   setlist：{ months, fingerprints, etag }（null＝走 API 全量，無月度結構可比對）
+  //   其他表：{ rows, etag }
+  let _analyticsBase = { setlist: null, songlist: null, streamlist: null }
+
+  async function loadAnalyticsTable(tableType) {
+    const cached = await getCache(tableType)
+
+    if (tableType === 'setlist') {
+      if (cached?.data?.months && Object.keys(cached.data.months).length > 0) {
+        _analyticsBase.setlist = {
+          months: cached.data.months,
+          fingerprints: cached.data.fingerprints || {},
+          etag: cached.etag ?? null
+        }
+        return flattenMonths(cached.data.months)
+      }
+      const snap = await primeSetlistFromSnapshot()
+      if (snap) {
+        _analyticsBase.setlist = { months: snap.data.months, fingerprints: snap.data.fingerprints, etag: null }
+        setCache('setlist', snap.data, null).catch(console.warn)
+        return flattenMonths(snap.data.months)
+      }
+      _analyticsBase.setlist = null
+      const res = await fetch(API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist, { cache: 'no-store' })
+      if (!res.ok) throw new Error(`setlist HTTP ${res.status}`)
+      return (await res.json()).data || []
+    }
+
+    if (cached?.data?.length > 0) {
+      _analyticsBase[tableType] = { rows: cached.data, etag: cached.etag ?? null }
+      return cached.data
+    }
+    if (SNAPSHOT_FILES[tableType]) {
+      const rows = await fetchSnapshot(SNAPSHOT_FILES[tableType])
+      if (Array.isArray(rows) && rows.length > 0) {
+        // 快照沒有 ETag，不能拿去 If-None-Match（帶假值會 304 短路把過時資料鎖死）
+        _analyticsBase[tableType] = { rows, etag: null }
+        return rows
+      }
+    }
+    const url = API_CONFIG.BASE_URL + (API_CONFIG.ENDPOINTS[tableType] || `/api/${tableType}`)
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`${tableType} HTTP ${res.status}`)
+    const rows = (await res.json()).data || []
+    const etag = res.headers.get('ETag')
+    _analyticsBase[tableType] = { rows, etag }
+    setCache(tableType, rows, etag).catch(console.warn)
+    return rows
+  }
+
+  // 背景校正（SWR 的 R）：與表格頁同一組端點與比對規則，但完全不碰 UI。
+  // 有變更時回傳新 rows，無變更（304／內容相同／指紋全同）回 null。
+  async function revalidatePlainTable(tableType) {
+    const base = _analyticsBase[tableType]
+    const url = API_CONFIG.BASE_URL + (API_CONFIG.ENDPOINTS[tableType] || `/api/${tableType}`)
+    const res = await fetch(url, {
+      cache: 'no-store',
+      headers: base?.etag ? { 'If-None-Match': base.etag } : {}
+    })
+    if (res.status === 304) return null
+    if (!res.ok) throw new Error(`${tableType} HTTP ${res.status}`)
+    const rows = (await res.json()).data || []
+    const etag = res.headers.get('ETag')
+    setCache(tableType, rows, etag).catch(console.warn)
+    const unchanged = isDataEqual(base?.rows, rows)
+    _analyticsBase[tableType] = { rows, etag }
+    return unchanged ? null : rows
+  }
+
+  // setlist 走 manifest 指紋比對（同 syncSetlistTable，只是沒有表格與提示列）
+  async function revalidateSetlistRows() {
+    const base = _analyticsBase.setlist
+    // 沒有月度結構＝剛剛才從 API 全量抓過，本來就是最新
+    if (!base) return null
+
+    const apiUrl = API_CONFIG.BASE_URL + API_CONFIG.ENDPOINTS.setlist
+    const res = await fetch(`${apiUrl}/manifest`, {
+      cache: 'no-store',
+      headers: base.etag ? { 'If-None-Match': base.etag } : {}
+    })
+    if (res.status === 304) return null
+    if (!res.ok) throw new Error(`setlist manifest HTTP ${res.status}`)
+
+    const etag = res.headers.get('ETag')
+    const mani = (await res.json()).data
+    const version = mani.version || 'v1'
+    const fp = (mo) => `${version}|${mo.count}|${mo.maxUpdated}`
+    const oldFp = base.fingerprints || {}
+    const newFp = Object.fromEntries(mani.months.map(mo => [mo.month, fp(mo)]))
+    const changedAll = mani.months.filter(mo => oldFp[mo.month] !== fp(mo)).map(mo => mo.month)
+    const maniSet = new Set(mani.months.map(mo => mo.month))
+    const months = { ...base.months }
+    const removed = Object.keys(months).filter(k => !maniSet.has(k))
+    removed.forEach(k => delete months[k])
+
+    if (!changedAll.length && !removed.length) {
+      _analyticsBase.setlist = { months, fingerprints: newFp, etag }
+      await setCache('setlist', { months, fingerprints: newFp }, etag)  // 只推進 etag
+      return null
+    }
+
+    const changed = changedAll.filter(k => k !== 'none')
+    if (changed.length) {
+      // 後端 months 已降序：[0] 最新、[length-1] 最舊
+      await fetchMonthsInto(months, apiUrl, changed[changed.length - 1], changed[0])
+    }
+    if (changedAll.includes('none')) {
+      const r = await fetch(`${apiUrl}?from=none&to=none`, { cache: 'no-store' })
+      if (!r.ok) throw new Error(`setlist none HTTP ${r.status}`)
+      months.none = (await r.json()).data || []
+    }
+    _analyticsBase.setlist = { months, fingerprints: newFp, etag }
+    await setCache('setlist', { months, fingerprints: newFp }, etag)
+    return flattenMonths(months)
+  }
+
+  // 任一表校正失敗只警告不中斷——畫面已有快取資料，下次進頁再試
+  async function revalidateBerryTables(current) {
+    const settled = await Promise.allSettled([
+      revalidateSetlistRows(),
+      revalidatePlainTable('songlist'),
+      revalidatePlainTable('streamlist')
+    ])
+    const value = (i, name) => {
+      if (settled[i].status === 'fulfilled') return settled[i].value
+      console.warn(`[Analytics] ${name} 背景校正失敗（沿用快取）:`, settled[i].reason)
+      return null
+    }
+    const setlist = value(0, 'setlist')
+    const songlist = value(1, 'songlist')
+    const streamlist = value(2, 'streamlist')
+    if (!setlist && !songlist && !streamlist) return null
+    return {
+      setlist: setlist ?? current.setlist,
+      songlist: songlist ?? current.songlist,
+      streamlist: streamlist ?? current.streamlist
+    }
+  }
+
+  /**
+   * 分析頁取資料。先以快取／快照秒回，再於背景以 ETag／manifest 校正；
+   * 真的有變更才呼叫 onFresh(tables)（SWR，同表格頁的行為）。
+   */
+  window.loadBerryTables = async (onFresh) => {
+    const t0 = performance.now()
+    const [setlist, songlist, streamlist] = await Promise.all([
+      loadAnalyticsTable('setlist'),
+      loadAnalyticsTable('songlist'),
+      loadAnalyticsTable('streamlist')
+    ])
+    const tables = { setlist, songlist, streamlist }
+    console.log(`[Analytics] 資料就緒：setlist ${setlist.length} / songlist ${songlist.length} / streamlist ${streamlist.length}，${Math.round(performance.now() - t0)}ms`)
+
+    if (typeof onFresh === 'function') {
+      revalidateBerryTables(tables).then(fresh => {
+        if (!fresh) {
+          console.log('[Analytics] 背景校正：無變更')
+          return
+        }
+        console.log(`[Analytics] 背景校正：資料已更新（setlist ${fresh.setlist.length} / songlist ${fresh.songlist.length} / streamlist ${fresh.streamlist.length}）`)
+        onFresh(fresh)
+      }).catch(err => console.warn('[Analytics] 背景校正失敗（顯示快取資料）:', err))
+    }
+    return tables
   }
 
   // Set marked options
@@ -861,12 +1140,9 @@ $(()=>{
               </button>
             </div>`:'') +
             `<div id='setTableMsg' class='p-3'>&emsp;</div>
-            <!-- 進階搜尋區塊 -->
+            <!-- 進階搜尋區塊：卡片首列＝快速搜尋（欄位:值 語法），多欄運算子搜尋收在 #searchBody -->
             <div id="advancedSearch" class="card bg-body-tertiary mb-3 w-100">
-              <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" data-bs-toggle="collapse" data-bs-target="#searchBody">
-                <span><i class="bi bi-search me-2"></i>${t('進階搜尋', 'Advanced Search', '詳細検索')}</span>
-                <i class="bi bi-chevron-down"></i>
-              </div>
+              ${quickSearchHeaderHTML(process)}
               <div id="searchBody" class="collapse">
                 <div class="card-body">
                   <div class="d-flex align-items-center mb-3">
@@ -929,6 +1205,7 @@ $(()=>{
             </div>
             <div id='tb' class='table-dark table-striped table-bordered'>${t('載入中...', 'Loading...', '読み込み中...')}</div>
               `
+      resetTableSearchState()  // 換表／換語言重繪：搜尋輸入框回空，狀態也要跟著歸零
       $("#content").empty().append(c)
       updatePageLang()  // Update language for dynamically generated content
       configJsonTable(url, process)
@@ -972,10 +1249,8 @@ $(()=>{
             })
           }
           if(url.includes('analytics.htm')) {
-            // xlsx vendor script 與 analytics.js module 平行載入（原本 jQuery eval 亦是頁面插入即觸發）
-            window.loadXLSX().catch(err => {
-              console.error('[Analytics] Failed to load XLSX vendor script:', err)
-            })
+            // XLSX 與 sql.js 都改成按下匯出／執行時才載（analytics.js 內部處理），
+            // 開頁只付統計面板的成本
             import('/assets/js/analytics.js').then(module => {
               module.initAnalytics()
             }).catch(err => {
@@ -1531,6 +1806,60 @@ $(()=>{
     return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
   }
 
+  // setlist startTime/endTime 輸入解析：空→null（清空）、純數字→秒、
+  // h:mm:ss / m:ss →秒、認不得→NaN。規則與 fansite-v2 的 parseHmsToSeconds
+  // 完全一致——兩站對同一 API 的更新方法必須相同
+  function parseHmsToSeconds(v) {
+    const s = String(v ?? '').trim()
+    if (!s) return null
+    if (/^\d+$/.test(s)) return Number(s)
+    const m = s.match(/^(?:(\d+):)?([0-5]?\d):([0-5]\d)$/)
+    if (!m) return NaN
+    const h = m[1] ? Number(m[1]) : 0
+    return h * 3600 + Number(m[2]) * 60 + Number(m[3])
+  }
+
+  // 時間戳欄位編輯器（startTime/endTime）：顯示與輸入都用 h:mm:ss；
+  // 無效輸入以 cancel 收場（保留原值），API 驗證上限 360000 秒與後端一致
+  function timeEditor(cell, onRendered, success, cancel) {
+    const input = document.createElement('input')
+    input.type = 'text'
+    input.style.width = '100%'
+    input.style.boxSizing = 'border-box'
+    input.placeholder = 'h:mm:ss / m:ss / sec'
+    const v = cell.getValue()
+    input.value = v == null ? '' : secondsToHMS(v)
+    onRendered(() => { input.focus(); input.select() })
+    let done = false
+    const commit = () => {
+      if (done) return
+      done = true
+      const parsed = parseHmsToSeconds(input.value)
+      if (Number.isNaN(parsed) || (parsed !== null && (parsed < 0 || parsed > 360000))) {
+        cancel()
+        return
+      }
+      success(parsed)
+    }
+    input.addEventListener('blur', commit)
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') commit()
+      else if (e.key === 'Escape') { done = true; cancel() }
+    })
+    return input
+  }
+
+  // setlist 時間戳欄的顯示狀態以 checkbox 為準——Tabulator 的 showColumn()
+  // 不會回寫 definition 的 visible 屬性，任何 setColumns()（進出編輯模式、
+  // 語言切換）都會讓時間欄退回初始 visible:false（2026-08-08 用戶回報 bug），
+  // 重建欄位前先用本函數同步
+  function applyTimestampVisibility(defs) {
+    const shown = $('#toggleTimestamp').is(':checked')
+    return defs.map(col => (col.field === 'startTime' || col.field === 'endTime')
+      ? { ...col, visible: shown }
+      : col)
+  }
+
   function formatSongDisplay(name, nameEn) {
     if (nameEn) return `${name}(${nameEn})`
     return name
@@ -1675,7 +2004,11 @@ $(()=>{
           songDisplay: song ? `${song.songName} - ${song.artist}` : '',
           songName: song ? song.songName : '',
           artist: song ? song.artist : '',
-          note: entry.note || ''
+          note: entry.note || '',
+          // 時間戳掛在列上：movableRows 拖曳搬的是整個 row data，時間戳自然跟著列
+          // （歌）移動；送出時一併寫回，否則調順序後時間戳留在原 trackNo、與歌錯配
+          startTime: entry.startTime ?? null,
+          endTime: entry.endTime ?? null
         }
       })
 
@@ -1869,6 +2202,7 @@ $(()=>{
     {title:t('段落', 'Seg', 'セグ'), field:"segmentNo", sorter:'number', width:60},
     {title:t('曲序', 'Track', 'トラック'), field:"trackNo", sorter:'number', width:80},
     {title:t('開始', 'Start', '開始'), field:"startTime", visible: false, sorter:'number', width:80, download:true,
+      editor: timeEditor, editable: false,
       formatter: function(cell) {
         const v = cell.getValue();
         if (v == null) return '';
@@ -1881,6 +2215,7 @@ $(()=>{
       }
     },
     {title:t('結束', 'End', '終了'), field:"endTime", visible: false, sorter:'number', width:80, download:true,
+      editor: timeEditor, editable: false,
       formatter: function(cell) {
         const v = cell.getValue();
         if (v == null) return '';
@@ -2679,23 +3014,46 @@ $(()=>{
     })
 
     // ============================================
-    // 快取優先載入機制（IndexedDB）
+    // 快取優先載入機制（IndexedDB → CDN 快照 → API）
     // setlist：月度結構（manifest 增量更新，見 syncSetlistTable）
     // 其他表：整包 + ETag（304 短路，見 backgroundFetchAndUpdate）
     // 這一份 cached 是本頁唯一一次快取讀取：往下同時餵給表格初始化、syncSetlistTable
     // 與 backgroundFetchAndUpdate（以前各自再讀一次，setlist 光解壓就多付 ~250ms）
     // ============================================
     const isSetlist = (p === 'setlist')
-    const cached = await getCache(p)
-    const hasCachedData = isSetlist
+    let cached = await getCache(p)
+    let hasCachedData = isSetlist
       ? !!(cached?.data?.months && Object.keys(cached.data.months).length > 0)
       : !!(cached?.data?.length > 0)
+
+    // 首訪（IDB 無快取）：先吃 CDN 靜態快照當初始資料，讓表格立刻有東西可看，
+    // 校正交給下面既有的 backgroundFetchAndUpdate（etag 為 null → 必然拿 200 全量比對）。
+    // 快照缺席時 cached 維持 null，Tabulator 照舊用 ajaxURL 直接打 API。
+    // setlist 不走這裡——它的快照是月度結構，與 manifest 指紋一起在 syncSetlistTable 灌入
+    let fromSnapshot = false
+    if (!hasCachedData && !isSetlist && SNAPSHOT_FILES[p]) {
+      const rows = await fetchSnapshot(SNAPSHOT_FILES[p])
+      if (Array.isArray(rows) && rows.length > 0) {
+        // 形狀與 getCache 一致，讓下游（初始化、背景校正）不必分辨資料從哪來；
+        // etag 為 null——靜態快照沒有 ETag，不能拿去 If-None-Match
+        cached = { data: rows, etag: null, timestamp: null }
+        hasCachedData = true
+        fromSnapshot = true
+        console.log(`[Snapshot] ${p} 快照命中 ${rows.length} 筆`)
+      }
+    }
 
     const tabulatorConfig = {
       height:700,
       columnDefaults:{
         headerFilter:"input",
+        tooltip:true,          // 截字時 hover 顯示原始值（v3 回饋：截字看不到全文）
+        resizable:'header',    // 拖表頭邊緣調欄寬（v3 回饋；cell 邊緣不啟用，避免與選取衝突）
       },
+      // 記住使用者調過的欄寬。四個表共用 #tb 容器，必須用 persistenceID 區分，
+      // 否則 songlist 拖的寬度會套到 setlist 上
+      persistence:{ columns:['width'] },
+      persistenceID: p,
       columns:initialColDef,
       selectableRows:true,
       selectableRowsRangeMode:"click",
@@ -2723,12 +3081,15 @@ $(()=>{
     // structuredClone 隔離表格與快取：Tabulator 的 time 欄 mutator 會就地改 row 物件
     // （轉本地顯示格式），共享參照會讓 cached 被污染 —— 之後 setCache 存進壞掉的 time、
     // backgroundFetchAndUpdate 的差異比對也會全部誤判（同 syncSetlistTable 的 renderRows）
+    // 註：tabulatorConfig.data 一旦有值，Tabulator 就不會用 ajaxURL 自動抓
+    //（Ajax 模組只在「無 data」時接手），所以快照初始化不會多發一次 API 請求
     if (hasCachedData) {
       const rowCount = isSetlist ? null : cached.data.length
       tabulatorConfig.data = structuredClone(isSetlist ? flattenMonths(cached.data.months) : cached.data)
-      console.log(`[Cache] 使用快取資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
+      console.log(`[${fromSnapshot ? 'Snapshot' : 'Cache'}] 使用${fromSnapshot ? '快照' : '快取'}資料初始化 ${p}，共 ${rowCount ?? tabulatorConfig.data.length} 筆`)
     } else {
-      console.log(`[Cache] 無快取，從 API 載入 ${p}`)
+      // setlist 的快照在 syncSetlistTable 裡才灌（要跟 manifest 指紋一起），這裡尚未確定來源
+      console.log(`[Cache] 無快取，${isSetlist ? '交由同步流程載入' : '從 API 載入'} ${p}`)
     }
 
     jsonTable = new Tabulator("#tb", tabulatorConfig)
@@ -3025,6 +3386,18 @@ $(()=>{
           await apiRequest('PUT', `${endpoint}/${id}`, updateData)
         }
 
+        // setlist 的 YTLink 由後端 VIEW 以 startTime 生成（watch?v=ID&t=秒）；
+        // 編輯 startTime 後本地重算 t 參數，避免連結停留在舊時間點。
+        // 用 URL API 改參數——字串切 '?' 會把 ?v= 一起砍掉
+        if (p === 'setlist' && field === 'startTime' && rowData.YTLink) {
+          try {
+            const u = new URL(rowData.YTLink)
+            if (finalValue != null) u.searchParams.set('t', finalValue)
+            else u.searchParams.delete('t')
+            cell.getRow().update({ YTLink: u.toString() })
+          } catch { /* YTLink 非法時不動，下次重載由 VIEW 修正 */ }
+        }
+
         // 更新快取（不重載表格，避免全部 row 重新渲染導致閃爍）
         // setlist 例外：快取是月度結構，getData() 的扁平陣列會摧毀它；
         // 且 getData() 的 time 已被 mutator 改為顯示格式，不可入快取。
@@ -3055,6 +3428,180 @@ $(()=>{
   }
 
   //--- jsonTable button block ---
+
+  // === 快速搜尋（`欄位:值` 語法）===
+  //
+  // 語法本體在 table-search.js（自 fansite-v2 移植）。這裡只負責 UI 與 Tabulator 接線。
+  // 與下方多欄運算子搜尋**並存**：兩者各自維護狀態，最後由 applyTableFilters() 併成
+  // 單一 custom filter 交給 setFilter——Tabulator 的 setFilter 會整組取代既有程式化
+  // filter，兩邊各自呼叫必定互相清掉，所以一定要走這個統一出口。
+  // （headerFilter 是另一組，Tabulator 自己會 AND 起來，不受此處影響。）
+
+  let quickSearchTokens = []   // tokenize() 結果；空陣列＝快速搜尋未啟用
+  let advancedMatcher = null   // 多欄運算子搜尋的比對函式；null＝未啟用
+  let quickSearchTimer = null
+  let quickSearchComposing = false  // IME 組字中不觸發（中途片段會整表重算）
+
+  // 換頁／換表時把兩邊狀態歸零（#content 重繪後輸入框本來就是空的）
+  function resetTableSearchState() {
+    clearTimeout(quickSearchTimer)
+    quickSearchTimer = null
+    quickSearchComposing = false
+    quickSearchTokens = []
+    advancedMatcher = null
+  }
+
+  // 快速搜尋列（進階搜尋卡片的 card-header）＋「?」語法說明面板。
+  // 說明面板用 Bootstrap collapse 的宣告式 data-bs-toggle（無 inline script，CSP 相容）；
+  // 三語走既有 data-lang 慣例，切語言時 updatePageLang() 直接換區塊
+  function quickSearchHeaderHTML(process) {
+    const spec = getSearchSpec(process)
+    const advBtn = `
+        <button class="btn btn-sm btn-outline-secondary flex-shrink-0" type="button"
+                data-bs-toggle="collapse" data-bs-target="#searchBody"
+                aria-expanded="false" aria-controls="searchBody">
+          <i class="bi bi-sliders me-1"></i>${t('多欄位條件', 'Field Conditions', '複数条件')}<i class="bi bi-chevron-down ms-1"></i>
+        </button>`
+
+    // 沒有搜尋規格的表（理論上不會發生）只保留原本的進階搜尋入口
+    if (!spec) {
+      return `<div class="card-header d-flex flex-wrap align-items-center gap-2">
+        <span class="flex-grow-1"><i class="bi bi-search me-2"></i>${t('進階搜尋', 'Advanced Search', '詳細検索')}</span>
+        ${advBtn}
+      </div>`
+    }
+
+    const f0 = spec.help[0]
+    const ph = {
+      zh: `搜尋全部欄位…（可用 ${f0.zh}:值）`,
+      en: `Search all columns… (try ${f0.en}:value)`,
+      ja: `全項目を検索…（${f0.ja}:値 も可）`
+    }
+    const helpTitle = t('搜尋語法', 'Search syntax', '検索の書き方')
+    const clearLabel = t('清除快速搜尋', 'Clear quick search', 'クイック検索をクリア')
+
+    // 說明面板的單一語言區塊
+    const block = (lang) => {
+      const txt = SEARCH_HELP_TEXT[lang]
+      const fields = spec.help.map(f => {
+        const label = f.label?.[lang] || ''
+        return `<li class="d-flex align-items-baseline gap-2 mb-1">
+              <code class="flex-shrink-0">${escapeHtml(syntaxName(lang, f.zh, f.ja, f.en))}</code>
+              ${label ? `<span class="text-body-secondary">${escapeHtml(label)}</span>` : ''}
+            </li>`
+      }).join('')
+      const examples = (spec.examples[lang] || []).map(ex =>
+        `<li class="mb-1"><button type="button" class="btn btn-sm btn-outline-secondary font-monospace text-start quick-search-example" data-example="${escapeHtml(ex)}">${escapeHtml(ex)}</button></li>`
+      ).join('')
+      return `
+          <div data-lang="${lang}" class="${lang === currentLang ? '' : 'd-none'}">
+            <p class="mb-2">${txt.intro}</p>
+            <div class="fw-semibold mb-1">${txt.fields}</div>
+            <ul class="list-unstyled mb-3 ps-1">${fields}</ul>
+            <div class="fw-semibold mb-1">${txt.examples}</div>
+            <ul class="list-unstyled mb-0 ps-1">${examples}</ul>
+          </div>`
+    }
+
+    return `
+      <div class="card-header d-flex flex-wrap align-items-center gap-2">
+        <!-- .input-group 本身是 width:100%，在 flex-wrap 容器裡會把右邊的鈕擠到下一行；
+             改 width:auto + flex 基準值才會與「多欄位條件」鈕並排 -->
+        <div class="input-group input-group-sm" style="width: auto; flex: 1 1 260px; max-width: 620px;">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="search" id="quickSearch" class="form-control" autocomplete="off" spellcheck="false"
+                 aria-label="${escapeHtml(helpTitle)}"
+                 placeholder="${escapeHtml(ph[currentLang] || ph.zh)}"
+                 data-placeholder-zh="${escapeHtml(ph.zh)}"
+                 data-placeholder-en="${escapeHtml(ph.en)}"
+                 data-placeholder-ja="${escapeHtml(ph.ja)}">
+          <button class="btn btn-outline-secondary" type="button" id="quickSearchClear"
+                  title="${escapeHtml(clearLabel)}" aria-label="${escapeHtml(clearLabel)}"><i class="bi bi-x-lg"></i></button>
+          <button class="btn btn-outline-secondary" type="button" id="quickSearchHelpBtn"
+                  data-bs-toggle="collapse" data-bs-target="#quickSearchHelp"
+                  aria-expanded="false" aria-controls="quickSearchHelp"
+                  title="${escapeHtml(helpTitle)}" aria-label="${escapeHtml(helpTitle)}">?</button>
+        </div>
+        ${advBtn}
+      </div>
+      <div id="quickSearchHelp" class="collapse">
+        <div class="card-body border-top small py-3">
+          ${block('zh')}${block('en')}${block('ja')}
+        </div>
+      </div>`
+  }
+
+  /**
+   * 兩種搜尋合併後送進 Tabulator。
+   * 都沒啟用時用 clearFilter()（不帶 true）——帶 true 會連 headerFilter 一起清掉，
+   * 使用者只是把快速搜尋刪空不該連欄頭篩選一起沒了。整組清空另有「清除」鈕。
+   */
+  function applyTableFilters() {
+    if (!jsonTable) return
+    const spec = getSearchSpec(getProcess())
+    const tokens = spec ? quickSearchTokens : []
+    const adv = advancedMatcher
+
+    if (!tokens.length && !adv) {
+      jsonTable.clearFilter()
+      $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
+      return
+    }
+
+    jsonTable.setFilter((data) => {
+      if (adv && !adv(data)) return false
+      if (tokens.length && !matchesQuery(data, tokens, spec.fields, spec.aliases)) return false
+      return true
+    })
+
+    const count = jsonTable.getDataCount('active')
+    $('#setTableMsg')
+      .text(t(`搜尋結果：${count} 筆`, `Search results: ${count} rows`, `検索結果：${count} 件`))
+      .addClass('text-bg-info')
+  }
+
+  // 快速搜尋輸入 → tokenize → 套用（debounce 200ms，IME 組字中略過）
+  function scheduleQuickSearch() {
+    clearTimeout(quickSearchTimer)
+    if (quickSearchComposing) return
+    quickSearchTimer = setTimeout(() => {
+      quickSearchTokens = tokenize($('#quickSearch').val() || '')
+      applyTableFilters()
+    }, 200)
+  }
+
+  $('#content').on('input', '#quickSearch', scheduleQuickSearch)
+  $('#content').on('compositionstart', '#quickSearch', () => { quickSearchComposing = true })
+  $('#content').on('compositionend', '#quickSearch', () => {
+    quickSearchComposing = false
+    scheduleQuickSearch()
+  })
+  // Enter＝立刻套用（不等 debounce）
+  $('#content').on('keydown', '#quickSearch', (e) => {
+    if (e.key === 'Enter' && !e.originalEvent?.isComposing) {
+      clearTimeout(quickSearchTimer)
+      quickSearchTokens = tokenize($('#quickSearch').val() || '')
+      applyTableFilters()
+    }
+  })
+
+  $('#content').on('click', '#quickSearchClear', () => {
+    clearTimeout(quickSearchTimer)
+    $('#quickSearch').val('').trigger('focus')
+    quickSearchTokens = []
+    applyTableFilters()
+  })
+
+  // 說明面板的範例＝點擊直接套用（省得手打全形冒號／引號）
+  $('#content').on('click', '.quick-search-example', function() {
+    // 用 attr 不用 data：jQuery 的 .data() 會自動轉型（純數字範例會變 number）
+    const ex = $(this).attr('data-example')
+    if (ex == null) return
+    clearTimeout(quickSearchTimer)
+    $('#quickSearch').val(ex)
+    quickSearchTokens = tokenize(ex)
+    applyTableFilters()
+  })
 
   // === 進階搜尋功能 ===
 
@@ -3150,7 +3697,9 @@ $(()=>{
     })
 
     if (conditions.length === 0) {
-      jsonTable.clearFilter(true)
+      // 條件全空＝停用多欄搜尋，但快速搜尋（若有）要留著 → 走統一出口重算
+      advancedMatcher = null
+      applyTableFilters()
       return
     }
 
@@ -3197,12 +3746,9 @@ $(()=>{
         : results.some(r => r)
     }
 
-    jsonTable.setFilter(customFilter)
-
-    // 顯示搜尋結果數量
-    const count = jsonTable.getDataCount('active')
-    const resultText = t(`搜尋結果：${count} 筆`, `Search results: ${count} rows`, `検索結果：${count} 件`)
-    $('#setTableMsg').text(resultText).addClass('text-bg-info')
+    // 不直接 setFilter：交給統一出口與快速搜尋 AND 起來（結果筆數也在那裡顯示）
+    advancedMatcher = customFilter
+    applyTableFilters()
   }
 
   // 新增條件按鈕
@@ -3266,10 +3812,12 @@ $(()=>{
     applyAdvancedSearch()
   })
 
-  // 清除搜尋按鈕
+  // 清除搜尋按鈕：整組歸零（含 headerFilter 與快速搜尋）——語意就是「全部清掉」
   $('#content').on('click', '#clearSearch', () => {
+    resetTableSearchState()
     jsonTable.clearFilter(true)
     $('.search-value').val('')
+    $('#quickSearch').val('')
     $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
@@ -3288,10 +3836,12 @@ $(()=>{
     } else {
       jsonTable.setData()
     }
+    resetTableSearchState()
     jsonTable.clearFilter(true)
     jsonTable.deselectRow()
     // 清除進階搜尋的輸入值
     $('.search-value').val('')
+    $('#quickSearch').val('')
     $('#setTableMsg').html('&emsp;').removeClass('text-bg-info text-bg-warning')
   })
 
@@ -3340,6 +3890,23 @@ $(()=>{
             editable: true
           }
         }
+        // Setlist: 時間戳欄位每次進入編輯模式都要重新掛 timeEditor——
+        // 離開編輯模式的 viewColDef 會剝掉所有 editor，base 定義的函數
+        // editor 第一次退出後就不在 getColumnDefinitions() 裡了（同 songName pattern）
+        if (getProcess() === 'setlist' && (col.field === 'startTime' || col.field === 'endTime')) {
+          return {
+            ...col,
+            editor: timeEditor,
+            editable: true
+          }
+        }
+        // Setlist: 段落/曲序是 composite key，後端 PUT 靜默忽略這兩欄
+        // （改 key＝跨列事務，單列操作必撞主鍵衝突）——不給 editor，
+        // 避免「改了顯示新值、下次同步跳回」的假成功（2026-08-08 發現）。
+        // 順序修正請走批次編輯（或未來的 reorder API）
+        if (getProcess() === 'setlist' && (col.field === 'segmentNo' || col.field === 'trackNo')) {
+          return { ...col, editable: false }
+        }
         // Artist 欄位在 setlist 保持唯讀（由 Select2 自動填入）
         // 在 streamlist 添加 editor（允許手動編輯）
         if (col.field === 'artist') {
@@ -3376,7 +3943,7 @@ $(()=>{
         // 其他欄位添加預設 input editor
         return { ...col, editor: "input", editable: true }
       })
-      jsonTable.setColumns(editableColDef)
+      jsonTable.setColumns(applyTimestampVisibility(editableColDef))
       // YTLink 只存在於 setlist 的欄位定義（visible:false）；其他表沒有這欄，
       // 無條件 showColumn 會噴 "Column Show Error"。用 getColumns() 判斷存在性——
       // getColumn(field) 找不到時同樣會 console.warn，不能拿來當存在檢查
@@ -3412,7 +3979,7 @@ $(()=>{
         }
         return newCol
       })
-      jsonTable.setColumns(viewColDef)
+      jsonTable.setColumns(applyTimestampVisibility(viewColDef))
 
       // 重新載入資料以確保與後端同步
       const currentProcess = getProcess()
@@ -4624,7 +5191,10 @@ function getYTlatest(){
         trackNo: row.trackNo,
         segmentNo: segment,
         songID: row.songID,
-        note: row.note || null
+        note: row.note || null,
+        // 跟著列走的時間戳（載入時掛上、拖曳時隨列移動）；新建的空列為 null
+        startTime: row.startTime ?? null,
+        endTime: row.endTime ?? null
       }))
 
       // Send batch POST request with user source header (to enable overwrite mode)
