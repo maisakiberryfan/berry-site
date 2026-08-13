@@ -65,8 +65,10 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
 - Tabulator 6.5.2 + Select2 4.1.0（IME 支援；4.0.13 組字有致命 bug 勿降版，
   2026-08-08 由 rc.0 升正式版、日文組字全流程實測通過。**任何 Select2 升級都必須重測 IME**）
-- DuckDB-WASM（Analytics）
+- sql.js 1.14（Analytics 進階 SQL；SQLite/WASM self-host 於 `assets/vendor/`，
+  按下執行才載入 ~0.64MB wasm。取代 DuckDB-WASM＋parquet，見下方 Analytics 節）
 - 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
+- 資料載入三層瀑布：IndexedDB → CDN 靜態快照（`/data/*.json`）→ API 增量校正（見下節）
 - esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
 - 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
 
@@ -85,10 +87,88 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 - ⚠️ 新增 UI 勿硬編亮/暗前提 class（`btn-outline-light`、`bg-dark text-light`、
   `table-dark` 例外——表格容器沿用它但變數已跟隨主題），一律用主題自適應變數/元件
 
+### 資料載入三層瀑布（首訪加速；2026-08-09 由 fansite-v2 移植）
+
+```
+IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
+（回訪，不變）      （首訪，edge 直出）           （既有 manifest/ETag 邏輯）
+```
+
+- **快照產生**：`npm run snapshot`（`scripts/fetch-snapshot.mjs`，純 Node 無相依）向正式
+  API 唯讀 GET，輸出到 `fansite/data/`（**gitignored**，部署時重建）：
+  `songlist.json`、`streamlist.json`、`manifest.json`、`setlist-{YYYY-MM}.json`（每月一檔）
+  ＋`setlist-none.json`。`BERRY_API=http://localhost:8788` 可改抓本地 API。
+  單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）
+- **前端**（tool.js）：IDB 無快取時才抓快照。setlist 走 `primeSetlistFromSnapshot()`——
+  manifest 快照給月份清單並 **seed fingerprints**，逐月快照併發 6 抓齊後灌入，之後
+  **照常走既有的 manifest 比對**：快照過時的月份指紋對不上、自動由 API 重抓（缺檔的月份
+  不寫指紋，效果同缺月自癒）。songlist/streamlist 用整包快照當 Tabulator 初始 data，
+  校正交給既有的 `backgroundFetchAndUpdate`
+- **etag 一律為 null**：靜態快照沒有 ETag，帶假值會 304 短路把過時資料鎖死
+- **fallback**：快照 404／解析失敗 → 回傳 null → 完全走原本的 API 路徑（首訪漸進載入
+  不變），代價只是一個 404 往返
+- **CI**：build 之後跑 `npm run snapshot`（`continue-on-error`——快照抓不全不該擋部署）；
+  AWS 側 `fansite/data/` 獨立一輪 s3 sync（`max-age=300`＋`--delete`，不用 `--size-only`），
+  CF 側隨 Workers Static Assets 一起上傳。CloudFront 的 `/*` invalidation 已涵蓋 `/data/`
+- **新鮮度**：快照只跟得上「最近一次部署」，這是設計的一部分——正確性由 API 校正保證，
+  快照只負責讓首訪先有東西看
+
+### Analytics（`pages/analytics.htm` ＋ `assets/js/analytics.js` ＋ `assets/js/analytics/`）
+
+頁內兩個分頁籤：**統計**（第一屏、零下載）與**資料查詢**（引擎按需載入）。
+
+- **資料源＝瀏覽器既有快取**：`window.loadBerryTables()`（tool.js）以與表格頁相同的
+  三層瀑布（IDB → CDN 快照 → API）取回 setlist／songlist／streamlist。
+  **不再有 `sqldata.m-b.win` 的每日 parquet 管線**（VPS 匯出 cron 與 R2 bucket 待退役）
+- **統計面板**：純 JS 聚合（統計卡、Top 20 曲、Top 10 歌手、24 個月趨勢），
+  圖表為自繪 SVG（`analytics/charts.js`，無圖表庫）。色彩全走 CSS 變數
+  （`--berry-primary`/`--berry-pink` ＋ `--bs-*` 文字/邊框階層），亮暗自適應
+- **查詢建構器**（`analytics/builder.js`）：欄位勾選＋7 運算子＋6 聚合＋SQL 即時預覽。
+  欄位名走 `DATASET_COLUMNS` 白名單、運算子走固定表、**值一律 bind（`?`）**、
+  LIKE 另加 `ESCAPE '\'` ⇒ 使用者輸入不可能變成語法
+- **進階 SQL**：`analytics/engine.js` 以原生 `<script src>` 載入 self-host 的
+  `assets/vendor/sql-wasm-browser.{js,wasm}`（sql.js 1.14，**按下執行才載**）。
+  版本由 `fansite/package.json` 的 `sql.js` 相依管理，升級後跑 `npm run vendor:sqljs`
+  重新複製產物（vendor 檔進 git，同 `xlsx.full.min.js` 慣例）
+- **時間語意（全部本地時區）**：寬表的 `time` 在建表時就轉成瀏覽器時區的
+  `'YYYY-MM-DD HH:MM'` 固定寬度字串（SQLite 無 timestamp 型別，字典序＝時序），
+  使用者直接寫本地日期即可；統計面板的月度分桶同樣用本地月（2026-08-09 用戶指正
+  統一——原沿用 v3 的 UTC 桶會讓跨月深夜場與查詢的 `month` 對不上）。代價：統計桶
+  與後端 manifest 的 UTC 月度分段不可直接對帳（僅影響開發者除錯）
+- **三語**：靜態文字走 `data-lang` span（`updatePageLang`）；JS 動態產生的內容走
+  `analytics/i18n.js` 字典（動態節點不在 `updatePageLang` 掃描時機內）
+- **已移除**：AI「SQL 小幫手」（`/api/text-to-sql`、`ai_usage` 預算表、`ANTHROPIC_API_KEY`）
+  與 DuckDB-WASM；CSP 兩側同步移除 `cdn.jsdelivr.net`、`sqldata.m-b.win`
+
+### 表格快速搜尋語法（`欄位:值`；2026-08-09 由 fansite-v2 移植）
+
+四張表頁（songlist/streamlist/setlist/aliases）的「進階搜尋」卡片首列＝**快速搜尋框**，
+即時過濾（200ms debounce、IME 組字中不觸發、Enter 立即套用）。
+
+- **語法本體**：`fansite/assets/js/table-search.js`（`tokenize` / `buildHaystack` /
+  `matchesQuery` 三支純函式＋四表的 `SEARCH_SPECS`）。空白分隔＝AND、引號括住含空白的值、
+  全形冒號「：」／全形空白／彎引號一併吃、`欄位:*`＝該欄不為空
+- **關鍵設計**：欄位名比不到別名表時，**整個 token（含冒號）退回全文比對**——
+  時間「12:34」不會被誤拆成 `12` 欄位。別名表以 `hasOwnProperty` 把關
+  （`constructor:x` 這類 key 會撈到 Object.prototype 成員，直接用會炸）
+- **別名表三語都收**（`曲名`/`song`/`曲名`、`歌手`/`artist`/`アーティスト`…），key 一律小寫；
+  雙語欄（曲名/歌手）同時比日文與英文欄，與各表 headerFilterFunc 既有行為一致
+- ⚠️ **取值對象是 Tabulator 的列資料（已過 mutator）**：setlist/streamlist 的 `time`
+  是 `'YYYY/MM/DD HH:mm'` 本地字串（不是 ISO），不留檔場（time NULL）會是 `'Invalid Date'`。
+  日期一律走 `dateText()`（同時吐斜線與短橫線兩版、`Invalid Date` 視同空）
+- **與多欄運算子搜尋並存**：兩者狀態各自維護，最後由 `applyTableFilters()` 併成單一
+  custom filter 送 `setFilter`。Tabulator 的 `setFilter` 會整組取代既有程式化 filter，
+  **兩邊各自呼叫必定互相清掉**——新增任何程式化篩選都必須走這個出口。
+  headerFilter 是另一組，Tabulator 自己 AND 起來，不受影響
+- 條件全空時用 `clearFilter()`（不帶 `true`）：帶 `true` 會連 headerFilter 一起清掉，
+  刪空搜尋框不該連欄頭篩選一起沒。整組清空由「清除」鈕與「重新載入」負責
+- 「?」說明面板為 Bootstrap collapse 的宣告式 `data-bs-toggle`（無 inline script，CSP 相容），
+  三語走 `data-lang` 區塊；範例可點擊直接套用，**值取自實際資料**（點下去不會 0 筆）
+
 ### 核心功能
 - 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
 - 即時編輯：Tabulator inline editing + API 同步
-- 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋
+- 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋 + 快速搜尋語法（見上節）
 - SPA 路由：`setContent(path)` + `history.pushState`
 
 ### ⚠️ SPA 路由同步
@@ -101,6 +181,8 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI 跑這個）
 cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
+cd fansite && npm run vendor:sqljs     # sql.js dist → assets/vendor/（升 sql.js 後必跑，產物進 git）
+npm run snapshot                       # repo 根：產生 CDN 快照 → fansite/data/（CI 也跑這個）
 ```
 
 ---
@@ -120,13 +202,13 @@ cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 | `/api/streamlist/pending` | 待解析歌枠 |
 | `/api/setlist` | 歌單 CRUD（composite key: streamID/segmentNo/trackNo）；GET 支援 `?from=YYYY-MM&to=YYYY-MM` 月度區段、`from=none`＝不留檔場 bucket |
 | `/api/setlist/manifest` | 每月 {month, count, maxUpdated} 清單（前端月度增量比對用，與全量端點共用 meta ETag） |
+| `/api/setlist/:streamID/:segmentNo/reorder` | PUT 曲序修正，body `{order:[現有 trackNo 的完整排列]}`；⚠️ 寫回後 trackNo **重編為 1..N 連續**（原有空洞被正規化），回應帶該段落重排後完整列供前端整段替換。路由**必須註冊在 `:trackNo` param 路由之前** |
 | `/api/aliases` | 別名管理 |
 | `/api/yt?id={videoId}` | 單一影片資訊 |
 | `/api/yt/latest` | 最新影片（從 DB） |
 | `/api/yt/newvideos` | 多頻道新影片查詢 |
 | `/api/yt/live-details?id={videoId}` | 直播狀態（isLive, isEnded） |
 | `/api/parse-setlist` | 歌單解析（呼叫 Lambda matcher）；需 token（同 `/trigger-*`） |
-| `/api/text-to-sql` | AI SQL 查詢（Haiku 4.5，每日 $0.1 預算） |
 | `/api/stats/last-updated` | 各表最後更新時間 |
 
 ### 基礎設施路由（無 `/api/` 前綴）
@@ -183,7 +265,9 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - `songlist`：歌曲資訊
 - `streamlist`：直播資訊
 - `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist，YTLink 含 `?t=startTime`）
-  - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補
+  - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補；
+    亦可前端編輯模式直接編輯（timeEditor：h:mm:ss/m:ss/秒；PUT 驗證 null 或 0~360000，
+    與 fansite-v2 同一套 API 更新方法）
 - `aliases`：歌曲/歌手別名
   - title 別名可綁 `songID`（精準對應、同名異曲不互染）；artist 別名為字串表（跨曲共用，設計如此）
   - 快速新增別名（setlist 右鍵）title 模式自動帶 songID
@@ -364,7 +448,7 @@ cd fansite && npm run build:js
 ### 費用
 - 全部在 AWS/CF 免費額度內（預估 < $0.20/月）
 - EventBridge 保溫：免費
-- text-to-sql 每日預算 $0.10
+- Analytics 全在瀏覽器端（sql.js + 既有快取），無任何查詢類 API／AI 成本
 
 ---
 
@@ -372,6 +456,9 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.9 | 2026-08-09 | 表格快速搜尋語法（由 fansite-v2 移植）：四張表頁的進階搜尋卡片首列新增快速搜尋框，支援 `欄位:值`（三語別名表）、引號值、全形冒號／空白／彎引號、`欄位:*`＝非空、空白分隔 AND；認不得的欄位名整串退回全文比對（`12:34` 不誤拆）；「?」語法說明面板（三語＋可點擊套用的範例）；與既有多欄運算子搜尋並存（統一 `applyTableFilters()` 出口合併送 `setFilter`），刪空搜尋框不再誤清 headerFilter |
+| v3.8 | 2026-08-09 | Analytics 重寫（由 fansite-v2 移植）：新增統計面板（統計卡＋Top20 曲／Top10 歌手／24 月趨勢，純 JS 聚合既有快取、毫秒級零下載）＋自繪 SVG 圖表；查詢改「選取式建構器」（值全 bind、LIKE 加 ESCAPE）；進階 SQL 引擎 DuckDB-WASM→self-host sql.js；**text-to-sql（AI SQL 助手）全鏈移除**（前端 modal／`/api/text-to-sql`／預算控制／`ANTHROPIC_API_KEY`）；parquet 管線退役 ⇒ CSP 兩側移除 cdn.jsdelivr.net、sqldata.m-b.win，worker-src 收回 'self' |
+| v3.7 | 2026-08-09 | CDN 靜態快照資料層（由 fansite-v2 移植）：首訪改「IDB → /data/*.json 快照 → API 增量校正」三層瀑布，setlist 首訪由三段式 API 抓取（4 發、秒級）降為快照灌入＋僅重抓指紋變更的月份；快照由 `npm run snapshot` 於 CI 產生，AWS 側 max-age=300 獨立同步、CF 側隨 Static Assets 上傳；快照缺席無縫 fallback 原 API 路徑 |
 | v3.6 | 2026-08-08 | 苺咲べりぃ主題色上線：Bootstrap 改 SCSS 客製編譯（bootstrap-berry.scss，官方 Sass 變數路線），亮=草莓牛奶（預設）／暗=暗莓雙主題＋navbar 切換鈕（theme-init.js 防閃）；裝飾層 theme-berry.css（navbar 漸層線/光暈/h2 hairline/表頭底線）；硬編暗色 class 清理（btn-outline-light、bg-dark modal），色碼取樣自官方 logo・symbol |
 | v3.5 | 2026-08-05 | 表格快取遷移 IndexedDB：拆掉 localStorage 壓縮機械（5MB 配額爆掉與壓縮卡頓根治，淨刪 92 行）、setlist 每月一筆 record 增量寫入、缺月快取自癒、IDB 不可用降級直抓 API |
 | v3.4 | 2026-07-25 | 安全強化第二輪（批次 A~E 全量上線）：全域錯誤處理集中化＋錯誤回應泛化、CSP 兩側正式 enforce＋/tb/* security headers、matcher 輸入護欄＋timeout 29s、三頁 inline script 外抽、AI 預算原子化、CI matcher 部署偵測修正（改比對 push 全範圍） |
@@ -383,4 +470,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-08-08
+**最後更新**：2026-08-09

@@ -21,6 +21,9 @@ scripts/*.sql
 scripts/*.parquet
 scripts/timestamps/
 
+# CDN 靜態快照（scripts/fetch-snapshot.mjs 由正式 API 產生，部署時重建；不進 git）
+fansite/data/
+
 # traffic-report skill (auto-downloaded GeoIP DB + npm artifacts)
 .claude/skills/traffic-report/dbip-country-lite.mmdb
 .claude/skills/traffic-report/dbip-country-lite.mmdb.gz

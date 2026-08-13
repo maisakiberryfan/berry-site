@@ -8,6 +8,7 @@
     "build:tabulator": "sass --load-path=node_modules assets/css/tabulator-bootstrap5-custom.scss assets/css/tabulator-bootstrap5-custom.css",
     "build:bootstrap": "sass --load-path=node_modules --style=compressed --no-source-map --quiet-deps --silence-deprecation=import assets/css/bootstrap-berry.scss assets/css/bootstrap-berry.css",
     "build:js": "npm run clean && esbuild assets/js/tool.js --bundle --splitting --format=esm --target=es2022 --minify --sourcemap --outdir=assets/dist --chunk-names=chunks/[name]-[hash] --loader:.css=css --loader:.woff=file --loader:.woff2=file --log-level=info",
+    "vendor:sqljs": "node -e \"const fs=require('fs');for(const f of ['sql-wasm-browser.js','sql-wasm-browser.wasm'])fs.copyFileSync('node_modules/sql.js/dist/'+f,'assets/vendor/'+f);console.log('sql.js vendored:',require('./node_modules/sql.js/package.json').version)\"",
     "build": "npm run build:bootstrap && npm run build:tabulator && npm run build:js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -25,6 +26,7 @@
     "jquery": "^3.7.1",
     "marked": "^17.0.1",
     "select2": "^4.1.0",
+    "sql.js": "^1.14.1",
     "tabulator-tables": "^6.5.2"
   },
   "devDependencies": {
