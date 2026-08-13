@@ -43,19 +43,6 @@ jobs:
           npm ci
           echo "$(pwd)/node_modules/.bin" >> $GITHUB_PATH
 
-      # Build fansite JS bundle (CSS is pre-built and committed)
-      - name: Build fansite
-        working-directory: fansite
-        run: |
-          npm ci
-          npm run build:js
-
-      # Cache-bust：dist 資產引用加 commit hash。index.html 為 no-cache 每次重驗，
-      # 新 hash＝新 URL → 瀏覽器立即抓新版（dist 本身 max-age=86400 的快取效益保留）
-      - name: Cache-bust asset references
-        run: |
-          sed -i "s|/assets/dist/tool\.js[^\"]*|/assets/dist/tool.js?v=${GITHUB_SHA::8}|; s|/assets/dist/tool\.css[^\"]*|/assets/dist/tool.css?v=${GITHUB_SHA::8}|" fansite/index.html
-
       # Build Lambda
       - run: sam build
 
@@ -94,56 +81,63 @@ jobs:
           echo "bucket=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`FansiteBucketName`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
           echo "cf_dist=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' --output text)" >> "$GITHUB_OUTPUT"
 
-      # CDN 靜態快照（fansite/data/*.json）：首訪三層瀑布的第二層，內容取自剛部署完的正式 API
-      # （刻意排在 sam build／deploy 之後：CodeUri 是 repo 根，先產快照會被打包進 Lambda；
-      #   且部署後才抓 = 快照與新版 API 的輸出格式一致）。
+      # ── fansite-v2（v3 站）build → dist/ ──────────────────────────────────
+      - name: Install fansite-v2 deps
+        working-directory: fansite-v2
+        run: npm ci
+
+      # CDN 靜態快照（fansite-v2/public/data/*.json）：首訪三層瀑布的第二層。
+      # 刻意排在 sam deploy 之後、Vite build 之前：部署後才抓＝快照與新版 API 的
+      # 輸出格式一致；build 前抓＝Vite 把 public/ 連同 data/ 一起拷進 dist/。
       # continue-on-error——抓不完整就跳過下面的快照同步，S3 上既有的舊快照原地保留；
       # 快照過時只是首訪多校正幾個月份，擋住整個部署才是更糟的失敗模式
-      - name: Build CDN snapshot
+      - name: Snapshot data (best-effort)
         id: snapshot
+        working-directory: fansite-v2
         continue-on-error: true
         run: npm run snapshot
 
-      # Sync fansite static files to S3
-      - name: Sync fansite to S3
-        run: |
-          aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
-            --delete \
-            --size-only \
-            --cache-control "public, max-age=86400" \
-            --exclude "node_modules/*" \
-            --exclude "data/*" \
-            --exclude "package.json" \
-            --exclude "package-lock.json" \
-            --exclude "*.scss" \
-            --exclude "*.html" \
-            --exclude "*.htm" \
-            --exclude "*.md" \
-            --exclude "nav.json" \
-            --exclude "config.js" \
-            --exclude "changelog.json"
-          # 內容檔案用 no-cache（瀏覽器每次 revalidate，304 極快）；不用 --size-only
-          # 以免同大小的內容變更被跳過（此組皆為小檔案，全量比對成本可忽略）
-          aws s3 sync fansite/ s3://${{ steps.stack.outputs.bucket }}/ \
-            --cache-control "no-cache, must-revalidate" \
-            --exclude "*" \
-            --include "*.html" \
-            --include "*.htm" \
-            --include "*.md" \
-            --include "nav.json" \
-            --include "config.js" \
-            --include "changelog.json" \
-            --exclude "node_modules/*"
+      - name: Build fansite-v2
+        working-directory: fansite-v2
+        run: npm run build
 
-      # CDN 快照獨立一輪（上一輪已用 --exclude "data/*" 讓開，含 --delete 的刪除判定也不涉及它）：
-      #   max-age=300  預設的 86400 會讓瀏覽器黏住舊快照一整天（CloudFront 端有
+      # Sync v3 static files to S3
+      # ⚠️ 刻意「不」用全域 --delete：
+      #   ① hash 資產只增不刪——Vite 內容 hash 檔名，開著舊分頁的使用者 lazy chunk
+      #     不會 404；v2 遺產（assets/js|css|dist/）同樣落在保留路徑，
+      #     切換觀察期滿後由清理 commit 一次出清（見 plan-v3-switchover）
+      #   ② img/、pages/history.md、changelog.json 是 bucket 上必須保留的非 dist 內容
+      #     （og:image／history-bot 持續 push／commit skill 更新），--delete 會誤刪
+      - name: Sync fansite-v2 to S3
+        run: |
+          # hash 資產：內容不變 URL 就不變，--size-only 跳過已存在的同 hash 檔
+          aws s3 sync fansite-v2/dist/assets/ s3://${{ steps.stack.outputs.bucket }}/assets/ \
+            --size-only \
+            --cache-control "public, max-age=31536000, immutable"
+          # 頂層覆蓋檔（index.html／theme-init.js／favicon.ico）：no-cache 每次 revalidate
+          # （304 極快）；不用 --size-only 以免同大小的內容變更被跳過
+          aws s3 sync fansite-v2/dist/ s3://${{ steps.stack.outputs.bucket }}/ \
+            --cache-control "no-cache, must-revalidate" \
+            --exclude "assets/*" \
+            --exclude "data/*"
+          # v2 沿用內容（來源仍在 fansite/，v3 的 og:image 與快照 cron 靜態抓取都依賴）
+          aws s3 sync fansite/img/ s3://${{ steps.stack.outputs.bucket }}/img/ \
+            --size-only \
+            --cache-control "public, max-age=86400"
+          aws s3 cp fansite/pages/history.md s3://${{ steps.stack.outputs.bucket }}/pages/history.md \
+            --cache-control "no-cache, must-revalidate"
+          aws s3 cp fansite/changelog.json s3://${{ steps.stack.outputs.bucket }}/changelog.json \
+            --cache-control "no-cache, must-revalidate"
+
+      # CDN 快照獨立一輪（上一輪已用 --exclude "data/*" 讓開）：
+      #   max-age=300  預設值會讓瀏覽器黏住舊快照一整天（CloudFront 端有
       #                invalidation，但瀏覽器沒有）；快照的意義就是「跟得上最近一次部署」
       #   不加 --size-only  月度快照常出現同大小的內容變更（改一個字），只比大小會漏傳
-      #   --delete     清掉 manifest 已不存在的舊月份檔
+      #   --delete     清掉 manifest 已不存在的舊月份檔（僅限 data/ 前綴，安全）
       - name: Sync CDN snapshot to S3
         if: steps.snapshot.outcome == 'success'
         run: |
-          aws s3 sync fansite/data/ s3://${{ steps.stack.outputs.bucket }}/data/ \
+          aws s3 sync fansite-v2/dist/data/ s3://${{ steps.stack.outputs.bucket }}/data/ \
             --delete \
             --cache-control "public, max-age=300"
 
