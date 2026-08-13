@@ -368,7 +368,7 @@ Resources:
           }
           // SPA routes -> rewrite to /index.html
           // When adding new frontend pages, update this array (see fansite/assets/data/nav.json)
-          var spaRoutes = ['/', '/profile', '/history', '/clothes', '/songlist', '/streamlist', '/setlist', '/aliases', '/analytics'];
+          var spaRoutes = ['/', '/profile', '/history', '/clothes', '/discography', '/songlist', '/streamlist', '/setlist', '/aliases', '/analytics'];
           var clean = uri.replace(/\/$/, '') || '/';
           if (spaRoutes.indexOf(clean) >= 0) {
             event.request.uri = '/index.html';

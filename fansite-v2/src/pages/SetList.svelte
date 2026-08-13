@@ -382,13 +382,35 @@
     }
   })
 
-  /* ---------- 網址參數（StreamList 的列選單導過來） ----------
-     ?stream=<id> 搜尋框預填該 streamID（SEARCH_FIELDS 含 streamID＝篩出該場全部曲目）
-     ?add=<id>    直接開「新增場次歌單」批次 drawer 並預填網址欄
-     兩者都在套用後把 query 從網址移除（replaceState），避免重整/分享時殘留。
+  /* ---------- 網址參數（StreamList 的列選單／Discography 頁導過來） ----------
+     ?stream=<id>  搜尋框預填該 streamID（SEARCH_FIELDS 含 streamID＝篩出該場全部曲目）
+     ?song=<曲名>  搜尋框預填 `曲名:"<值>"`（Discography 的「在歌單中查看」）
+     ?add=<id>     直接開「新增場次歌單」批次 drawer 並預填網址欄
+     都在套用後把 query 從網址移除（replaceState），避免重整/分享時殘留。
      初值同步取用：SearchBox 的輸入值在 mount 時就定案，等 effect 再塞會慢一拍。 */
+
+  /**
+   * ?song= 的曲名 → 快速搜尋語法字串。
+   * 欄位名跟著介面語言走（別名表三語全收，這裡挑使用者看得懂的那個）；
+   * 值加引號才吃得下空白。曲名本身含引號時無法用引號包（tokenize 會提前收尾），
+   * 退回全文搜尋——仍篩得出來，只是條件較寬。
+   */
+  function songQuery(name) {
+    const s = String(name ?? '')
+    if (!s) return ''
+    if (/["“”]/.test(s)) return s
+    return `${getLang() === 'en' ? 'song' : '曲名'}:"${s}"`
+  }
+
+  /** ?stream= 與 ?song= 都寫搜尋框，同時出現時以 stream 為準（單場檢視語意較強） */
+  function initialSearch(q) {
+    const stream = q?.get('stream')
+    if (stream) return stream
+    return songQuery(q?.get('song'))
+  }
+
   const initialQuery = typeof location === 'undefined' ? null : route.query
-  let query = $state(initialQuery?.get('stream') ?? '')
+  let query = $state(initialSearch(initialQuery))
   let month = $state('')
   let sort = $state(null)
   /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
@@ -623,14 +645,16 @@
     const q = route.query
     const stream = q.get('stream')
     const add = q.get('add')
-    if (!stream && !add) return
-    const sig = `${stream ?? ''}|${add ?? ''}`
+    const song = q.get('song')
+    if (!stream && !add && !song) return
+    const sig = `${stream ?? ''}|${add ?? ''}|${song ?? ''}`
     if (sig === appliedParams) return
     appliedParams = sig
 
-    if (stream) {
-      query = stream
-      month = '' // 月份篩選會與單場搜尋互斥，先清掉
+    const search = initialSearch(q)
+    if (search) {
+      query = search
+      month = '' // 月份篩選會與單場／單曲搜尋互斥，先清掉
       searchSeq++
     }
     if (add) openBatch(add)

@@ -1,0 +1,604 @@
+<script>
+  // 音樂作品（Discography）頁
+  //
+  // 版面：單頁三分節（非分頁籤）——專輯封面牆 → 單曲封面牆 → 客座演唱列表，
+  // 頂部小錨點列可跳分節。點卡片開詳細面板（modal，比照 Clothes 的 pattern）。
+  //
+  // 本頁的核心價值＝把「作品曲目」與「歌枠實際演唱紀錄」接起來：
+  // 曲目有 songID 時顯示 🎤N 鈕，就地展開該曲的演唱場次（連結直接跳 YTLink 的 ?t= 秒數）。
+  // 資料源是既有的三層瀑布快取（setlist/songlist/streamlist），純客端過濾，不打新 API。
+  //
+  // 曲名的單一事實來源是 songlist：有 songID 一律顯示 songIndex 的 songName，
+  // 資料模組的 name 只在無 songID／songlist 尚未載入時作 fallback。
+  //
+  // 手機：本頁全部是瀏覽功能（無編輯入口），天然符合「手機唯讀」鐵則。
+  import Page from '../lib/Page.svelte'
+  import { t, getLang } from '../i18n.svelte.js'
+  import { assetUrl } from '../assets.js'
+  import { albums, singles, guests, releases, formatReleaseDate, ordinalSuffix } from './discographyData.js'
+  import { songlist, streamlist, setlist, setlistJoined, songIndex, safeYTLink } from '../api/store.svelte.js'
+  import { formatDate } from '../lib/table/utils.js'
+
+  const msgs = {
+    zh: {
+      hint: '點擊作品可查看曲目、製作名單，以及每首歌在歌枠的演唱紀錄。',
+      summary: (a, s) => `${a} 張專輯 · ${s} 張單曲`,
+      albums: '專輯',
+      singles: '單曲',
+      guests: '客座演唱',
+      guestsHint: '參與他人作品／商業合作的演唱曲目。',
+      albumOrdinal: (n) => `第 ${n} 張專輯`,
+      single: '單曲',
+      release: '發行日',
+      official: '特設頁',
+      stream: '配信',
+      xfd: 'XFD 試聽',
+      staff: '製作',
+      tracks: '曲目',
+      instNote: '另收錄各曲 instrumental 版',
+      mv: 'MV',
+      sungRecords: '演唱紀錄',
+      sungTitle: (n) => `${n} 場演唱紀錄`,
+      openInSetlist: '在歌單中查看 →',
+      showingRecent: (shown, total) => `顯示最近 ${shown} 場，共 ${total} 場`,
+      loadingRecords: '演唱紀錄載入中…',
+      noStreamTitle: '（無場次標題）',
+      noArchive: '無存檔',
+      roleLabel: {
+        lyrics: '作詞',
+        music: '作曲',
+        arrange: '編曲',
+        vocal: '演唱',
+        movie: '影像',
+        illust: '插畫',
+        sdIllust: 'SD 插畫',
+        guitar: '吉他',
+        mix: 'MIX',
+        design: '設計',
+        logo: 'Logo',
+        emblem: '徽章',
+        mastering: '母帶處理',
+      },
+      guestRole: { ed: '片尾曲', theme: '主題歌', feature: '參與演唱' },
+      guestNote: { titleUnknownVoice: '曲名不明；另有部分配音演出' },
+    },
+    en: {
+      hint: 'Click a release to see its tracks, credits, and where each song was sung on stream.',
+      summary: (a, s) => `${a} albums · ${s} singles`,
+      albums: 'Albums',
+      singles: 'Singles',
+      guests: 'Guest Appearances',
+      guestsHint: 'Songs recorded for other artists’ works and commercial tie-ups.',
+      albumOrdinal: (n) => `${ordinalSuffix(n)} Album`,
+      single: 'Single',
+      release: 'Released',
+      official: 'Official Page',
+      stream: 'Streaming',
+      xfd: 'XFD Demo',
+      staff: 'Credits',
+      tracks: 'Tracks',
+      instNote: 'Instrumental versions of all tracks included',
+      mv: 'MV',
+      sungRecords: 'Performances',
+      sungTitle: (n) => `${n} performances`,
+      openInSetlist: 'View in Set List →',
+      showingRecent: (shown, total) => `Showing the latest ${shown} of ${total}`,
+      loadingRecords: 'Loading performances…',
+      noStreamTitle: '(untitled stream)',
+      noArchive: 'no archive',
+      roleLabel: {
+        lyrics: 'Lyrics',
+        music: 'Music',
+        arrange: 'Arrangement',
+        vocal: 'Vocals',
+        movie: 'Movie',
+        illust: 'Illustration',
+        sdIllust: 'SD Illustration',
+        guitar: 'Guitar',
+        mix: 'Mixing',
+        design: 'Design',
+        logo: 'Logo',
+        emblem: 'Emblem',
+        mastering: 'Mastering',
+      },
+      guestRole: { ed: 'Ending Theme', theme: 'Theme Song', feature: 'Featured Vocals' },
+      guestNote: { titleUnknownVoice: 'Title unknown; also includes voice work' },
+    },
+    ja: {
+      hint: '作品をクリックすると、収録曲・スタッフ・歌枠での歌唱記録が見られます。',
+      summary: (a, s) => `アルバム ${a} 枚 · シングル ${s} 枚`,
+      albums: 'アルバム',
+      singles: 'シングル',
+      guests: '参加楽曲',
+      guestsHint: '他アーティストの作品・商業タイアップへの参加楽曲。',
+      albumOrdinal: (n) => `${ordinalSuffix(n)}アルバム`,
+      single: 'シングル',
+      release: '発売日',
+      official: '特設サイト',
+      stream: '配信',
+      xfd: 'XFD',
+      staff: 'スタッフ',
+      tracks: '収録曲',
+      instNote: '各曲 instrumental 版収録',
+      mv: 'MV',
+      sungRecords: '歌唱記録',
+      sungTitle: (n) => `歌唱記録 ${n} 件`,
+      openInSetlist: 'セットリストで見る →',
+      showingRecent: (shown, total) => `最新 ${shown} 件を表示（全 ${total} 件）`,
+      loadingRecords: '歌唱記録を読み込み中…',
+      noStreamTitle: '（配信タイトルなし）',
+      noArchive: 'アーカイブなし',
+      roleLabel: {
+        lyrics: '作詞',
+        music: '作曲',
+        arrange: '編曲',
+        vocal: '歌',
+        movie: 'Movie',
+        illust: 'イラスト',
+        sdIllust: 'SDイラスト',
+        guitar: 'ギター',
+        mix: 'MIX',
+        design: 'デザイン',
+        logo: 'ロゴ',
+        emblem: 'エンブレム',
+        mastering: 'マスタリング',
+      },
+      guestRole: { ed: 'ED主題歌', theme: '主題歌', feature: '参加' },
+      guestNote: { titleUnknownVoice: '曲名不明・一部ボイス出演あり' },
+    },
+  }
+  const m = $derived(msgs[getLang()] ?? msgs.zh)
+
+  // 展開的歌唱紀錄一次最多列這麼多場，其餘引導到 setlist 頁（面板不該變成第二個表格）
+  const MAX_RECORDS = 20
+
+  // 三張表都要：setlist（紀錄）＋streamlist（場次標題，setlistJoined 需要）＋songlist（曲名）
+  songlist.load()
+  streamlist.load()
+  setlist.load()
+
+  /** 開啟中的作品 id（'' = 未開啟） */
+  let openId = $state('')
+  /** 面板內展開歌唱紀錄的曲目索引（-1 = 未展開；換作品時重設） */
+  let openTrack = $state(-1)
+  /** 封面載入失敗的 id（圖未上線時走主題色佔位） */
+  let broken = $state({})
+
+  const openWork = $derived(openId ? (releases.find((w) => w.id === openId) ?? null) : null)
+
+  /** songID → 該曲的 setlist 列（新→舊）；15k 列只掃一次，展開時直接取 */
+  const recordsBySong = $derived.by(() => {
+    const map = new Map()
+    for (const row of setlistJoined.rows) {
+      if (row.songID == null) continue
+      const arr = map.get(row.songID)
+      if (arr) arr.push(row)
+      else map.set(row.songID, [row])
+    }
+    // time 是 ISO 字串，字典序＝時序；無時間（不留檔場）排最後
+    for (const arr of map.values()) arr.sort((a, b) => String(b.time ?? '').localeCompare(String(a.time ?? '')))
+    return map
+  })
+
+  /** setlist 尚未載入完成時先不顯示 🎤 鈕（避免閃出「0 場」的錯誤資訊） */
+  const recordsReady = $derived(setlist.rows.length > 0)
+
+  /** 曲名：有 songID 一律以 songlist 為準，其餘用資料模組的 name */
+  function trackName(track) {
+    if (track.songID != null) {
+      const song = songIndex.map.get(track.songID)
+      if (song?.songName) return song.songName
+    }
+    return track.name
+  }
+
+  function recordsOf(songID) {
+    return songID == null ? [] : (recordsBySong.get(songID) ?? [])
+  }
+
+  /**
+   * 「在歌單中查看」的站內連結。
+   * 快速搜尋語法原生支援引號值與「曲名」欄位別名（三語別名表都收），這裡只送曲名，
+   * 語法字串由 SetList 頁組裝（欄位名要跟著介面語言走）。
+   */
+  function setlistHref(name) {
+    return `/setlist?song=${encodeURIComponent(name)}`
+  }
+
+  /** 一人兼多職＝職稱以斜線並列（英文介面用半形標點，中日用全形） */
+  function creditText(credit) {
+    const en = getLang() === 'en'
+    const roles = (credit.roles ?? []).map((r) => m.roleLabel[r] ?? r).join(en ? ' / ' : '／')
+    return roles ? `${roles}${en ? ': ' : '：'}${credit.name}` : credit.name
+  }
+
+  function openDetail(id) {
+    openId = id
+    openTrack = -1
+    history.replaceState(null, '', `#${id}`)
+  }
+
+  function closeDetail() {
+    openId = ''
+    openTrack = -1
+    if (location.hash) history.replaceState(null, '', location.pathname)
+  }
+
+  function toggleTrack(i) {
+    openTrack = openTrack === i ? -1 : i
+  }
+
+  function scrollToSection(id) {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  // Hash 直達：#<id>（如 #rebirthr）直開該作品面板。認不得的 hash 不動作（可能是別人的錨點）
+  function handleHash() {
+    const hash = decodeURIComponent(window.location.hash.slice(1))
+    if (!hash) {
+      openId = ''
+      return
+    }
+    if (releases.some((w) => w.id === hash)) {
+      openId = hash
+      openTrack = -1
+    }
+  }
+
+  $effect(() => {
+    handleHash()
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  })
+
+  // Esc 關閉詳細面板
+  $effect(() => {
+    if (!openId) return
+    function onKey(e) {
+      if (e.key === 'Escape') closeDetail()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+</script>
+
+<!-- 封面（載入失敗→主題色漸層佔位，圖尚未上線時的正常路徑） -->
+{#snippet cover(work, sizeClass)}
+  {#if broken[work.id]}
+    <div
+      class="flex {sizeClass} items-center justify-center rounded-lg border border-berry-border p-2 text-center"
+      style="background: linear-gradient(135deg, rgba(var(--berry-primary-rgb), .22), rgba(var(--berry-pink-rgb), .18))"
+    >
+      <span class="text-sm font-semibold text-berry-text-emphasis">{work.title}</span>
+    </div>
+  {:else}
+    <img
+      src={assetUrl(`/img/albums/${work.id}.webp`)}
+      loading="lazy"
+      alt={work.title}
+      class="{sizeClass} rounded-lg border border-berry-border object-cover"
+      onerror={() => (broken[work.id] = true)}
+    />
+  {/if}
+{/snippet}
+
+<!-- 封面牆卡片（專輯／單曲共用） -->
+{#snippet card(work)}
+  <button type="button" class="group text-left" onclick={() => openDetail(work.id)}>
+    <div class="overflow-hidden rounded-lg transition-transform duration-200 group-hover:scale-[1.03]">
+      {@render cover(work, 'aspect-square w-full')}
+    </div>
+    <p class="mt-1.5 text-sm font-medium">{work.title}</p>
+    <p class="text-sm text-berry-fg-3">
+      <span class="text-berry-text-emphasis">{work.ordinal ? ordinalSuffix(work.ordinal) : m.single}</span>
+      · {formatReleaseDate(work.releaseDate, getLang())}
+    </p>
+  </button>
+{/snippet}
+
+<!-- 製作名單／曲目 credit 的小字列 -->
+{#snippet creditLine(credits)}
+  {#if credits?.length}
+    <p class="text-sm text-berry-fg-3">
+      {#each credits as c, i (i)}<span class="whitespace-nowrap">{creditText(c)}</span>{#if i < credits.length - 1}<span
+            class="px-1.5">·</span
+          >{/if}{/each}
+    </p>
+  {/if}
+{/snippet}
+
+<!-- 歌唱紀錄：某 songID 的場次列表（就地展開用） -->
+{#snippet records(songID, name)}
+  {@const rows = recordsOf(songID)}
+  <div class="mt-2 rounded-lg border border-berry-border bg-berry-bg-3 p-2" role="group" aria-label={m.sungRecords}>
+    <ul class="divide-y divide-berry-border">
+      {#each rows.slice(0, MAX_RECORDS) as row (`${row.streamID}/${row.segmentNo}/${row.trackNo}`)}
+        {@const link = row.time ? safeYTLink(row) : null}
+        <li>
+          {#if link}
+            <a
+              href={link}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="flex gap-2 rounded px-1.5 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-2"
+            >
+              <span class="shrink-0 tabular-nums text-berry-fg-3">{formatDate(row.time)}</span>
+              <span class="min-w-0 truncate">{row.streamTitle || m.noStreamTitle}</span>
+            </a>
+          {:else}
+            <div class="flex gap-2 px-1.5 py-1.5 text-sm text-berry-fg-3">
+              <span class="shrink-0">{m.noArchive}</span>
+              <span class="min-w-0 truncate">{row.streamTitle || m.noStreamTitle}</span>
+            </div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    <div class="mt-1.5 flex flex-wrap items-center justify-between gap-2 px-1.5 text-sm">
+      {#if rows.length > MAX_RECORDS}
+        <span class="text-berry-fg-3">{m.showingRecent(MAX_RECORDS, rows.length)}</span>
+      {:else}
+        <span></span>
+      {/if}
+      <a href={setlistHref(name)} class="no-underline hover:underline">{m.openInSetlist}</a>
+    </div>
+  </div>
+{/snippet}
+
+<Page title={t('page.discography')} subtitle={m.summary(albums.length, singles.length)}>
+  <p class="mb-4 text-base text-berry-fg-3">{m.hint}</p>
+
+  <!-- 分節錨點：純捲動（hash 保留給作品直達 #<id>，不與分節共用） -->
+  <nav class="mb-5 flex flex-wrap gap-2">
+    {#each [{ id: 'albums', label: m.albums }, { id: 'singles', label: m.singles }, { id: 'guests', label: m.guests }] as sec (sec.id)}
+      <button
+        type="button"
+        class="rounded-full border border-berry-border px-3 py-1 text-sm text-berry-fg-2 transition-colors hover:bg-berry-bg-3"
+        onclick={() => scrollToSection(sec.id)}
+      >
+        {sec.label}
+      </button>
+    {/each}
+  </nav>
+
+  <section id="albums" class="scroll-mt-16">
+    <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.albums}</h2>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+      {#each albums as work (work.id)}
+        {@render card(work)}
+      {/each}
+    </div>
+  </section>
+
+  <section id="singles" class="mt-8 scroll-mt-16">
+    <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.singles}</h2>
+    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+      {#each singles as work (work.id)}
+        {@render card(work)}
+      {/each}
+    </div>
+  </section>
+
+  <section id="guests" class="mt-8 scroll-mt-16">
+    <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.guests}</h2>
+    <p class="mb-3 text-sm text-berry-fg-3">{m.guestsHint}</p>
+    <ul class="space-y-2">
+      {#each guests as g (g.id)}
+        <li class="rounded-lg border border-berry-border p-3">
+          <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span class="font-medium">{g.title ?? g.work}</span>
+            {#if g.title}<span class="text-sm text-berry-fg-2">{g.work}</span>{/if}
+            {#if g.roleKey}
+              <span class="rounded-full border border-berry-subtle-border bg-berry-subtle-bg px-2 py-0.5 text-sm text-berry-text-emphasis">
+                {m.guestRole[g.roleKey] ?? g.roleKey}
+              </span>
+            {/if}
+            {#if g.date}<span class="text-sm text-berry-fg-3">{formatReleaseDate(g.date, getLang())}</span>{/if}
+          </div>
+
+          {#if g.tracks?.length}
+            <ul class="mt-1.5 space-y-0.5 text-sm">
+              {#each g.tracks as tr (tr.name)}
+                <li class="flex items-baseline gap-2">
+                  <span class="shrink-0 tabular-nums text-berry-fg-3">{String(tr.no).padStart(2, '0')}</span>
+                  <span>{tr.name}</span>
+                  {#if tr.youtube}
+                    <a
+                      href={`https://youtu.be/${tr.youtube}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-berry-fg-2 no-underline hover:underline"
+                    >
+                      ▶ {m.mv}
+                    </a>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {/if}
+
+          {#if g.noteKey}
+            <p class="mt-1 text-sm text-berry-fg-3">{m.guestNote[g.noteKey] ?? ''}</p>
+          {/if}
+          {@render creditLine(g.credits)}
+
+          <div class="mt-1.5 flex flex-wrap items-center gap-3 text-sm">
+            {#if g.link}
+              <a href={g.link} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+                {g.work} ↗
+              </a>
+            {/if}
+            {#if g.stream}
+              <a href={g.stream} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+                {m.stream} ↗
+              </a>
+            {/if}
+            {#if g.youtube}
+              <a href={`https://youtu.be/${g.youtube}`} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+                ▶ {m.mv}
+              </a>
+            {/if}
+            {#if g.songID != null && recordsReady && recordsOf(g.songID).length}
+              <a href={setlistHref(trackName({ songID: g.songID, name: g.title }))} class="no-underline hover:underline">
+                🎤 {recordsOf(g.songID).length} · {m.openInSetlist}
+              </a>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ul>
+  </section>
+</Page>
+
+{#if openWork}
+  {@const work = openWork}
+  <div
+    class="fixed inset-0 z-[45] flex items-center justify-center bg-black/50 p-4"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => {
+      if (e.target === e.currentTarget) closeDetail()
+    }}
+    onkeydown={(e) => {
+      if (e.key === 'Escape') closeDetail()
+    }}
+  >
+    <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-berry-border bg-berry-bg p-5 shadow-xl sm:p-6">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">{work.title}</h2>
+          <p class="mt-0.5 text-sm text-berry-fg-3">
+            {work.ordinal ? m.albumOrdinal(work.ordinal) : m.single} · {m.release}
+            {formatReleaseDate(work.releaseDate, getLang())}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-md p-1.5 text-berry-fg-2 transition-colors hover:bg-berry-bg-3 hover:text-berry-fg"
+          aria-label={t('common.close')}
+          onclick={closeDetail}
+        >
+          <svg viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="mt-4 grid gap-5 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+        <div>
+          {@render cover(work, 'aspect-square w-full max-w-[260px]')}
+
+          {#if work.links?.official || work.links?.booth || work.links?.stream || work.links?.xfd}
+            <div class="mt-3 flex flex-wrap gap-2">
+              {#if work.links.official}
+                <a
+                  href={work.links.official}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="rounded-md border border-berry-border px-3 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-3"
+                >
+                  {m.official} ↗
+                </a>
+              {/if}
+              {#if work.links.booth}
+                <a
+                  href={work.links.booth}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="rounded-md border border-berry-border px-3 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-3"
+                >
+                  BOOTH ↗
+                </a>
+              {/if}
+              {#if work.links.stream}
+                <a
+                  href={work.links.stream}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="rounded-md border border-berry-border px-3 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-3"
+                >
+                  {m.stream} ↗
+                </a>
+              {/if}
+              {#if work.links.xfd}
+                <a
+                  href={`https://youtu.be/${work.links.xfd}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="rounded-md border border-berry-border px-3 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-3"
+                >
+                  ▶ {m.xfd} ↗
+                </a>
+              {/if}
+            </div>
+          {/if}
+
+          {#if work.staff?.length}
+            <div class="mt-3">
+              <div class="mb-1 text-sm text-berry-text-emphasis">{m.staff}</div>
+              {@render creditLine(work.staff)}
+            </div>
+          {/if}
+        </div>
+
+        <div>
+          <div class="mb-2 text-sm text-berry-text-emphasis">{m.tracks}</div>
+          <ol class="divide-y divide-berry-border">
+            {#each work.tracks as track, i (i)}
+              {@const name = trackName(track)}
+              {@const count = recordsReady ? recordsOf(track.songID).length : 0}
+              <li class="py-2">
+                <div class="flex items-baseline gap-2">
+                  <span class="shrink-0 tabular-nums text-berry-fg-3">{String(i + 1).padStart(2, '0')}</span>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-baseline gap-2">
+                      <span class="font-medium">{name}</span>
+                      {#if track.youtube}
+                        <a
+                          href={`https://youtu.be/${track.youtube}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="rounded-full border border-berry-border px-2 py-0.5 text-sm text-berry-fg-2 no-underline transition-colors hover:bg-berry-bg-3"
+                        >
+                          ▶ {m.mv}
+                        </a>
+                      {/if}
+                      {#if track.songID != null && recordsReady && count > 0}
+                        <button
+                          type="button"
+                          class="rounded-full border px-2 py-0.5 text-sm transition-colors"
+                          class:border-berry-primary={openTrack === i}
+                          class:bg-berry-subtle-bg={openTrack === i}
+                          class:text-berry-text-emphasis={openTrack === i}
+                          class:border-berry-border={openTrack !== i}
+                          class:text-berry-fg-2={openTrack !== i}
+                          title={m.sungTitle(count)}
+                          aria-expanded={openTrack === i}
+                          onclick={() => toggleTrack(i)}
+                        >
+                          🎤 {count}
+                        </button>
+                      {:else if track.songID != null && !recordsReady}
+                        <span class="inline-block h-5 w-10 animate-pulse rounded-full bg-berry-bg-3" aria-label={m.loadingRecords}></span>
+                      {/if}
+                    </div>
+                    {@render creditLine(track.credits)}
+                    {#if openTrack === i}
+                      {@render records(track.songID, name)}
+                    {/if}
+                  </div>
+                </div>
+              </li>
+            {/each}
+          </ol>
+          {#if work.instrumental || work.bonusTracks?.length}
+            <p class="mt-2 text-sm text-berry-fg-3">
+              {#if work.instrumental}{m.instNote}{/if}{#if work.instrumental && work.bonusTracks?.length}　·　{/if}{#if work.bonusTracks?.length}＋ {work.bonusTracks.join('、')}{/if}
+            </p>
+          {/if}
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}

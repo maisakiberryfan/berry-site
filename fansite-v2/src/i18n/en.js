@@ -56,6 +56,7 @@ export default {
     profile: 'Profile',
     history: 'History',
     clothes: 'Clothes',
+    discography: 'Discography',
     notFound: 'Page not found',
   },
   field: {
