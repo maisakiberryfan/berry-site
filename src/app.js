@@ -127,6 +127,54 @@ function checkRateLimit(ip, tier, maxRequests) {
   return entry.count <= maxRequests
 }
 
+// 限流用的 client IP。**限流 key 若可被請求方控制，整條限流形同虛設**，故取值一律
+// 只信「平台自己填的、client 覆寫不了的」欄位：
+//
+//   1. cf-connecting-ip             CF 站，Cloudflare 覆寫填入，外部不可偽造
+//   2. XFF 倒數第二段（需 origin 驗證通過，見下）  主站 CloudFront→APIGW→Lambda 的訪客真實 IP
+//   3. requestContext.http.sourceIp Lambda（HTTP API v2），API Gateway 填入，client 不可偽造
+//   4. x-forwarded-for **末段**     僅本地/SAM local 兜底；取最接近平台的一段
+//
+// 為何需要第 2 層：主站鏈路是 CloudFront → API Gateway (HTTP API v2) → Lambda，
+// sourceIp 是 **CloudFront edge 的 IP** 而非訪客 IP ⇒ 全站寫入擠進極少數 rate key，
+// 任何一人 30 寫入/分就能讓所有編輯者一起吃 429（2026-08 審查發現的副作用）。
+// 訪客真實 IP 在 XFF 的倒數第二段，因為這條鏈路上有兩次自動 append：
+//   CloudFront 對 custom origin 必定把 viewer IP append 到 XFF 尾端（hop header 由
+//   CloudFront 自管，與 origin request policy 無關）→ API Gateway 再 append 它的直連
+//   來源（＝CloudFront edge）⇒ `<viewer 自帶的任意值…>, <viewer 真實 IP>, <CF edge IP>`
+//
+// 為何要 secret 把關：「倒數第二段可信」只在請求**確定經過 CloudFront** 時成立——
+// 直打 execute-api 端點的人可以自帶任意 XFF，倒數第二段就變成他說了算。故由 CloudFront
+// 的 origin custom header `X-Origin-Verify`（值來自 CFN 參數，viewer 送同名 header 會被
+// CloudFront 覆寫，偽造不了）證明鏈路，對不上就不採信 XFF。
+// 直打時 fallback 到 sourceIp 是正確的：那條路徑上 sourceIp 就是攻擊者的真實 IP。
+// secret 未配置（參數留白）時整段停用，行為與導入前完全相同 ⇒ 可安全先部署程式碼。
+//
+// ⚠️ 任何情況都不可取 XFF **首段**：CloudFront 保留 viewer 自帶的 XFF 值於首段，
+//    每次請求換一個偽造首段就是一把新 rate key，30/min 上限會被完全繞過。
+function getRateLimitIp(c) {
+  const cfIp = c.req.header('cf-connecting-ip')
+  if (cfIp) return cfIp
+
+  const sourceIp = c.env?.requestContext?.http?.sourceIp
+  const xff = c.req.header('x-forwarded-for')
+
+  // 經 CloudFront 驗證的鏈路才採信 XFF 倒數第二段（secret 值只做相等比較，不寫進任何 log）
+  const originSecret = getSecret(c.env, 'ORIGIN_VERIFY_SECRET')
+  if (originSecret && c.req.header('x-origin-verify') === originSecret && xff) {
+    const chain = xff.split(',')
+    // 段數 < 2＝鏈路與預期不符（少一次 append），寧可退回 sourceIp 也不猜
+    if (chain.length >= 2) {
+      const viewerIp = chain[chain.length - 2].trim()
+      if (viewerIp) return viewerIp
+    }
+  }
+
+  return sourceIp
+    || xff?.split(',').pop()?.trim()
+    || 'unknown'
+}
+
 // Rate limit: write endpoints 30/min, expensive endpoints 5/min
 app.use('/api/*', async (c, next) => {
   const method = c.req.method
@@ -141,16 +189,7 @@ app.use('/api/*', async (c, next) => {
     if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
   }
 
-  // IP 來源優先序（防偽造）——限流 key 若可被請求方控制，整條限流形同虛設：
-  //   1. cf-connecting-ip            CF 站，Cloudflare 覆寫填入，外部不可偽造
-  //   2. requestContext.http.sourceIp Lambda（HTTP API v2），API Gateway 填入，client 不可偽造
-  //   3. x-forwarded-for **末段**     僅本地/SAM local 兜底；取最接近平台的一段
-  // ⚠️ 不可取 XFF 首段：CloudFront 會保留 viewer 自帶的 XFF 值於首段、真實 IP append 在後，
-  //    每次請求換一個偽造首段就是一把新 rate key，30/min 上限會被完全繞過。
-  const ip = c.req.header('cf-connecting-ip')
-    || c.env?.requestContext?.http?.sourceIp
-    || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
-    || 'unknown'
+  const ip = getRateLimitIp(c)
 
   // Expensive endpoints: stricter limit
   const isExpensive = path.includes('/parse-setlist')

@@ -73,12 +73,23 @@ Parameters:
   SnapshotDistributionB:
     Type: String
     Default: ''
+  # CloudFront → API Gateway 的 origin 驗證共享值（隨機字串，由 CI secret 傳入）。
+  # CloudFront 以 origin custom header `X-Origin-Verify` 附在每個 API origin request 上，
+  # Lambda 據此確認「請求真的經過 CloudFront」→ 才敢信 XFF 倒數第二段＝訪客真實 IP
+  # （限流 key，見 src/app.js 的 getRateLimitIp）。
+  # 留白＝停用：header 不注入、限流退回 sourceIp，行為與導入前完全相同。
+  OriginVerifySecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Shared secret CloudFront sends as X-Origin-Verify (blank = feature disabled)
 
 Conditions:
   HasSnapshotA: !Not [!Equals [!Ref SnapshotBucketA, '']]
   HasSnapshotB: !Not [!Equals [!Ref SnapshotBucketB, '']]
   HasSnapshotDistA: !Not [!Equals [!Ref SnapshotDistributionA, '']]
   HasSnapshotDistB: !Not [!Equals [!Ref SnapshotDistributionB, '']]
+  HasOriginVerify: !Not [!Equals [!Ref OriginVerifySecret, '']]
 
 Resources:
   # --- Lambda Function ---
@@ -109,6 +120,8 @@ Resources:
           # `bucket:distributionId,bucket:distributionId`；未設定的組留下空段（如 `:`），
           # 由 snapshot.js 的 parseTargets 丟棄——故「參數留白＝該站台不處理」
           SNAPSHOT_TARGETS: !Sub "${SnapshotBucketA}:${SnapshotDistributionA},${SnapshotBucketB}:${SnapshotDistributionB}"
+          # 空值＝限流的 XFF 真實 IP 識別停用（退回 sourceIp），見 src/app.js getRateLimitIp
+          ORIGIN_VERIFY_SECRET: !Ref OriginVerifySecret
       Policies:
         - Statement:
             # 縮圖上傳＋hash 比對（HeadObject 需 GetObject 權限）＋換圖後清 edge 快取
@@ -458,8 +471,17 @@ Resources:
               OriginAccessIdentity: ''
 
           # API Gateway origin
+          # OriginCustomHeaders：CloudFront 在每個送往此 origin 的請求附上 X-Origin-Verify，
+          # 且會**覆寫** viewer 自帶的同名 header ⇒ Lambda 憑此判定請求確實經過 CloudFront，
+          # 才採信 XFF 倒數第二段為訪客真實 IP（限流 key，見 src/app.js getRateLimitIp）。
+          # 參數留白時整個 OriginCustomHeaders 不出現（AWS::NoValue）＝功能停用、行為不變。
           - Id: ApiOrigin
             DomainName: !Sub "${BerryHttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+            OriginCustomHeaders: !If
+              - HasOriginVerify
+              - - HeaderName: X-Origin-Verify
+                  HeaderValue: !Ref OriginVerifySecret
+              - !Ref AWS::NoValue
             CustomOriginConfig:
               HTTPSPort: 443
               OriginProtocolPolicy: https-only

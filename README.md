@@ -98,6 +98,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
 | `GH_PAT_TOKEN` | GitHub PAT（commit 查詢） |
+| `ORIGIN_VERIFY_SECRET` | （選配）CloudFront→API 的 origin 驗證共享值，任意長隨機字串。設了才啟用限流的訪客真實 IP 識別；未設＝限流沿用 CloudFront edge IP（行為與導入前相同） |
 
 **GitHub Actions (Cloudflare)**：
 | Secret | 說明 |
