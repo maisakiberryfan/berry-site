@@ -50,31 +50,51 @@ jobs:
       # DiscordSetlistWebhookUrl 已於 2026-05-02 移轉至 yt-setlist-discord，故不傳入
       # ⚠️ --parameter-overrides 的續行序列中絕不可插入 `#` 註解：shell 會在該行結束續行，
       #    其後的參數變成獨立賦值語句、靜默不送出，SAM 對未 override 的參數則沿用 stack 現值
-      # ⚠️ Snapshot* 四個與 OriginVerifySecret 的值用 \" 包起來（→ 送出 `Key=""` 而非 `Key=`）：
-      #    SAM CLI 的 --parameter-overrides 解析器不接受未加引號的空值，會整個部署失敗；
-      #    secrets 未設定時必須安全地落成空字串＝快照 cron skip／origin 驗證停用
-      #    （實測 1.151.0 行為）
-      - run: |
+      # ⚠️ 值一律先經 `env:` 映射成環境變數，再以 "Key=\"$VAR\"" 的形式傳遞，兩層引號各有職責：
+      #    外層是**真引號**（shell 解析掉）——值含空白時直接內插 ${{ secrets.X }} 會被
+      #      word splitting 拆成多個參數，其後整串 Key=Value 全部錯位、靜默送錯值；
+      #    內層 \" 是**字面引號**（原樣送進 SAM）——SAM CLI 的 --parameter-overrides 解析器
+      #      不接受未加引號的空值（`Key=` 會整個部署失敗），secrets 未設定時必須安全地落成
+      #      `Key=""`＝空字串（快照 cron skip／origin 驗證停用）。實測 SAM CLI 1.151.0 行為
+      - name: Deploy SAM stack
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
+          LAMBDA_MATCHER_URL: ${{ secrets.LAMBDA_MATCHER_URL }}
+          PUBSUB_CALLBACK_URL: ${{ secrets.PUBSUB_CALLBACK_URL }}
+          GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
+          SNAPSHOT_BUCKET_A: ${{ secrets.SNAPSHOT_BUCKET_A }}
+          SNAPSHOT_DISTRIBUTION_A: ${{ secrets.SNAPSHOT_DISTRIBUTION_A }}
+          SNAPSHOT_BUCKET_B: ${{ secrets.SNAPSHOT_BUCKET_B }}
+          SNAPSHOT_DISTRIBUTION_B: ${{ secrets.SNAPSHOT_DISTRIBUTION_B }}
+          ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
+        run: |
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
-              DbHost=${{ secrets.DB_HOST }} \
-              DbPort=${{ secrets.DB_PORT }} \
-              DbUser=${{ secrets.DB_USER }} \
-              DbPassword=${{ secrets.DB_PASSWORD }} \
-              DbName=${{ secrets.DB_NAME }} \
-              YoutubeApiKey=${{ secrets.YOUTUBE_API_KEY }} \
-              DiscordWebhookUrl=${{ secrets.DISCORD_WEBHOOK_URL }} \
-              TriggerToken=${{ secrets.TRIGGER_TOKEN }} \
-              LambdaMatcherUrl=${{ secrets.LAMBDA_MATCHER_URL }} \
-              PubsubCallbackUrl=${{ secrets.PUBSUB_CALLBACK_URL }} \
-              GithubToken=${{ secrets.GH_PAT_TOKEN }} \
-              SnapshotBucketA=\"${{ secrets.SNAPSHOT_BUCKET_A }}\" \
-              SnapshotDistributionA=\"${{ secrets.SNAPSHOT_DISTRIBUTION_A }}\" \
-              SnapshotBucketB=\"${{ secrets.SNAPSHOT_BUCKET_B }}\" \
-              SnapshotDistributionB=\"${{ secrets.SNAPSHOT_DISTRIBUTION_B }}\" \
-              OriginVerifySecret=\"${{ secrets.ORIGIN_VERIFY_SECRET }}\"
+              "DbHost=\"$DB_HOST\"" \
+              "DbPort=\"$DB_PORT\"" \
+              "DbUser=\"$DB_USER\"" \
+              "DbPassword=\"$DB_PASSWORD\"" \
+              "DbName=\"$DB_NAME\"" \
+              "YoutubeApiKey=\"$YOUTUBE_API_KEY\"" \
+              "DiscordWebhookUrl=\"$DISCORD_WEBHOOK_URL\"" \
+              "TriggerToken=\"$TRIGGER_TOKEN\"" \
+              "LambdaMatcherUrl=\"$LAMBDA_MATCHER_URL\"" \
+              "PubsubCallbackUrl=\"$PUBSUB_CALLBACK_URL\"" \
+              "GithubToken=\"$GH_PAT_TOKEN\"" \
+              "SnapshotBucketA=\"$SNAPSHOT_BUCKET_A\"" \
+              "SnapshotDistributionA=\"$SNAPSHOT_DISTRIBUTION_A\"" \
+              "SnapshotBucketB=\"$SNAPSHOT_BUCKET_B\"" \
+              "SnapshotDistributionB=\"$SNAPSHOT_DISTRIBUTION_B\"" \
+              "OriginVerifySecret=\"$ORIGIN_VERIFY_SECRET\""
 
       # Get S3 bucket name and CloudFront distribution ID from stack outputs
       - name: Get stack outputs
@@ -136,6 +156,8 @@ jobs:
             --exclude "assets/*" \
             --exclude "data/*"
           # v2 沿用內容（來源仍在 fansite/，v3 的 og:image 與快照 cron 靜態抓取都依賴）
+          # ⚠️ fansite/ 目錄清理時，img/、pages/history.md、changelog.json 三個來源必須先
+          #    遷到新位置並改這裡（快照 cron 的 SNAPSHOT_STATIC_BASE 抓的也是後兩支）
           aws s3 sync fansite/img/ s3://${{ steps.stack.outputs.bucket }}/img/ \
             --size-only \
             --cache-control "public, max-age=86400"

@@ -35,6 +35,9 @@ error.code 值：VALIDATION_ERROR、NOT_FOUND、CONFLICT、CONSTRAINT_VIOLATION(
   ```
   - maxUpdated 是 **MySQL 原始字串**，當不透明指紋用勿 parse；month 有 `"none"` 值恆排最後；version 要摻進快取指紋
 - `POST /api/setlist`：單筆或陣列（≤200）。必填 streamID、trackNo、songID；選填 segmentNo(預設1)、note(≤1000)、startTime/endTime
+  - ⚠️ **單筆與批次是同一條 UPSERT**（後端 `entries = isBatch ? body : [body]`，只差回應信封）
+    ⇒ 下面的「全覆寫」對單筆 POST 同樣成立，**每次都要帶齊 songID/note/startTime/endTime**。
+    只想改一欄請用 `PUT`——拿 POST 當部分更新會把沒帶的欄位清成 NULL
   - streamID 必須存在於 streamlist（否則 404）、songID 必須存在（否則 404）；startTime/endTime 為 null 或 0~360000 整數秒（否則 400，整批 rollback）
   - ⚠️ **`setlist_ori.songID` 是 `int unsigned NOT NULL`＋FK `fk_setlist_songID`**（權威：sqlBackUp
     repo 的 mysqldump）——「未對應曲」的列在 setlist_ori 並不存在（matcher 匹配不到就不建列）。

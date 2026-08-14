@@ -150,6 +150,17 @@ function checkRateLimit(ip, tier, maxRequests) {
 // 直打時 fallback 到 sourceIp 是正確的：那條路徑上 sourceIp 就是攻擊者的真實 IP。
 // secret 未配置（參數留白）時整段停用，行為與導入前完全相同 ⇒ 可安全先部署程式碼。
 //
+// ⚠️ 形狀自檢（fail-safe，2026-08 複審補上）：採信倒數第二段之前，先要求
+//    **XFF 末段 === requestContext.http.sourceIp**。理由是「API Gateway 會 append 直連
+//    來源」這件事未經實測，兩種可能各自的行為必須都安全：
+//      H1「APIGW 有 append」——末段就是它填的直連來源（＝CloudFront edge＝sourceIp），
+//         這個等式恆成立、零成本，倒數第二段照樣是 viewer 真實 IP。
+//      H2「APIGW 原樣轉送 CloudFront 的 XFF」——末段是 CloudFront append 的 viewer IP，
+//         與 sourceIp（CF edge）不相等 ⇒ 自檢必假、退回 sourceIp。此時全站寫入共用一把
+//         key（保守、可能誤傷彼此），但攻擊者無法藉自帶 XFF 讓「倒數第二段」變成自己控制
+//         的字串來換 key ⇒ 限流不可繞過。**不安全的失敗模式被這道等式擋掉。**
+//    （sourceIp 缺席時等式必假，同樣落到保守分支。）
+//
 // ⚠️ 任何情況都不可取 XFF **首段**：CloudFront 保留 viewer 自帶的 XFF 值於首段，
 //    每次請求換一個偽造首段就是一把新 rate key，30/min 上限會被完全繞過。
 function getRateLimitIp(c) {
@@ -163,8 +174,9 @@ function getRateLimitIp(c) {
   const originSecret = getSecret(c.env, 'ORIGIN_VERIFY_SECRET')
   if (originSecret && c.req.header('x-origin-verify') === originSecret && xff) {
     const chain = xff.split(',')
-    // 段數 < 2＝鏈路與預期不符（少一次 append），寧可退回 sourceIp 也不猜
-    if (chain.length >= 2) {
+    // 段數 < 2＝鏈路與預期不符（少一次 append），寧可退回 sourceIp 也不猜；
+    // 末段 !== sourceIp＝鏈路形狀與 H1 不符（見上方自檢說明），同樣退回
+    if (chain.length >= 2 && sourceIp && chain[chain.length - 1].trim() === sourceIp) {
       const viewerIp = chain[chain.length - 2].trim()
       if (viewerIp) return viewerIp
     }
