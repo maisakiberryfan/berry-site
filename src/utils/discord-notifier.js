@@ -5,6 +5,10 @@
 
 import { getSecret } from '../platform.js'
 
+// 通知逾時：Discord webhook 掛住不值得把整輪 cron 吊到 Lambda 被砍
+//（送不出去只是少一則通知，內部 catch 已回 false 讓呼叫端知道未送達）
+const DISCORD_TIMEOUT_MS = 5_000
+
 /**
  * 發送 Discord 通知
  * @param {Object} env - 環境變數（包含 DISCORD_WEBHOOK_URL）
@@ -29,7 +33,8 @@ export async function sendDiscordNotification(env, payload) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         embeds: [embed]
-      })
+      }),
+      signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS)
     })
     if (!res.ok) {
       console.error(`Discord notification rejected: HTTP ${res.status}`)
@@ -336,10 +341,16 @@ function buildSnapshotEmbed(payload) {
     fields: []
   }
 
+  // 全域性的「這批為什麼不完整」——per-target 的 manifest 狀態在下面各自標註
+  const globalNotes = []
+  if (summary.manifestOk === false) globalNotes.push('manifest 抓取失敗/形狀不對')
+  if (summary.budgetExceeded) globalNotes.push('抓取時間預算用盡')
+  if (summary.monthIncomplete) globalNotes.push('月度檔不完整')
+
   embed.fields.push({
     name: '📦 產出:',
     value: `${summary.files ?? 0} 檔 / ${summary.months ?? 0} 個月份` +
-      (summary.budgetExceeded ? '（時間預算用盡，未寫入 manifest）' : ''),
+      (globalNotes.length ? `（${globalNotes.join('、')}）` : ''),
     inline: true
   })
 
@@ -351,9 +362,12 @@ function buildSnapshotEmbed(payload) {
     })
   }
 
+  // 每個站台都要看得出 **manifest 這輪有沒有 commit**——那才是「前端會不會讀到這批快照」
+  // 的關鍵；寫入／清理數字都正常但 manifest 沒 commit 的情況光看數字分辨不出來
   if (summary.targets?.length) {
     const targetText = summary.targets
-      .map(t => `• \`${t.bucket}\` 寫入 ${t.uploaded}、清理 ${t.deleted}、${t.invalidated ? '已' : '未'}invalidate`)
+      .map(t => `• \`${t.bucket}\` 寫入 ${t.uploaded}、清理 ${t.deleted}、` +
+        `${t.invalidated ? '已' : '未'}invalidate\n  ${manifestStatusText(summary, t)}`)
       .join('\n')
     embed.fields.push({
       name: '🪣 目標站台:',
@@ -362,17 +376,76 @@ function buildSnapshotEmbed(payload) {
     })
   }
 
-  const errorText = error ||
-    (summary.failures?.length > 0 ? summary.failures.join('\n') : null)
+  const errorText = error || summarizeFailures(summary.failures)
   if (!success) {
     embed.fields.push({
       name: '❌ 錯誤訊息:',
-      value: `\`\`\`${(errorText || '沒有任何檔案寫入成功').substring(0, 900)}\`\`\``,
+      value: `\`\`\`${errorText || '沒有任何檔案寫入成功'}\`\`\``,
       inline: false
     })
   }
 
   return embed
+}
+
+/** 單一站台的 manifest commit 狀態（全域原因優先於 per-target 原因） */
+function manifestStatusText(summary, target) {
+  if (summary.manifestOk === false) return '⏭️ manifest 未 commit（抓取失敗/形狀不對）'
+  if (summary.budgetExceeded) return '⏭️ manifest 未 commit（抓取時間預算用盡）'
+  if (summary.monthIncomplete) return '⏭️ manifest 未 commit（月度檔不完整）'
+  if (target.manifestSkipped) return `⏭️ manifest 未 commit（${target.manifestSkipReason || '該站台月度檔未寫入'}）`
+  if (!target.uploaded) return '⏭️ manifest 未 commit（該站台沒有任何檔案寫入成功）'
+  return '✅ manifest 已 commit'
+}
+
+/**
+ * failures 分類截斷（快照通知專用）。
+ * 直接 `join('\n').substring(0, 900)` 的問題：S3 出事時 failures 會被幾十行同構的
+ * `bucket put xxx.json: AccessDenied` 灌滿，真正的關鍵結論（manifest 沒 commit、
+ * 時間預算用盡）排在後面就被切掉了。故先分類、再依重要性各取前幾行。
+ * @param {string[]} failures
+ * @param {number} [maxChars] - 總長上限（Discord field value 1024，程式碼區塊另佔 6 字）
+ */
+function summarizeFailures(failures, maxChars = 900) {
+  if (!failures?.length) return ''
+
+  const MAX_PER_CATEGORY = 3
+  const MAX_LINE = 200
+  const categories = [
+    { label: 'commit', match: f => /manifest|時間預算/.test(f) },
+    { label: '抓取', match: f => /^[^\s:]+\.(json|md):/.test(f) || f.startsWith('setlist 全量') },
+    { label: '上傳', match: f => / put /.test(f) },
+    { label: '其他', match: () => true },   // cleanup / delete / invalidation / 站台層例外
+  ]
+
+  const groups = categories.map(() => [])
+  for (const failure of failures) {
+    const idx = categories.findIndex(c => c.match(failure))
+    groups[idx === -1 ? categories.length - 1 : idx].push(failure)
+  }
+
+  const lines = []
+  let used = 0
+  const push = (text) => {
+    if (used + text.length + 1 > maxChars) return false
+    lines.push(text)
+    used += text.length + 1
+    return true
+  }
+
+  for (let i = 0; i < categories.length; i++) {
+    const items = groups[i]
+    if (!items.length) continue
+    const label = categories[i].label
+    let shown = 0
+    for (const item of items.slice(0, MAX_PER_CATEGORY)) {
+      if (!push(`[${label}] ${item}`.substring(0, MAX_LINE))) break
+      shown++
+    }
+    if (shown < items.length) push(`[${label}] …同類另有 ${items.length - shown} 項`)
+  }
+
+  return lines.join('\n')
 }
 
 /**

@@ -146,8 +146,15 @@ export function mysqlToISO8601(mysqlTime) {
   // Remove microseconds if present (MariaDB may return .000000)
   const cleaned = mysqlTime.replace(/\.\d+$/, '');
 
-  // Parse MySQL DATETIME as UTC and convert to ISO8601
-  const date = dayjs.utc(cleaned, 'YYYY-MM-DD HH:mm:ss');
+  // Parse MySQL DATETIME as UTC and convert to ISO8601.
+  // ⚠️ 這裡**刻意不帶 format 參數**：dayjs 的 format 參數要 `customParseFormat` plugin 才生效，
+  // 過去寫的 `'YYYY-MM-DD HH:mm:ss'` 一直是被忽略的裝飾（誤導讀者以為有嚴格格式驗證）。
+  // 且不能靠加裝 plugin 來「修好」它——實測（2026-08-14）加裝後行為會變差三處：
+  //   '2025-10-03T13:00:00+09:00' → 位移被忽略當成 13:00Z（差 9 小時，本函式同時吃 ISO 輸入）
+  //   '0000-00-00 00:00:00' → 變成「今天」；'2025-10-03' → INVALID
+  // 無 plugin 的 dayjs.utc(string) 本來就把 'YYYY-MM-DD HH:mm:ss' 當 UTC 解讀（正是所需語意），
+  // 並正確處理帶 Z／位移的 ISO 輸入。
+  const date = dayjs.utc(cleaned);
   if (!date.isValid()) return mysqlTime;
 
   return date.toISOString();

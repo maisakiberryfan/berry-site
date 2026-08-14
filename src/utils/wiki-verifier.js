@@ -12,13 +12,63 @@ const WIKI_URL = 'https://seesaawiki.jp/maisakiberry/d/%c1%b4%b6%ca%a5%ea%a5%b9%
 // 延遲天數：歌枠結束後至少等幾天才驗證（給 wiki 更新時間）
 const DELAY_DAYS = 7
 
+// 外部呼叫逾時：seesaawiki 是第三方站，掛掉時無 timeout 的 fetch 會把整輪 cron 吊死
+const WIKI_TIMEOUT_MS = 15_000
+// 解碼後文字上限（防禦異常輸入，不是效能閥）。
+// ⚠️ 實測（2026-08-14）：全曲リスト（軽量版）本身就有 15,977 個 <tr>、解碼後 **3.34M 字元**
+//    ——一場一列、只增不減，粗估每年 +0.5M 字元。8 MiB 約有十年餘裕，且兩份字串
+//    （原文＋lowercase 索引用）最多約 32MB，在 Lambda 的 256MB 內安全。
+//    **調低這個值前務必先量現況**：設成 2MB 會讓線上頁面直接被拒、wiki 校正整條停擺。
+// 超過＝抓到的不是預期的頁面（改版／錯誤頁／被塞了什麼），與其花 CPU 掃它不如放棄本輪
+const WIKI_MAX_CHARS = 8 * 1024 * 1024
+
+/**
+ * 掃出成對標籤的內容片段（取代 /<tag[^>]*>([\s\S]*?)<\/tag>/g）。
+ * 正則版在「有開始標籤但沒有結束標籤」的輸入上，每個開始標籤都要往後掃到字串結尾才放棄
+ * ⇒ O(n²)。indexOf 逐段前進沒有這個回溯面，且語意等價：
+ *   開始＝`<tag` 之後第一個 `>`；結束＝其後第一個 `</tag>`（大小寫不敏感，同原本的 /gi）。
+ * @param {string} text - 原文（回傳的片段取自這裡）
+ * @param {string} lower - text.toLowerCase()（索引一致，僅用於比對）
+ * @param {string[]} openTags - 例 ['<tr'] 或 ['<td','<th']
+ * @param {string[]} closeTags - 例 ['</tr>'] 或 ['</td>','</th>']
+ * @param {number} [from] - 起始位置
+ * @param {number} [until] - 結束位置（不含）
+ */
+function* scanTagContents(text, lower, openTags, closeTags, from = 0, until = text.length) {
+  let pos = from
+  while (pos < until) {
+    // 最靠前的開始標籤
+    let open = -1
+    for (const tag of openTags) {
+      const i = lower.indexOf(tag, pos)
+      if (i !== -1 && i < until && (open === -1 || i < open)) open = i
+    }
+    if (open === -1) return
+
+    const openEnd = lower.indexOf('>', open)
+    if (openEnd === -1 || openEnd >= until) return
+
+    // 最靠前的結束標籤
+    let close = -1
+    for (const tag of closeTags) {
+      const i = lower.indexOf(tag, openEnd + 1)
+      if (i !== -1 && i < until && (close === -1 || i < close)) close = i
+    }
+    if (close === -1) return
+
+    yield { content: text.slice(openEnd + 1, close), end: close }
+    pos = close + 1
+  }
+}
+
 /**
  * 從 wiki 抓取全曲リスト並按日期分組
  * @returns {Map<string, string[]>} date → song titles
  */
 export async function fetchWikiSongsByDate() {
   const response = await fetch(WIKI_URL, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (berry-site wiki-verifier)' }
+    headers: { 'User-Agent': 'Mozilla/5.0 (berry-site wiki-verifier)' },
+    signal: AbortSignal.timeout(WIKI_TIMEOUT_MS)
   })
 
   if (!response.ok) {
@@ -28,19 +78,23 @@ export async function fetchWikiSongsByDate() {
   const buffer = await response.arrayBuffer()
   const text = new TextDecoder('euc-jp').decode(buffer)
 
+  if (text.length > WIKI_MAX_CHARS) {
+    // 拋出而非靜默回空 Map：回空 Map 會讓所有待驗證歌枠變成 skipped，看起來像「wiki 還沒更新」
+    console.warn(`[WIKI] 頁面異常龐大（${text.length} 字元 > ${WIKI_MAX_CHARS}），放棄本輪校正`)
+    throw new Error(`Wiki page too large: ${text.length} chars`)
+  }
+
   // Parse table rows: <tr>...<td>date</td><td>title</td><td>edit</td>...</tr>
   const songsByDate = new Map()
-  const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
-  let match
+  const lower = text.toLowerCase()
 
-  while ((match = rowRegex.exec(text)) !== null) {
-    const rowHtml = match[1]
+  for (const row of scanTagContents(text, lower, ['<tr'], ['</tr>'])) {
+    const rowHtml = row.content
+    const rowLower = rowHtml.toLowerCase()
     const cells = []
-    const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi
-    let cellMatch
-    while ((cellMatch = cellRegex.exec(rowHtml)) !== null) {
-      const cellText = cellMatch[1].replace(/<[^>]+>/g, '').trim()
-      cells.push(cellText)
+    for (const cell of scanTagContents(rowHtml, rowLower, ['<td', '<th'], ['</td>', '</th>'])) {
+      cells.push(cell.content.replace(/<[^>]+>/g, '').trim())
+      if (cells.length >= 2) break   // 只用到前兩欄（日期／曲名）
     }
 
     if (cells.length < 2) continue
@@ -457,7 +511,9 @@ export async function sendWikiDiffNotification(env, details) {
       await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ embeds: batch })
+        body: JSON.stringify({ embeds: batch }),
+        // 同 discord-notifier：通知不值得把整輪 cron 吊住
+        signal: AbortSignal.timeout(5_000)
       })
     } catch (error) {
       console.error(`[WIKI] Discord 通知失敗: ${error.message}`)

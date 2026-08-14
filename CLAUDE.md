@@ -261,8 +261,10 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 
 - 資料源用 Hono `app.request()` **內部調用自家 API**（零網路來回，輸出與前端拿到的一致）；
   `history.md`／`changelog.json` 是現站靜態檔不是 API，走 HTTP 抓（`SNAPSHOT_STATIC_BASE`）
-- 檔名／信封解包／過期月份清理的基準與 `fansite-v2/scripts/fetch-snapshot.mjs`（CI 版）
-  共用——**兩處改動必須同步**（v2 時代的根目錄 `scripts/fetch-snapshot.mjs` 已除役刪除）
+- **取法刻意分歧（2026-08-14）**：cron 版＝一次全量 `/api/setlist` ＋ Node 端
+  `bucketSetlistByMonth()` 分桶（77→2 次調用，等價性見該函式註解，73 檔位元組級對照
+  驗證過）；CI 版（`fansite-v2/scripts/fetch-snapshot.mjs`）維持逐月抓。**輸出契約
+  （檔名／信封／排序）兩處必須一致**（v2 時代的根目錄版已除役刪除）
 - 目標站台：`SNAPSHOT_TARGETS`＝`bucket:distributionId,bucket2:distributionId2`
   （由 template 的 SnapshotBucketA/B ＋ SnapshotDistributionA/B 以 `!Sub` 拼成；
   **未設＝整個步驟 skip 並 log**）。CacheControl 固定 `public, max-age=300`，
