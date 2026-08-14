@@ -37,4 +37,7 @@ body.matches.forEach((m, i) => {
   console.log(`${ok ? 'OK ' : 'NG '} [${i}] ${m.finalSongID} (期望 ${exp}) | ${m.parsed.titleJP} / ${m.parsed.artistJP}`)
 })
 console.log(`共解析 ${body.matches.length} 行（期望 ${expected.length} 首 + 可能的尾行）`)
-console.log(pass && body.matches.length >= expected.length ? '=== PASS ===' : '=== 檢查差異 ===')
+const ok = pass && body.matches.length >= expected.length
+console.log(ok ? '=== PASS ===' : '=== 檢查差異 ===')
+// 非零 exit code：CI（deploy.yml 的 deploy-matcher job）據此擋下部署
+process.exit(ok ? 0 : 1)

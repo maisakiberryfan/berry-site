@@ -44,3 +44,5 @@ if (body.matches.length !== expect.length) {
   console.log(`NG 行數 ${body.matches.length}，期望 ${expect.length}（感想行應被過濾）`)
 }
 console.log(pass ? '\n=== PASS ===' : '\n=== FAIL ===')
+// 非零 exit code：CI（deploy.yml 的 deploy-matcher job）據此擋下部署
+process.exit(pass ? 0 : 1)
