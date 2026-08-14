@@ -133,7 +133,9 @@ IndexedDB → CDN 快照 `/data/*.json` → API 背景校正。測試點：
 - setlist CRUD＋reorder（高位偏移 +100000 暫存區、trackNo 重編、併發 409）
 - setlist PUT 的 startTime/endTime（0~360000 整數秒或 null，越界 400）
 - **rate-limit IP 來源**（安全）：cf-connecting-ip→requestContext.http.sourceIp→XFF 末段；偽造 XFF 首段**不應**繞過（第 31 次 429）；不同 XFF 末段不誤擋；GET 不受限
-- month 驗證×3（fetch-snapshot 兩版＋cron）：非 `YYYY-MM`/`none` 跳過
+- month 驗證×2（fetch-snapshot＋cron；根目錄的 v2 版已除役刪除）：非 `YYYY-MM`/`none` 跳過
+- 快照形狀防呆：manifest 缺 `months` 陣列／songlist・streamlist・月度檔非陣列 ⇒
+  該檔不落地＋整支 exit 1（CI 據此跳過 `s3 sync --delete`，不清空線上 /data/）
 - ETag：setlist/songlist/streamlist 全量＋manifest 支援 304；月度端點不支援
 
 ---

@@ -9,7 +9,7 @@ import { getSecret } from '../platform.js'
  * 發送 Discord 通知
  * @param {Object} env - 環境變數（包含 DISCORD_WEBHOOK_URL）
  * @param {Object} payload - 通知內容
- * @param {string} payload.type - 通知類型：'auto-update' | 'manual-parse' | 'polling-parse'
+ * @param {string} payload.type - 通知類型：'auto-update' | 'manual-parse' | 'polling-parse' | 'snapshot'
  * @param {Object} payload.result - 結果資料
  * @param {boolean} payload.success - 是否成功
  * @param {string} [payload.error] - 錯誤訊息（失敗時）
@@ -57,6 +57,8 @@ function buildEmbed(payload) {
     return buildManualParseEmbed(payload)
   } else if (type === 'polling-parse') {
     return buildPollingParseEmbed(payload)
+  } else if (type === 'snapshot') {
+    return buildSnapshotEmbed(payload)
   } else {
     throw new Error(`Unknown notification type: ${type}`)
   }
@@ -312,6 +314,60 @@ function buildPollingParseEmbed(payload) {
     embed.fields.push({
       name: '❌ 錯誤訊息:',
       value: `\`\`\`${error ? error.substring(0, 900) : '未知錯誤'}\`\`\``,
+      inline: false
+    })
+  }
+
+  return embed
+}
+
+/**
+ * 建立 CDN 快照 cron 通知 embed（src/cron-jobs/snapshot.js）
+ * 只在整體失敗（ok=false）時發：快照過期沒有任何使用者可見的錯誤，
+ * 不通知就等於「首訪永遠拿到某個舊版本」卻沒人知道
+ */
+function buildSnapshotEmbed(payload) {
+  const { success = false, summary = {}, error } = payload
+
+  const embed = {
+    title: success ? '✅ CDN 快照更新完成' : '❌ CDN 快照更新失敗',
+    color: success ? 0x00ff00 : 0xff0000,
+    timestamp: new Date().toISOString(),
+    fields: []
+  }
+
+  embed.fields.push({
+    name: '📦 產出:',
+    value: `${summary.files ?? 0} 檔 / ${summary.months ?? 0} 個月份` +
+      (summary.budgetExceeded ? '（時間預算用盡，未寫入 manifest）' : ''),
+    inline: true
+  })
+
+  if (typeof summary.durationMs === 'number') {
+    embed.fields.push({
+      name: '⏱️ 耗時:',
+      value: `${(summary.durationMs / 1000).toFixed(1)}s`,
+      inline: true
+    })
+  }
+
+  if (summary.targets?.length) {
+    const targetText = summary.targets
+      .map(t => `• \`${t.bucket}\` 寫入 ${t.uploaded}、清理 ${t.deleted}、${t.invalidated ? '已' : '未'}invalidate`)
+      .join('\n')
+    embed.fields.push({
+      name: '🪣 目標站台:',
+      value: targetText.substring(0, 1024),
+      inline: false
+    })
+  }
+
+  const errorText = error ||
+    (summary.failures?.length > 0 ? summary.failures.join('\n') : null)
+  if (!success) {
+    embed.fields.push({
+      name: '❌ 錯誤訊息:',
+      value: `\`\`\`${(errorText || '沒有任何檔案寫入成功').substring(0, 900)}\`\`\``,
       inline: false
     })
   }
