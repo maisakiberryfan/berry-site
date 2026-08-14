@@ -218,9 +218,28 @@ export async function deleteSong(c) {
     );
   }
 
-  await db.execute("DELETE FROM songlist WHERE songID = ?", [songID]);
+  // aliases.songID 的 FK 已由 ON DELETE SET NULL 改為 ON DELETE RESTRICT：
+  // 別名現在是「同一寫法可綁不同歌並存」（UNIQUE 含 songKey），自動解綁會留下無主的
+  // title 別名（songID NULL）繼續參與模糊比對、且與另一首同名歌的別名撞在一起 ⇒
+  // 改由後端在同一事務內顯式清掉綁在這首歌上的別名，再刪歌本體。
+  // 上面的 setlist 引用檢查在前：仍被引用就 409，根本走不到這裡。
+  await db.execute("START TRANSACTION");
+  let deletedAliases = 0;
+  try {
+    const aliasResult = await db.execute("DELETE FROM aliases WHERE songID = ?", [songID]);
+    deletedAliases = aliasResult.meta.changes ?? 0;
+    await db.execute("DELETE FROM songlist WHERE songID = ?", [songID]);
+    await db.execute("COMMIT");
+  } catch (error) {
+    try {
+      await db.execute("ROLLBACK");
+    } catch (rollbackError) {
+      console.error(`Songlist DELETE ROLLBACK failed（原始錯誤不受影響）: ${rollbackError.message}`);
+    }
+    throw error;
+  }
 
-  return c.json(successResponse({ message: "Song deleted successfully" }));
+  return c.json(successResponse({ message: "Song deleted successfully", deletedAliases }));
 }
 
 // GET /songlist/artists - Get distinct artists for selection

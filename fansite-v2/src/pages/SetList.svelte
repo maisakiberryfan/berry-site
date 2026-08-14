@@ -140,7 +140,7 @@
       aliasSame: '別名與正式名稱相同，不需要新增。',
       aliasAdded: '已新增別名「{v}」',
       aliasUpdated: '已更新別名「{v}」',
-      aliasRebound: '⚠️ 這個別名原本指向其他歌曲，已改綁到目前這一首。',
+      aliasAlsoBound: 'ℹ️ 同樣的別名也綁在其他 {n} 首歌曲上，各自獨立、不會互相取代。',
       aliasSubmit: '新增別名',
       aliasBack: '返回編輯',
     },
@@ -231,7 +231,7 @@
       aliasSame: 'The alias equals the canonical name — nothing to add.',
       aliasAdded: 'Alias “{v}” added',
       aliasUpdated: 'Alias “{v}” updated',
-      aliasRebound: '⚠️ This alias pointed at another song; it now binds to this one.',
+      aliasAlsoBound: 'ℹ️ The same alias is also bound to {n} other song(s); each binding is independent.',
       aliasSubmit: 'Add alias',
       aliasBack: 'Back to edit',
     },
@@ -321,7 +321,7 @@
       aliasSame: 'エイリアスが正式名称と同じです。追加する必要はありません。',
       aliasAdded: 'エイリアス「{v}」を追加しました',
       aliasUpdated: 'エイリアス「{v}」を更新しました',
-      aliasRebound: '⚠️ このエイリアスは別の曲に紐づいていましたが、この曲に付け替えました。',
+      aliasAlsoBound: 'ℹ️ 同じエイリアスは他の {n} 曲にも紐づいています（それぞれ独立しており、上書きされません）。',
       aliasSubmit: 'エイリアスを追加',
       aliasBack: '編集に戻る',
     },
@@ -658,8 +658,8 @@
   let aliasPicking = $state(false)
   /** 送出成功訊息（連續新增時每次覆蓋） */
   let aliasResult = $state('')
-  /** 該則訊息是否為「改綁警示」（後端回報 rebound 時）：警示用黃色，不是綠色的成功 */
-  let aliasRebound = $state(false)
+  /** 該則訊息是否附帶「同寫法也綁在別首歌」的說明（後端 alsoBoundTo）：資訊色，不是綠色的成功 */
+  let aliasAlsoBound = $state(false)
 
   const batchStreamID = $derived(parseYouTubeId(batch.url))
   const batchStream = $derived(batchStreamID ? (streamIndex.map.get(batchStreamID) ?? null) : null)
@@ -838,7 +838,7 @@
     }
     aliasPicking = aliasForm.aliasType === 'title' && !hasSong
     aliasResult = ''
-    aliasRebound = false
+    aliasAlsoBound = false
     formError = ''
     fieldErrors = {}
     mode = 'alias'
@@ -850,7 +850,7 @@
     if (aliasForm.aliasType === type) return
     aliasForm.aliasType = type
     aliasResult = ''
-    aliasRebound = false
+    aliasAlsoBound = false
     fieldErrors = {}
     if (type === 'artist') {
       aliasForm.songID = null
@@ -885,7 +885,7 @@
     formError = ''
     fieldErrors = {}
     aliasResult = ''
-    aliasRebound = false
+    aliasAlsoBound = false
 
     const canonicalName = nullIfBlank(aliasForm.canonicalName)
     const aliasValue = nullIfBlank(aliasForm.aliasValue)
@@ -914,12 +914,10 @@
       const res = await request('/api/aliases/quick-add', { method: 'POST', body: payload })
       const row = res.data
       const isNew = res.raw?.isNew !== false
-      // 前瞻相容：後端日後若回報「既有別名被改綁到另一首歌」（rebound／previousSongID），
-      // 就把成功訊息升級成警示（改綁會讓過去對到舊曲的解析結果與現在不一致，值得看一眼）。
-      // 欄位不存在時整條恆為 false，完全不依賴後端先上線。
-      const prevSongID = res.raw?.previousSongID
-      const rebound =
-        res.raw?.rebound === true || (prevSongID != null && prevSongID !== (payload.songID ?? null))
+      // alsoBoundTo＝同一個別名寫法也綁在其他歌曲上的 songID 清單。DB 的 UNIQUE 含
+      // songKey（COALESCE(songID,0)），同名異曲的別名各自並存、不再互搶綁定 ⇒ 這是
+      // 純告知（用資訊色），不是「被改綁」的警示。欄位缺席時 alsoCount 為 0。
+      const alsoCount = Array.isArray(res.raw?.alsoBoundTo) ? res.raw.alsoBoundTo.length : 0
 
       // 別名表這一頁沒載入（load 是 Aliases 頁才呼叫的），沒載入就別為了同步硬拉整表
       if (aliases.synced || aliases.rows.length) {
@@ -933,10 +931,10 @@
         }
       }
 
-      aliasRebound = rebound
+      aliasAlsoBound = alsoCount > 0
       aliasResult =
         (isNew ? m.aliasAdded : m.aliasUpdated).replace('{v}', aliasValue) +
-        (rebound ? ` ${m.aliasRebound}` : '')
+        (alsoCount > 0 ? ` ${m.aliasAlsoBound.replace('{n}', alsoCount)}` : '')
       // 連續新增：保留類型與正式名稱，只清別名值並把游標送回去
       aliasForm.aliasValue = ''
       queueMicrotask(() => document.getElementById('setlist-alias-value')?.focus())
@@ -2072,7 +2070,7 @@
       <p class="mb-3 text-sm text-berry-fg-3">{m.aliasHint}</p>
 
       {#if aliasResult}
-        <Alert kind={aliasRebound ? 'warn' : 'success'}>{aliasResult}</Alert>
+        <Alert kind={aliasAlsoBound ? 'info' : 'success'}>{aliasResult}</Alert>
       {/if}
 
       <Field label={t('field.aliasType')}>

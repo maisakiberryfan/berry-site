@@ -18,6 +18,12 @@ const ALIAS_FIELD_LIMITS = {
   note: FIELD_LIMITS.aliasNote
 }
 
+// 對外的欄位清單（不用 SELECT *）：`songKey`（GENERATED AS COALESCE(songID, 0) STORED）
+// 只是 UNIQUE (aliasType, canonicalName, aliasValue, songKey) 的載體，是內部防重機制，
+// 不進 API 輸出——多這一欄前端要嘛忽略要嘛誤用，兩者都沒好處。
+const ALIAS_COLUMNS =
+  'aliasID, aliasType, canonicalName, aliasValue, songID, note, createdAt, updatedAt'
+
 /**
  * GET /aliases
  * Get all aliases (flat list for Tabulator)
@@ -27,11 +33,12 @@ app.get('/', async (c) => {
   const db = c.get('db')
 
   try {
-    // SELECT *：包含 migration 加入的 songID 欄位（migration 前也不報錯）
+    // songID 排在末位排序鍵：新 UNIQUE 含 songKey 之後，同一組 (type, canonical, value)
+    // 可綁不同歌並存多筆，沒有第四鍵順序就不穩定
     const sql = `
-      SELECT *
+      SELECT ${ALIAS_COLUMNS}
       FROM aliases
-      ORDER BY aliasType, canonicalName, aliasValue
+      ORDER BY aliasType, canonicalName, aliasValue, songID
     `
 
     const aliases = await db.query(sql)
@@ -65,9 +72,9 @@ app.get('/grouped', async (c) => {
   const db = c.get('db')
 
   try {
-    // SELECT *：songID 欄位由 migration 加入（見 ops-manual），migration 前查無此欄也不報錯
+    // 明列欄位：只取分組需要的四欄（songKey 為內部生成欄位，不外流）
     const sql = `
-      SELECT *
+      SELECT aliasType, canonicalName, aliasValue, songID
       FROM aliases
       ORDER BY aliasType, canonicalName
     `
@@ -83,22 +90,24 @@ app.get('/grouped', async (c) => {
       titleAliasesByID: {}
     }
 
+    // 新 UNIQUE 含 songKey ⇒ 同一組 (type, canonical, value) 可綁不同 songID 並存多筆。
+    // 字串 key 的兩張表不看 songID，同名異曲的別名在這裡會長得一模一樣 ⇒ 必須去重
+    //（重複值不影響比對正確性，但會讓 matcher 白跑同一個變體、輸出也髒）
+    const pushUnique = (map, key, value) => {
+      if (!map[key]) map[key] = []
+      if (!map[key].includes(value)) map[key].push(value)
+    }
+
     for (const alias of aliases) {
       const targetMap =
         alias.aliasType === 'artist'
           ? grouped.artistAliases
           : grouped.titleAliases
 
-      if (!targetMap[alias.canonicalName]) {
-        targetMap[alias.canonicalName] = []
-      }
-
-      targetMap[alias.canonicalName].push(alias.aliasValue)
+      pushUnique(targetMap, alias.canonicalName, alias.aliasValue)
 
       if (alias.aliasType === 'title' && alias.songID != null) {
-        const key = String(alias.songID)
-        if (!grouped.titleAliasesByID[key]) grouped.titleAliasesByID[key] = []
-        grouped.titleAliasesByID[key].push(alias.aliasValue)
+        pushUnique(grouped.titleAliasesByID, String(alias.songID), alias.aliasValue)
       }
     }
 
@@ -177,6 +186,31 @@ app.post('/quick-add', async (c) => {
 
     // Insert alias（songID 為 title alias 的精準綁定，欄位由 migration 加入 —— 動態組欄避免 migration 前報錯）
     const hasSongID = songID !== undefined && songID !== null
+    const targetSongID = hasSongID ? Number(songID) : null
+    // songID 欄位是否可用（migration 前的降級旗標，見下方 catch）
+    let songIDSupported = true
+
+    // ── upsert 前先看同 (type, canonical, value) 的既有列 ────────────────────
+    // UNIQUE 已改為 (aliasType, canonicalName, aliasValue, songKey)，同一個別名寫法
+    // 可以綁不同 songID 並存多筆 ⇒ 這一組查詢有兩個用途：
+    //   ① isNew：affectedRows 在「值完全沒變的 upsert」會是 0，判不出是新增或既有，
+    //      改以「這個 songID 組合本來在不在」為準
+    //   ② alsoBoundTo：同寫法但綁在**其他歌曲**上的 songID（告知性——新 UNIQUE 下
+    //      不再有「搶綁定」，那些列原封不動）
+    // 預查與 upsert 之間不是原子的，並發下 isNew/alsoBoundTo 可能微幅失準；
+    // 兩者都只是提示用途，DB 的唯一性由 UNIQUE 保證。
+    let siblings = []
+    try {
+      siblings = await db.query(
+        `SELECT songID FROM aliases
+         WHERE aliasType = ? AND canonicalName = ? AND aliasValue = ?`,
+        [aliasType, canonicalName.trim(), aliasValue.trim()]
+      )
+    } catch (e) {
+      if (!/Unknown column/i.test(e.message)) throw e
+      songIDSupported = false
+    }
+
     const sql = hasSongID
       ? `INSERT INTO aliases (aliasType, canonicalName, aliasValue, note, songID)
          VALUES (?, ?, ?, ?, ?)
@@ -199,6 +233,7 @@ app.post('/quick-add', async (c) => {
       // migration 未跑（songID 欄不存在）時降級為不帶 songID 寫入，不阻斷快速新增流程
       if (hasSongID && /Unknown column/i.test(e.message)) {
         console.warn('[ALIASES] songID 欄位不存在（migration 未執行），以未綁定模式寫入')
+        songIDSupported = false
         result = await db.execute(
           `INSERT INTO aliases (aliasType, canonicalName, aliasValue, note)
            VALUES (?, ?, ?, ?)
@@ -211,24 +246,43 @@ app.post('/quick-add', async (c) => {
     }
 
     // Fetch the created/updated record
+    // ⚠️ 必須帶 songID 條件：新 UNIQUE 下同 (type, canonical, value) 可能有多筆，
+    //    只比前三欄會隨機拿到綁別首歌的那一筆（回給前端就成了錯誤的 aliasID）。
+    //    未帶 songID（含所有 artist 別名）＝ songID IS NULL 的那一筆（songKey 0）。
     const fetchSql = `
-      SELECT * FROM aliases
+      SELECT ${ALIAS_COLUMNS}
+      FROM aliases
       WHERE aliasType = ? AND canonicalName = ? AND aliasValue = ?
+      ${songIDSupported ? (hasSongID ? 'AND songID = ?' : 'AND songID IS NULL') : ''}
     `
 
-    const [createdAlias] = await db.query(fetchSql, [
-      aliasType,
-      canonicalName.trim(),
-      aliasValue.trim()
-    ])
+    const fetchParams = [aliasType, canonicalName.trim(), aliasValue.trim()]
+    if (songIDSupported && hasSongID) fetchParams.push(targetSongID)
+
+    const [createdAlias] = await db.query(fetchSql, fetchParams)
+
+    // isNew：以「這個 songID 組合」預查時在不在為準（songID 欄不可用時退回 affectedRows）
+    const isNew = songIDSupported
+      ? !siblings.some((r) => (r.songID ?? null) === targetSongID)
+      : result.meta.changes === 1
+
+    // 同寫法但綁在其他歌曲上的別名（同名異曲各自綁定，彼此不再互搶）——只做告知
+    const alsoBoundTo = songIDSupported
+      ? [...new Set(
+          siblings
+            .map((r) => r.songID)
+            .filter((id) => id != null && id !== targetSongID)
+        )]
+      : []
 
     return c.json(
       {
         success: true,
         data: createdAlias,
-        isNew: result.meta.changes === 1
+        isNew,
+        ...(alsoBoundTo.length > 0 ? { alsoBoundTo } : {})
       },
-      result.meta.changes === 1 ? 201 : 200
+      isNew ? 201 : 200
     )
   } catch (error) {
     console.error('POST /aliases/quick-add error:', error)
@@ -316,8 +370,19 @@ app.post('/test', async (c) => {
     ])
 
     // Group by canonical name
+    // 新 UNIQUE 含 songKey ⇒ 同一組 (type, canonical, value) 可綁不同 songID 並存多筆。
+    // 這裡是「輸入這串字會對到哪些正式名稱」的展示、不看 songID，同值同備註的重複列
+    // 在畫面上是純噪音（兩筆長得一模一樣）⇒ 去重，matchCount 也算去重後的數量
     const grouped = {}
+    const seen = new Set()
+    let matchCount = 0
     for (const match of matches) {
+      // JSON 序列化當 key：別名值可能含分隔字元，字串相接會讓不同組合撞在一起
+      const dedupeKey = JSON.stringify([match.canonicalName, match.aliasValue, match.note ?? ''])
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      matchCount++
+
       if (!grouped[match.canonicalName]) {
         grouped[match.canonicalName] = {
           canonicalName: match.canonicalName,
@@ -336,7 +401,7 @@ app.post('/test', async (c) => {
         inputText: inputText.trim(),
         aliasType,
         matches: Object.values(grouped),
-        matchCount: matches.length
+        matchCount
       }
     })
   } catch (error) {
@@ -430,6 +495,9 @@ app.post('/batch', async (c) => {
     // Batch insert with transaction
     await db.execute('START TRANSACTION')
 
+    // batch 不支援 songID ⇒ 寫入的恆為 songID NULL（songKey 0）那一列。
+    // 新 UNIQUE (aliasType, canonicalName, aliasValue, songKey) 下，ON DUPLICATE 只會撞到
+    // 同樣未綁定的那一筆——同寫法但已綁 songID 的別名各自獨立、不會被這裡覆蓋。
     const sql = `
       INSERT INTO aliases (aliasType, canonicalName, aliasValue, note)
       VALUES (?, ?, ?, ?)
@@ -523,7 +591,7 @@ app.put('/:aliasID', async (c) => {
     const { canonicalName, aliasValue, note, songID } = body
 
     // Check if alias exists
-    const checkSql = 'SELECT * FROM aliases WHERE aliasID = ?'
+    const checkSql = `SELECT ${ALIAS_COLUMNS} FROM aliases WHERE aliasID = ?`
     const [existingAlias] = await db.query(checkSql, [aliasID])
 
     if (!existingAlias) {
@@ -605,6 +673,20 @@ app.put('/:aliasID', async (c) => {
     })
   } catch (error) {
     console.error(`PUT /aliases/${aliasID} error:`, error)
+    // UNIQUE 是 (aliasType, canonicalName, aliasValue, songKey)：改綁 songID／改寫別名值
+    // 時可能撞到「同寫法已綁在那首歌上」的既有列。這是使用者可理解的衝突，不是 500。
+    if (error.code === 'ER_DUP_ENTRY') {
+      return c.json(
+        {
+          success: false,
+          error: {
+            message: 'Duplicate alias',
+            details: 'An alias with the same type, canonical name, value and song binding already exists'
+          }
+        },
+        409
+      )
+    }
     return c.json(
       {
         success: false,
@@ -642,7 +724,7 @@ app.delete('/:aliasID', async (c) => {
 
   try {
     // Check if alias exists
-    const checkSql = 'SELECT * FROM aliases WHERE aliasID = ?'
+    const checkSql = `SELECT ${ALIAS_COLUMNS} FROM aliases WHERE aliasID = ?`
     const [existingAlias] = await db.query(checkSql, [aliasID])
 
     if (!existingAlias) {

@@ -313,7 +313,17 @@ AWS EventBridge 為主要排程。CF cron 已停用。
     與 fansite-v2 同一套 API 更新方法）
 - `aliases`：歌曲/歌手別名
   - title 別名可綁 `songID`（精準對應、同名異曲不互染）；artist 別名為字串表（跨曲共用，設計如此）
-  - 快速新增別名（setlist 右鍵）title 模式自動帶 songID
+  - **UNIQUE = (aliasType, canonicalName, aliasValue, songKey)**，`songKey INT UNSIGNED
+    GENERATED ALWAYS AS (COALESCE(songID, 0)) STORED`（純 DB 內部欄位，**API 一律不輸出**——
+    各端點明列欄位、不用 `SELECT *`）。語意：同一個別名寫法可綁**不同 songID 並存多筆**
+    （同名異曲各自的別名互不覆蓋）；artist 與未綁定 title 別名 songID 皆 NULL ⇒ songKey 0
+    ⇒ 防重行為不變。連帶紀律：任何依「(type, canonical, value) 唯一」取單筆的查詢都**必須
+    補 songID 條件**（quick-add 的 upsert 回讀踩過這個），聚合展示（grouped／test）則要去重
+  - FK `fk_aliases_songID` 為 **ON DELETE RESTRICT**（原 SET NULL）：刪歌改由
+    `DELETE /api/songlist/:songID` 在同一事務內顯式 `DELETE FROM aliases WHERE songID = ?`，
+    自動解綁留下的無主別名會污染模糊比對
+  - 快速新增別名（setlist 右鍵）title 模式自動帶 songID；quick-add 回應的 `alsoBoundTo`
+    ＝同寫法綁在其他歌曲上的 songID（純告知，前端顯示資訊色提示）
 
 ### Lambda setlist-matcher
 

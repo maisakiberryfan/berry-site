@@ -76,7 +76,7 @@
       filtered: '篩選後 {n} 筆',
       unbound: '未綁定',
       aliasUpdated: '別名「{v}」原本就存在，已更新既有那一筆（不是新增）。',
-      aliasRebound: '⚠️ 這個別名原本指向其他歌曲，已改綁到目前選定的這一首。',
+      aliasAlsoBound: 'ℹ️ 同樣的別名也綁在其他 {n} 首歌曲上，各自獨立、不會互相取代。',
       newArtistTitle: '這位歌手不在資料庫中',
       newArtistMessage:
         '目前沒有任何歌曲使用「{name}」。確定要以這個名稱當正式名稱嗎？（打錯字的話，解析歌單時對不到任何一位歌手）',
@@ -111,7 +111,7 @@
       filtered: '{n} filtered',
       unbound: 'Unbound',
       aliasUpdated: 'Alias “{v}” already existed — the existing entry was updated, not added.',
-      aliasRebound: '⚠️ This alias pointed at another song; it now binds to the selected one.',
+      aliasAlsoBound: 'ℹ️ The same alias is also bound to {n} other song(s); each binding is independent.',
       newArtistTitle: 'Artist not in the database',
       newArtistMessage:
         'No song uses “{name}” yet. Use it as the canonical name? (A typo here matches no artist when set lists are parsed.)',
@@ -146,7 +146,7 @@
       filtered: '絞り込み {n} 件',
       unbound: '未紐づけ',
       aliasUpdated: 'エイリアス「{v}」は既に存在したため、既存のデータを更新しました（新規追加ではありません）。',
-      aliasRebound: '⚠️ このエイリアスは別の曲に紐づいていましたが、選択中の曲に付け替えました。',
+      aliasAlsoBound: 'ℹ️ 同じエイリアスは他の {n} 曲にも紐づいています（それぞれ独立しており、上書きされません）。',
       newArtistTitle: 'このアーティストはデータベースにありません',
       newArtistMessage:
         '「{name}」を使用している曲はまだありません。この名前を正式名称として使用しますか？（誤字があると、セットリスト解析時にどのアーティストにも一致しません）',
@@ -360,8 +360,9 @@
   function showNotice(text, kind = 'success') {
     notice = { text, kind }
     clearTimeout(noticeTimer)
-    // 警示留久一點（改綁是可能要回頭處理的事），一般結果訊息看過就好
-    noticeTimer = setTimeout(() => (notice = null), kind === 'warn' ? 15000 : 8000)
+    // 非 success 的訊息（資訊／警示，例如「同寫法也綁在別首歌」）留久一點，
+    // 單純的結果訊息看過就好
+    noticeTimer = setTimeout(() => (notice = null), kind === 'success' ? 8000 : 15000)
   }
 
   $effect(() => () => clearTimeout(noticeTimer))
@@ -529,12 +530,10 @@
         // 「新增」鈕，drawer 靜靜關掉會讓人以為多了一筆、卻在表格裡找不到（其實是某一列
         // 被改掉了）——所以要明講。
         const isNew = res.raw?.isNew !== false
-        // 前瞻相容：後端日後若回報「既有別名被改綁到另一首歌」（rebound／previousSongID），
-        // 就一併警示。欄位不存在時整條恆為 false，完全不依賴後端先上線。
-        const prevSongID = res.raw?.previousSongID
-        const rebound =
-          res.raw?.rebound === true ||
-          (prevSongID != null && prevSongID !== (payload.songID ?? null))
+        // alsoBoundTo＝同一個別名寫法也綁在其他歌曲上的 songID 清單。DB 的 UNIQUE 含
+        // songKey（COALESCE(songID,0)），同名異曲的別名各自並存、不再互搶綁定 ⇒ 純告知
+        //（資訊色），不是警示。欄位缺席時 alsoCount 為 0。
+        const alsoCount = Array.isArray(res.raw?.alsoBoundTo) ? res.raw.alsoBoundTo.length : 0
 
         if (row && typeof row === 'object' && row.aliasID != null) {
           // 本地一律以「這筆 aliasID 在不在」為準（不看 isNew）：
@@ -546,12 +545,15 @@
           await aliases.reload()
         }
 
-        if (!isNew || rebound) {
+        if (!isNew || alsoCount > 0) {
           showNotice(
-            [!isNew && m.aliasUpdated.replace('{v}', aliasValue), rebound && m.aliasRebound]
+            [
+              !isNew && m.aliasUpdated.replace('{v}', aliasValue),
+              alsoCount > 0 && m.aliasAlsoBound.replace('{n}', alsoCount),
+            ]
               .filter(Boolean)
               .join(' '),
-            rebound ? 'warn' : 'success',
+            alsoCount > 0 ? 'info' : 'success',
           )
         }
       }
