@@ -80,6 +80,11 @@
       draftsHint: '逐列選歌後一次送出（單一批次請求）',
       noDrafts: '先填好場次與曲數，再按「產生草稿列」。',
       countRange: '曲數需介於 1～50',
+      batchChecking: '正在確認這場最新的歌單資料…',
+      batchCheckFailed:
+        '無法取得這場最新的歌單資料，暫時不能產生草稿列（避免覆蓋自動解析或他人剛寫入的內容）。',
+      batchStale: '這段資料在編輯期間已被更新，請重新產生草稿列。',
+      batchRecheckFailed: '送出前的重新確認失敗，未送出任何資料，請稍後再試。',
       batchTimeHint:
         '已存在的曲序會帶入現有內容（曲目／時間／備註），可直接沿用或修改；送出以表單所見為準——清空的欄位會清除既有值。時間格式 h:mm:ss、m:ss 或秒數。',
       existingMark: '既有',
@@ -155,6 +160,11 @@
       draftsHint: 'Pick songs per row, then submit once (single batch request).',
       noDrafts: 'Fill in the stream and row count, then press “Generate draft rows”.',
       countRange: 'Rows must be between 1 and 50',
+      batchChecking: 'Checking this stream’s latest set list data…',
+      batchCheckFailed:
+        'Could not fetch this stream’s latest set list data, so draft rows are disabled for now (this prevents overwriting entries the parser or someone else just wrote).',
+      batchStale: 'This segment changed while you were editing. Please generate the draft rows again.',
+      batchRecheckFailed: 'The pre-submit re-check failed. Nothing was submitted — please try again.',
       batchTimeHint:
         'Track numbers that already exist are prefilled with their stored song, times and note — keep or edit them as you like. Submitting writes exactly what the form shows, so a field you clear clears the stored value. Time format: h:mm:ss, m:ss or seconds.',
       existingMark: 'exists',
@@ -236,6 +246,11 @@
       draftsHint: '各行で曲を選んでから一括送信します（リクエスト1回）',
       noDrafts: '配信と曲数を入力してから「下書き行を作成」を押してください。',
       countRange: '曲数は 1〜50 の範囲で指定してください',
+      batchChecking: 'この配信の最新のセットリストを確認しています…',
+      batchCheckFailed:
+        'この配信の最新データを取得できないため、下書き行は作成できません（自動解析や他の人が書き込んだ内容の上書きを防ぐためです）。',
+      batchStale: 'この区間のデータが編集中に更新されました。下書き行を作り直してください。',
+      batchRecheckFailed: '送信前の再確認に失敗しました。何も送信されていません。しばらくしてからやり直してください。',
       batchTimeHint:
         '既にある曲順には現在の内容（曲・時間・備考）が読み込まれます。そのままでも編集しても構いません。送信するとフォームの内容がそのまま保存され、空欄にした項目は既存の値が消えます。時間の形式は h:mm:ss・m:ss・秒数。',
       existingMark: '既存',
@@ -688,6 +703,10 @@
     formError = ''
     fieldErrors = {}
     draftErrors = {}
+    // 每次重開都要重新刷新該月：上一次開啟留下的 ready 不能沿用（期間 cron／他人可能已寫入）
+    batchFreshTarget = ''
+    batchFreshPhase = 'idle'
+    batchExistingSig = new Map()
     drawerSeq++
     drawerOpen = true
   }
@@ -1105,6 +1124,8 @@
    * 批次＝所見即所得的整段狀態替換（用戶裁示 2026-08-14）：後端 ON DUPLICATE 對
    * songID/note/startTime/endTime 一律無條件覆寫，**防丟資料完全靠這份 prefill**——
    * 既有的曲目／時間戳／備註直接進 value（看得到、可改可留），清空欄位＝真的清空。
+   * ⚠️ 它讀的是 `setlist.rows`（頁面只載一次的快取），新鮮度由下方 `batchFreshPhase` 那組
+   *    機制保證（開表單先 refreshMonth、送出前再比對一次），不可繞過。
    */
   const segmentExisting = $derived.by(() => {
     const map = new Map()
@@ -1131,6 +1152,82 @@
     if (key === lastSuggestKey) return
     lastSuggestKey = key
     if (batchStreamID) batch.startTrack = suggestedStart
+  })
+
+  /* ---------- 批次：既有列的新鮮度 ---------- */
+  /**
+   * ⚠️ 全覆寫語意下 prefill 是防丟資料的唯一屏障，而 `setlist.rows` 是頁面生命週期只載一次
+   * 的快取——cron（EventBridge 歌單解析、留言回補時間戳）或他人在頁面開著期間寫進來的列
+   * 根本不在快取裡：草稿列會顯示成全空，送出就把那幾欄靜默洗成 NULL（無任何提示）。
+   * 因此兩道防線：
+   *   a) 認得場次後先 `refreshMonth`，**刷新完成前不產生草稿列**；失敗＝不給產生（只能重試）。
+   *   b) 送出前再 `refreshMonth` 一次，與「產生草稿列當下的既有列簽章」比對，
+   *      有差異就擋下並要求重產（重產會丟掉未送出的輸入——資料安全＞輸入保留）。
+   * 成本是每次開表單／每次送出各一發單月端點，可接受。
+   */
+  let batchFreshPhase = $state('idle') // 'idle'（尚無有效場次）| 'loading' | 'ready' | 'error'
+  /** 已啟動刷新的 streamID（非 reactive，純粹擋 effect 重跑） */
+  let batchFreshTarget = ''
+  /** 產生草稿列當下、該段既有列的簽章：trackNo → JSON([songID, note, startTime, endTime]) */
+  let batchExistingSig = new Map()
+
+  /** 這場所屬的月度 bucket（refreshMonth 的單位）；不留檔場（time 為 null）＝ 'none' */
+  const batchMonth = $derived(batchStream ? monthOf(batchStream) : null)
+
+  /** 目前該段既有列的簽章快照（比對用；四欄＝批次會覆寫的全部欄位） */
+  function segmentSig() {
+    const map = new Map()
+    for (const [no, r] of segmentExisting) {
+      map.set(
+        no,
+        JSON.stringify([r.songID ?? null, r.note ?? null, r.startTime ?? null, r.endTime ?? null]),
+      )
+    }
+    return map
+  }
+
+  function sameSig(a, b) {
+    if (a.size !== b.size) return false
+    for (const [k, v] of a) if (b.get(k) !== v) return false
+    return true
+  }
+
+  /** 重抓該場所屬月份；期間換了場次就丟棄本輪結果（新的一輪 effect 會自己跑） */
+  async function refreshBatchMonth() {
+    const sid = batchStreamID
+    const month = batchMonth
+    if (!sid || !month) return
+    batchFreshPhase = 'loading'
+    const staleSuggestion = suggestedStart // 刷新前（舊快取）算出的建議起始曲序
+    try {
+      await setlist.refreshMonth(month)
+      if (batchStreamID !== sid) return
+      batchFreshPhase = 'ready'
+      // 已有草稿列（中途換場次／換段落）＝ 那些 prefill 出自舊快取，依新鮮資料整批重灌；
+      // 還沒產生草稿列時只更新建議起始曲序（cron 可能已經把最大 trackNo 推上去了），
+      // 但使用者已自己改過就不搶——只覆蓋「還是刷新前那個建議值」的情況
+      if (batch.drafts.length) regenerateDrafts()
+      else if (Number(batch.startTrack) === staleSuggestion) batch.startTrack = suggestedStart
+    } catch (err) {
+      if (batchStreamID !== sid) return
+      batchFreshPhase = 'error'
+      console.warn('[setlist] 批次表單取得該月最新資料失敗', err)
+    }
+  }
+
+  // 認得場次就刷新一次（?add= 預填與手貼網址走同一條路；換場次＝再刷一次）
+  $effect(() => {
+    if (!drawerOpen || mode !== 'batch') return
+    const sid = batchStream ? batchStreamID : null
+    if (!sid) {
+      // 場次還沒填／不在直播列表：回到 idle，不留著上一場的 ready
+      batchFreshTarget = ''
+      batchFreshPhase = 'idle'
+      return
+    }
+    if (batchFreshTarget === sid) return
+    batchFreshTarget = sid
+    refreshBatchMonth()
   })
 
   /** 一列草稿：撞到既有 trackNo 就整列帶入既有值（時間戳轉成 h:mm:ss 字串），否則全空 */
@@ -1162,17 +1259,28 @@
     if (key === lastAlignKey) return
     lastAlignKey = key
     if (!batch.drafts.length) return
-    const start = Number(batch.startTrack) || 1
     // 讀 length 之外不碰舊列：重灌＝依新對位重建（寫回 drafts 會讓本 effect 再跑一次，
     // 但 key 已相同、上面就 return 了，不會遞迴）
-    batch.drafts = batch.drafts.map((_, i) => makeDraft(start + i))
-    draftErrors = {}
+    regenerateDrafts()
   })
+
+  /** 依目前對位重建全部草稿列（prefill 重灌）＋同步既有列簽章（送出前比對的基準） */
+  function regenerateDrafts() {
+    const start = Number(batch.startTrack) || 1
+    batch.drafts = batch.drafts.map((_, i) => makeDraft(start + i))
+    batchExistingSig = segmentSig()
+    draftErrors = {}
+  }
 
   function generateDrafts() {
     fieldErrors = {}
     draftErrors = {}
     formError = '' // 重產草稿列＝上一輪的驗證結果全失效（紅框已清，訊息不該還留在上面）
+    // 沒拿到最新的既有列就不給產生：舊快取上開出來的表單一送出＝靜默覆蓋（見 batchFreshPhase）
+    if (batchFreshPhase !== 'ready') {
+      formError = batchFreshPhase === 'error' ? m.batchCheckFailed : m.batchChecking
+      return
+    }
     const n = Number(batch.count)
     if (!Number.isFinite(n) || n < 1 || n > 50) {
       fieldErrors = { count: m.countRange }
@@ -1180,6 +1288,7 @@
     }
     const start = Number(batch.startTrack) || 1
     batch.drafts = Array.from({ length: n }, (_, i) => makeDraft(start + i))
+    batchExistingSig = segmentSig() // 這批 prefill 的基準狀態，送出前拿來比對有無被改動
     lastAlignKey = alignKey // 這批的對位基準（免得緊接著又被重灌一次）
   }
 
@@ -1264,6 +1373,20 @@
 
     saving = true
     try {
+      // 送出前重驗（防線 b，見 batchFreshPhase 註解）：表單開著的期間 cron／他人可能已寫入這段，
+      // 沿用舊 prefill 送出＝把那些值靜默洗掉。重抓該月後與產生草稿時的簽章比對，不一致就不送。
+      try {
+        await setlist.refreshMonth(batchMonth)
+      } catch (err) {
+        console.warn('[setlist] 批次送出前的重新確認失敗', err)
+        formError = m.batchRecheckFailed
+        return
+      }
+      if (!sameSig(batchExistingSig, segmentSig())) {
+        formError = m.batchStale
+        return
+      }
+
       // 陣列一次送出（≤200）＝ rate limit 只算 1 次
       const res = await createSetlistEntry(payload)
 
@@ -1535,6 +1658,24 @@
         </div>
       {/if}
 
+      <!-- 既有列的新鮮度（見 batchFreshPhase）：確認完成前不給產生草稿列，失敗只能重試——
+           舊快取上開出來的表單一送出，就會把 cron／他人剛寫入的曲目與時間戳靜默洗掉 -->
+      {#if batchStream && batchFreshPhase !== 'ready'}
+        {#if batchFreshPhase === 'error'}
+          <Alert>
+            {m.batchCheckFailed}
+            <div class="mt-2">
+              <Button onclick={refreshBatchMonth} disabled={saving}>{t('common.reload')}</Button>
+            </div>
+          </Alert>
+        {:else}
+          <div class="mb-3.5 flex items-center gap-2 text-sm text-berry-fg-3" role="status">
+            <span class="h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-berry-bg-3"></span>
+            {m.batchChecking}
+          </div>
+        {/if}
+      {/if}
+
       <div class="grid grid-cols-3 gap-3">
         <Field label={m.segment} forId="setlist-seg">
           <TextInput id="setlist-seg" type="number" min="1" bind:value={batch.segmentNo} />
@@ -1555,7 +1696,9 @@
       </div>
 
       <div class="mb-4 flex items-center gap-2">
-        <Button onclick={generateDrafts} disabled={!batchStream}>{m.generate}</Button>
+        <Button onclick={generateDrafts} disabled={!batchStream || batchFreshPhase !== 'ready'}>
+          {m.generate}
+        </Button>
         <span class="text-sm text-berry-fg-3">{m.draftsHint}</span>
       </div>
 
@@ -1853,7 +1996,7 @@
       <Button
         variant="primary"
         busy={saving}
-        disabled={!batch.drafts.length || !batchStream}
+        disabled={!batch.drafts.length || !batchStream || batchFreshPhase !== 'ready'}
         onclick={submitBatch}
       >
         {t('common.save')}

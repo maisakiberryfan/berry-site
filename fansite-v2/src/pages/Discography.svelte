@@ -14,6 +14,7 @@
   // 資料模組的 name 只在無 songID／songlist 尚未載入時作 fallback。
   //
   // 手機：本頁全部是瀏覽功能（無編輯入口），天然符合「手機唯讀」鐵則。
+  import { untrack } from 'svelte'
   import Page from '../lib/Page.svelte'
   import { t, getLang } from '../i18n.svelte.js'
   import { route, navigate } from '../router.svelte.js'
@@ -284,6 +285,12 @@
   }
 
   // Hash 直達：#<id>（如 #rebirthr）直開該作品面板。認不得的 hash 不動作（可能是別人的錨點）
+  //
+  // ⚠️ 本函式被 $effect 呼叫，兩處刻意切斷 reactive 依賴：
+  //   1. `ensureRecords()` 讀 `recordsPhase`，若被收成 effect 的依賴，延遲載入完成
+  //      （'loading' → 'ready'）就會讓 effect 重跑、把使用者剛展開的 🎤 列（openTrack）收掉。
+  //   2. 讀 `openId` 同理（開面板本身會讓 effect 再跑一次），順便讓「同一個 hash 重跑」
+  //      不再重設 openTrack——雙保險，缺一都仍可能收合。
   function applyHash(raw) {
     let hash = String(raw ?? '').replace(/^#/, '')
     try {
@@ -291,15 +298,18 @@
     } catch {
       // 壞的 % 序列：拿原字串去比對（比不到就當作別人的錨點，不動作）
     }
+    const current = untrack(() => openId)
     if (!hash) {
       openId = ''
       openTrack = -1
       return
     }
     if (releases.some((w) => w.id === hash)) {
-      openId = hash
-      openTrack = -1
-      ensureRecords()
+      if (current !== hash) {
+        openId = hash
+        openTrack = -1
+      }
+      untrack(() => ensureRecords())
     }
   }
 
