@@ -81,6 +81,35 @@ const SPA_ROUTES = new Set([
   '/discography'
 ])
 
+// 動態段路由（詳細頁 path 化，2026-08-14）：`/clothes/20260611`、`/discography/rebirthr`。
+// 「這個 id 存不存在」不另養清單——本站的 OG 快照（下方 ogAssetPath）**就是**那份清單：
+// build 對每個 id 各產一支 /og/<slug>.html，取得到＝id 有效（200），取不到＝無效（404）。
+const SPA_PREFIXES = new Set(['/clothes', '/discography'])
+
+// ── OG 快照（per-page 分享預覽）──────────────────────────────────────────────
+// fansite-v2/scripts/generate-og-html.mjs 在 build 後產出 dist/og/<slug>.html：
+// index.html 只換掉 og:*／description 的副本（爬蟲不執行 JS，SPA 端改 meta 對它們無效）。
+// 這裡把「路徑 → 那支檔」的機械映射寫死，檔案存不存在交給 ASSETS 回答；
+// AWS 側同樣的映射在 template.yaml 的 BotBlockerFunction（那邊得內嵌 id 清單——
+// CloudFront Function 問不到 S3 有沒有物件，兩邊的差異就在這一點）。
+const OG_PAGES = new Set(['/discography', '/clothes', '/profile', '/setlist'])
+
+/**
+ * 正規化後的小寫路徑 → 對應的 OG 快照資產路徑（無對應則 null）。
+ * `/clothes/20260611-3`（直開第 3 張立繪）與舊版 `_s` 後綴都歸到同一套衣裝的快照。
+ */
+function ogAssetPath(p) {
+  if (OG_PAGES.has(p)) return `/og${p}.html`
+  const cut = p.indexOf('/', 1)
+  if (cut <= 0) return null
+  const prefix = p.slice(0, cut)
+  const rest = p.slice(cut + 1)
+  if (!rest || rest.includes('/') || !SPA_PREFIXES.has(prefix)) return null
+  const itemId = prefix === '/clothes' ? rest.split('-')[0].replace(/_s$/, '') : rest
+  if (!/^[a-z0-9-]{1,64}$/.test(itemId)) return null
+  return `/og${prefix}-${itemId}.html`
+}
+
 // ── 惡意掃描路徑 ─────────────────────────────────────────────────────────────
 // AWS 側由 CloudFront Function（template.yaml 的 BotBlockerFunction）在 edge 擋掉，
 // CF 側此前完全沒擋——同一批掃描器打過來，每個路徑都白跑 ASSETS 404 ＋ Hono 一輪。
@@ -197,12 +226,25 @@ export default {
     if (response.status === 404 && env.ASSETS) {
       const accept = request.headers.get('Accept') || ''
       if (accept.includes('text/html')) {
-        const known = SPA_ROUTES.has(normalizePath(pathLower))
+        const clean = normalizePath(pathLower)
+
+        // 有專屬 OG 快照就送它（內容＝index.html 只換 meta，一般瀏覽毫無差別）。
+        // 取得到也順帶證明「這個 id 存在」⇒ 200；取不到就往下走 index.html + 404。
+        const ogPath = ogAssetPath(clean)
+        if (ogPath) {
+          const ogResponse = await env.ASSETS.fetch(new Request(new URL(ogPath, request.url)))
+          if (ogResponse.status === 200) return withSecurityHeaders(ogResponse)
+        }
+
+        const known = SPA_ROUTES.has(clean)
         const spaResponse = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url)))
         // 未知路徑：body 照樣給 index.html（v3 的 App.svelte 會渲染 NotFound 頁，
         // 使用者看到的是站內的 404 而不是裸錯誤頁），但**狀態碼必須是 404**——
         // 一律回 200 等於 soft 404：搜尋引擎會把打錯的網址當正常頁收錄，
         // 監控／存取日誌也分不出「站壞了」與「網址打錯」。
+        // 動態段的未知 id（/clothes/99999999）也走這條：body 是站內頁（該頁顯示總覽、
+        // 不開面板），狀態碼 404。AWS 側做不到這種「殼給 200 內容、狀態碼給 404」的組合
+        // （CloudFront Function 一旦自產回應就沒有 S3 的 body），那邊統一回 200。
         return withSecurityHeaders(spaResponse, known ? undefined : 404)
       }
     }

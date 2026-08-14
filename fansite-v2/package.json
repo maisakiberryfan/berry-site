@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:testdb": "vite --mode testdb --port 5175",
-    "build": "vite build",
+    "build": "vite build && node scripts/generate-og-html.mjs",
+    "og:generate": "node scripts/generate-og-html.mjs",
+    "check:routes": "node scripts/check-routes.mjs",
     "preview": "vite preview",
     "snapshot": "node scripts/fetch-snapshot.mjs"
   },

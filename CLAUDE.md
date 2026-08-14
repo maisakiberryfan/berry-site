@@ -185,13 +185,37 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 ### ⚠️ SPA 路由白名單（**四份，新增／改名路由必須四處一起改**）
 1. `fansite-v2/src/router.svelte.js` 的 `ROUTES` —— 站內連結清單的單一真相
 2. `fansite-v2/src/App.svelte` 的 `PAGES` —— 真正決定渲染哪個頁面元件（漏了顯示 NotFound）
-3. `template.yaml` `BotBlockerFunction` 的 `spaRoutes` —— AWS 主站（CloudFront Function）
-4. `entry-worker.js` 的 `SPA_ROUTES` —— CF 備用站
+3. `template.yaml` `BotBlockerFunction` 的 `spaRoutes`／`spaPrefixes` —— AWS 主站（CloudFront Function）
+4. `entry-worker.js` 的 `SPA_ROUTES`／`SPA_PREFIXES` —— CF 備用站
+
+**一致性用 `cd fansite-v2 && npm run check:routes` 驗**（五份清單全比：上列四份
+＋ OG id 清單，見下節）——手抄的東西遲早會走鐘。
 
 漏 3／4 的症狀相同且都只在部署後才看得出來：站內點得到，直接輸入網址或 F5 就 404。
 兩處比對前都會 `toLowerCase()`（URL 路徑大小寫敏感），清單一律小寫。
 非白名單路徑回 `index.html` 的 body ＋ **404 狀態碼**（讓前端渲染站內 NotFound 頁，
 同時不製造 soft 404）。
+
+**動態段路由**（`/clothes/:id`、`/discography/:id`，2026-08-14 詳細頁 path 化）：
+前綴命中就一定 rewrite 成站內 HTML —— **認不得的 id 也必須拿到 SPA 殼**，否則直接落到
+S3（OAC 無 ListBucket）＝一頁 403 AccessDenied 的 XML。CF 側另外用「OG 快照取不取得到」
+判定 id 有效性 ⇒ 未知 id 回 404 狀態碼；AWS 側做不到（CloudFront Function 自產回應就沒有
+S3 body），統一回 200。
+
+### per-page OG（分享預覽，2026-08-14）
+爬蟲不執行 JS ⇒ SPA 端改 meta 對 Discord／X／LINE 完全無效，只能在伺服器端就送出不同的
+HTML。`fansite-v2/scripts/generate-og-html.mjs`（`npm run build` 已串上）在 build 後把
+`dist/index.html` 複製成 `dist/og/<slug>.html`，只換 `og:*`／`description`／`twitter:card`：
+- 清單＝`scripts/og-config.mjs`（頁級 4 支 ＋ 每張專輯／單曲 ＋ 每套衣裝，**資料來自頁面
+  自己的資料模組** ⇒ 新增專輯只要改 `discographyData.js`）
+- **AWS**：`BotBlockerFunction` 把 `/discography/<id>` rewrite 成 `/og/discography-<id>.html`，
+  且**內嵌一份 id 清單**（function 問不到 S3 有沒有物件，機械式 rewrite 會讓未知 id 吃 403）。
+  清單漏更新的代價只是該項目退回站台級預覽，不會壞站
+- **CF**：`entry-worker.js` 直接向 ASSETS 要同一支檔，取不到就退回 index.html（不需清單）
+- 兩站送出的是**同一支檔案**，不存在「兩套 meta 產生器」的分歧；所有訪客拿到的也是同一份
+  （不做 UA 分流：CachingOptimized 的快取鍵不含 UA，分流只會變成隨機二選一）
+- ⚠️ `clothesData.js`／`discographyData.js` **必須維持裸 Node 可 import**
+  （不得 import 吃 `import.meta.env` 的模組或 .svelte 檔）
 - `Promise.allSettled` 確保首頁各區塊獨立載入
 
 ### 建置
@@ -378,7 +402,10 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - UA blocklist（Bytespider／AhrefsBot…）→ 403
 - `/.well-known/*` → 放行（RFC 8615；**必須排在 `/.` 前綴封鎖之前**，否則憑證續期會 404）
 - 惡意路徑（`.php`, `/wp-*`, `/.env`）→ 404
-- SPA 路由白名單（比對前 `toLowerCase()`）→ rewrite `/index.html`
+- SPA 路由白名單（比對前 `toLowerCase()`）→ rewrite `/index.html`，
+  有 OG 快照的路徑改 rewrite `/og/<slug>.html`（同一份 SPA 殼，只有 meta 不同）
+- 動態段前綴（`/clothes/*`、`/discography/*`）→ id 在內嵌清單內就送該項目的
+  `/og/<prefix>-<id>.html`，否則 `/index.html`（未知 id 絕不可落到 S3）
 - 其他 → 交給 S3（存在=200，不存在=真 404）
 
 CF 備用站的 `entry-worker.js` 有對應的一份（惡意路徑 404／SPA 白名單），改一側請同步另一側。
@@ -545,6 +572,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.11 | 2026-08-14 | 詳細頁 path 化＋per-page OG：`/clothes#20260611`→`/clothes/20260611`、`/discography#rebirthr`→`/discography/rebirthr`（router 加動態段 `/:id`＋`route.pattern/page/id`，舊 hash 連結 mount 時自動 replace 轉址）；build 後產 `dist/og/<slug>.html` 41 支（頁級 4＋專輯/單曲 21＋衣裝 16，資料源＝各頁資料模組），AWS 由 BotBlockerFunction rewrite、CF 由 worker 向 ASSETS 取同一支檔；白名單一致性檢查 `npm run check:routes`（五份清單全比） |
 | v3.10 | 2026-08-13 | 新增「音樂作品」（Discography）頁（v3/fansite-v2）：專輯 10・單曲 11・客座 9 的封面牆＋詳細面板（曲目/staff/特設・BOOTH・配信・XFD 連結/instrumental 註記），曲目 🎤N 鈕就地展開歌枠演唱場次（帶 ?t= 秒數）、`/setlist?song=` 跳轉；封面圖 `fansite/img/albums/`（隨 CI 上線）；dev 圖片改 vite middleware 直讀本地 `fansite/img`；資料權威序＝官方 discography 頁＞BOOTH＞特設頁＞iTunes＞wiki（wiki 累計漏曲 5 處不採信） |
 | v3.9 | 2026-08-09 | 表格快速搜尋語法（由 fansite-v2 移植）：四張表頁的進階搜尋卡片首列新增快速搜尋框，支援 `欄位:值`（三語別名表）、引號值、全形冒號／空白／彎引號、`欄位:*`＝非空、空白分隔 AND；認不得的欄位名整串退回全文比對（`12:34` 不誤拆）；「?」語法說明面板（三語＋可點擊套用的範例）；與既有多欄運算子搜尋並存（統一 `applyTableFilters()` 出口合併送 `setFilter`），刪空搜尋框不再誤清 headerFilter |
 | v3.8 | 2026-08-09 | Analytics 重寫（由 fansite-v2 移植）：新增統計面板（統計卡＋Top20 曲／Top10 歌手／24 月趨勢，純 JS 聚合既有快取、毫秒級零下載）＋自繪 SVG 圖表；查詢改「選取式建構器」（值全 bind、LIKE 加 ESCAPE）；進階 SQL 引擎 DuckDB-WASM→self-host sql.js；**text-to-sql（AI SQL 助手）全鏈移除**（前端 modal／`/api/text-to-sql`／預算控制／`ANTHROPIC_API_KEY`）；parquet 管線退役 ⇒ CSP 兩側移除 cdn.jsdelivr.net、sqldata.m-b.win，worker-src 收回 'self' |
@@ -560,4 +588,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-08-13
+**最後更新**：2026-08-14

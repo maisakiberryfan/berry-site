@@ -1,4 +1,9 @@
 // 衣裝資料 —— 照搬自 fansite/assets/js/clothes.js 的 sourceArray（唯讀資料模組）。
+//
+// ⚠️ **本檔必須能被裸 Node 直接 import**（scripts/og-config.mjs 由它產生每套衣裝的
+//    OG meta）：不得 import 任何吃 `import.meta.env` 的模組（如 ../assets.js）或
+//    .svelte 檔——那會讓 build 腳本在 Node 下當場 TypeError。圖片 URL 的組法屬於
+//    元件的事，放在 Clothes.svelte（galleryImages）。
 // 欄位：
 //   name       衣裝名稱（開頭 "2D-"/"3D-" 決定分類，沿用現站判斷方式）
 //   date       發表日 YYYYMMDD（同時是圖片資料夾名 img/clothes/{date}/）
@@ -44,13 +49,4 @@ export function formatClothesDate(d, lang = 'zh') {
   const [y, mo, day] = [s.slice(0, 4), s.slice(4, 6), s.slice(6, 8)]
   if (lang === 'ja') return `${y}年${Number(mo)}月${Number(day)}日`
   return `${y}/${mo}/${day}`
-}
-
-/** 產生某套衣裝某系列（s/t/c）圖片的 Lightbox 用陣列 */
-import { assetUrl } from '../assets.js'
-export function clothesGalleryImages(item, prefix, count) {
-  return Array.from({ length: count }, (_, i) => ({
-    src: assetUrl(`/img/clothes/${item.date}/${prefix}${i + 1}.webp`),
-    alt: `${item.name} ${prefix}${i + 1}`,
-  }))
 }

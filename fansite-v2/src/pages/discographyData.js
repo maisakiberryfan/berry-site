@@ -14,7 +14,10 @@
 //   （songlist 是曲名的單一事實來源，此處 name 僅作 fallback 與人工對照用）。
 //
 // 欄位（albums / singles 共用同一形狀，releases＝兩者相接）：
-//   id            slug，同時是封面檔名 img/albums/{id}.webp 與 hash 直達錨點（#rebirthr）
+//   id            slug，同時是封面檔名 img/albums/{id}.webp、詳細頁路徑
+//                 （/discography/rebirthr）與 OG 快照檔名（og/discography-rebirthr.html）。
+//                 ⚠️ 本檔必須能被裸 Node 直接 import（scripts/og-config.mjs 讀它產 OG meta）：
+//                 不得 import 任何吃 `import.meta.env` 的模組或 .svelte 檔
 //   type          'album' | 'single' —— ⚠️ 保留欄位，目前頁面完全未讀取（專輯／單曲之分
 //                 來自 albums / singles 兩個匯出，卡片標籤看的是有無 ordinal）。留著是為了
 //                 日後若改成單一清單再分類；有新增資料時請照樣填。
