@@ -320,6 +320,10 @@ export async function createSetlistEntry(c) {
       // 其他兩條路徑不受影響：
       //   PUT 單列——欄位有出現就照寫、null＝清空（timeEditor 的「清空」走這條），語意不變。
       //   worker 分支（下方 else）——自動更新沒有人在看表單，維持「只補空、不覆寫」。
+      //
+      // PK=(streamID, segmentNo, trackNo)（正式庫 SHOW CREATE TABLE 確認，2026-08-14）：
+      // 撞列＝三元組全同，故 `segmentNo = VALUES(segmentNo)` 恆等值（無害死碼，留著
+      // 防 PK 認知錯位）；segment 2 的批次不會撞到 segment 1 的同 trackNo。
       await db.execute(
         `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note, startTime, endTime)
          VALUES ${userPlaceholders}

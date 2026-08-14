@@ -636,11 +636,17 @@ function createSetlistStore() {
   }
 
   /**
-   * 該月份的快取可不可信 —— 三個條件缺一不可：
-   *   synced       本輪 manifest 校驗已完成且沒有月份重抓失敗（快取不會是過時的）
+   * 該月份的快取「在上一輪校驗當下」可不可信 —— 三個條件缺一不可：
+   *   synced       上一輪 manifest 校驗已完成，且沒有月份重抓失敗
    *   months.has   該月 record 真的在手（缺月自癒尚未完成時為 false）
    *   fingerprints 該月指紋已寫入（重抓失敗的月份會被刪掉指紋等下次自癒）
    * 只看 rows.length 非零會同時吃到「過時」與「缺月＝假的沒資料」兩種假象。
+   *
+   * ⚠️ 保證的範圍僅止於「上一輪校驗當下是最新」，**不是「此刻仍是最新」**：
+   *    `synced` 是黏著的（成功後只有 reload()／下一輪 sync 會再動它），頁面開著很久、
+   *    期間 cron（歌單解析／時間戳回補）或他人寫入了新資料，這裡照樣回 true。
+   *    需要「此刻的真值」時（例如全覆寫寫入前的防覆蓋檢查）必須自己 refreshMonth()
+   *    重抓再比對——範例見 SetList 批次表單的 batchFreshPhase。
    */
   function isMonthComplete(month) {
     return synced && months.has(month) && Object.hasOwn(fingerprints, month)

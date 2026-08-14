@@ -21,7 +21,9 @@
   } = $props()
 
   // combobox 排除在外：它 focus 就展開下拉，一開 drawer 就蓋一片清單太吵
-  const FIRST_FIELD = 'input:not([type=hidden]):not([role=combobox]), textarea, select'
+  // readonly 也排除：焦點落在唯讀欄等於什麼都不能打（SetList 別名模式的「正式名稱」欄踩過）
+  const FIRST_FIELD =
+    'input:not([type=hidden]):not([role=combobox]):not([readonly]), textarea:not([readonly]), select'
 
   $effect(() => {
     if (!open) return
