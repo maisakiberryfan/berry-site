@@ -18,6 +18,7 @@
   import { t, getLang } from '../i18n.svelte.js'
   import { route, navigate } from '../router.svelte.js'
   import { assetUrl } from '../assets.js'
+  import { focusTrap } from '../lib/focusTrap.svelte.js'
   import { albums, singles, guests, releases, formatReleaseDate, ordinalSuffix } from './discographyData.js'
   import { songlist, streamlist, setlist, songIndex, streamTitleOf, safeYTLink } from '../api/store.svelte.js'
   import { formatDate } from '../lib/table/utils.js'
@@ -534,9 +535,11 @@
 {#if openWork}
   {@const work = openWork}
   <div
+    use:focusTrap={() => ({})}
     class="fixed inset-0 z-[45] flex items-center justify-center bg-black/50 p-4"
     role="dialog"
     aria-modal="true"
+    aria-labelledby="disco-detail-title"
     tabindex="-1"
     onclick={(e) => {
       if (e.target === e.currentTarget) closeDetail()
@@ -548,7 +551,7 @@
     <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-berry-border bg-berry-bg p-5 shadow-xl sm:p-6">
       <div class="flex items-start justify-between gap-3">
         <div>
-          <h2 class="text-lg font-semibold">{work.title}</h2>
+          <h2 id="disco-detail-title" class="text-lg font-semibold">{work.title}</h2>
           <p class="mt-0.5 text-sm text-berry-fg-3">
             {work.ordinal ? m.albumOrdinal(work.ordinal) : m.single} · {m.release}
             {formatReleaseDate(work.releaseDate, getLang())}

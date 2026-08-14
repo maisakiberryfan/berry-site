@@ -7,6 +7,7 @@
   import { t, getLang } from '../i18n.svelte.js'
   import { clothesData, clothesDim, formatClothesDate, clothesGalleryImages } from './clothesData.js'
   import { assetUrl } from '../assets.js'
+  import { focusTrap } from '../lib/focusTrap.svelte.js'
 
   const msgs = {
     zh: {
@@ -163,9 +164,11 @@
 {#if openIndex !== -1}
   {@const item = clothesData[openIndex]}
   <div
+    use:focusTrap={() => ({})}
     class="fixed inset-0 z-[45] flex items-center justify-center bg-black/50 p-4"
     role="dialog"
     aria-modal="true"
+    aria-labelledby="clothes-detail-title"
     tabindex="-1"
     onclick={(e) => {
       if (e.target === e.currentTarget) closeDetail()
@@ -176,7 +179,7 @@
   >
     <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-berry-border bg-berry-bg p-5 shadow-xl sm:p-6">
       <div class="flex items-start justify-between gap-3">
-        <h2 class="text-lg font-semibold">{item.name}</h2>
+        <h2 id="clothes-detail-title" class="text-lg font-semibold">{item.name}</h2>
         <button
           type="button"
           class="shrink-0 rounded-md p-1.5 text-berry-fg-2 transition-colors hover:bg-berry-bg-3 hover:text-berry-fg"

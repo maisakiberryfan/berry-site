@@ -241,6 +241,13 @@
   let colFilters = $state({})
 
   /**
+   * 先排序、再篩選（四頁共用的作法）：排序結果只依賴「資料 ∧ 排序條件」，$derived 會替它
+   * 快取——篩選每變一次（欄位篩選列每敲一鍵）都重排整表的成本因此消失。篩選保序、
+   * Array#sort 穩定，輸出序列與「先篩後排」逐列相同。sort 為 null 時 applySort 原樣回傳。
+   */
+  const sorted = $derived(applySort(streamlist.rows, sort, columns))
+
+  /**
    * 分類 chips：值與排序取全量（選項與順序不隨篩選跳動），
    * 計數 cascade——隨「chips 群以外的全部條件」（全域搜尋 ∧ 欄位篩選）收斂，
    * 與表頭 select 同一套語意，同頁不出現兩套數字。
@@ -248,8 +255,8 @@
   const beforeChips = $derived.by(() => {
     const tokens = tokenize(query)
     const active = compileColumnFilters(colFilters, columns)
-    if (!tokens.length && !active) return streamlist.rows
-    return streamlist.rows.filter(
+    if (!tokens.length && !active) return sorted
+    return sorted.filter(
       (r) =>
         (!tokens.length || matchesQuery(r, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) &&
         (!active || matchesColumnFilters(r, active)),
@@ -271,8 +278,8 @@
     const tokens = tokenize(query)
     const cats = catFilter
     const active = compileColumnFilters(colFilters, columns, 'categories')
-    if (!tokens.length && !cats.length && !active) return streamlist.rows
-    return streamlist.rows.filter((row) => {
+    if (!tokens.length && !cats.length && !active) return sorted
+    return sorted.filter((row) => {
       if (cats.length) {
         const rowCats = row.categories ?? []
         if (!cats.some((c) => rowCats.includes(c))) return false
@@ -288,12 +295,10 @@
     return categoryOptions.map((o) => ({ ...o, count: counts.get(o.value) ?? 0 }))
   })
 
-  const filtered = $derived.by(() => {
+  const view = $derived.by(() => {
     const c = String(colFilters.categories ?? '')
     return c ? beforeCat.filter((row) => (row.categories ?? []).some((x) => String(x) === c)) : beforeCat
   })
-
-  const view = $derived(applySort(filtered, sort, columns))
 
   /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
   const tableColumns = $derived(
@@ -475,12 +480,22 @@
   }
 
   /**
-   * 取單場歌單：setlist store 已有資料（全量快取）就直接篩，避免為了看一場而打 API；
-   * store 還沒載入（多數情況——本頁只 load streamlist）才走單場端點，比 setlist.load()
-   * 拉全站便宜得多。
+   * 取單場歌單。
+   *
+   * ⚠️ 這份輸出是站主拿去對照 YouTube 留言改資料的依據，錯一行就照錯的改——
+   * 「看到的一定是最新」優先於「省一次請求」。因此只有在 store 明確保證
+   * 「該場所屬月份的快取完整且已校驗」（hasCompleteDataFor）時才吃快取；
+   * 其餘一律打單場端點。
+   *
+   * 舊寫法只看 `setlist.rows.length` 非零就信快取，兩種假象都會中：
+   *   · 該月資料已被別處改過而本頁的 store 尚未校驗 → 吐舊版
+   *   · 快取缺月／自癒未完成 → 該場一列都撈不到 → 假的「這場尚無歌單資料」
    */
-  async function fetchStreamSetlist(streamID) {
-    if (setlist.rows.length) return setlist.rows.filter((r) => r.streamID === streamID)
+  async function fetchStreamSetlist(row) {
+    const streamID = row.streamID
+    if (setlist.hasCompleteDataFor(streamID, row.time)) {
+      return setlist.rows.filter((r) => r.streamID === streamID)
+    }
     const { data } = await apiGet(`/api/setlist?streamID=${encodeURIComponent(streamID)}`)
     return Array.isArray(data) ? data : []
   }
@@ -493,7 +508,7 @@
     klLoading = true
     klOpen = true
     try {
-      const rows = await fetchStreamSetlist(row.streamID)
+      const rows = await fetchStreamSetlist(row)
       if (seq !== klSeq) return
       const sorted = [...rows].sort(
         (a, b) => (a.segmentNo ?? 1) - (b.segmentNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0),
@@ -586,7 +601,14 @@
     drawerOpen = true
   }
 
-  /** 原站 preCategory 的移植：由標題猜分類；只保留資料裡真的存在的分類名（避免造出新分類） */
+  /**
+   * 原站 preCategory 的移植：由標題猜分類；只保留資料裡真的存在的分類名（避免造出新分類）。
+   *
+   * ⚠️ 與 v2 的**刻意差異**：一條都不命中時回 `[]`，v2 回 `['other']`。
+   * `other` 是 v2 這個 fallback 自己製造出來的垃圾分類（DB 裡確實存了一批，
+   * 與正牌的「その他 / Others」並存）——猜不到就讓站主自己選，不要繼續生產它。
+   * 下一手看到這裡與 v2 不同時請勿「修回去」。
+   */
   function guessCategories(title) {
     const s = String(title ?? '')
     const low = s.toLowerCase()
@@ -963,6 +985,7 @@
   open={drawerOpen}
   title={editing ? m.editTitle : m.addTitle}
   subtitle={editing ? editing.streamID : ''}
+  focusSeq={drawerSeq}
   onclose={requestClose}
 >
   {#key drawerSeq}

@@ -45,6 +45,7 @@ export default {
     resizeColumn: '列幅を調整',
     filterColumn: '絞り込み：{label}',
     clearColumnFilters: '列の絞り込みを解除',
+    columnFiltersActive: '列の絞り込み {n} 件が有効',
   },
   page: {
     home: 'ホーム',

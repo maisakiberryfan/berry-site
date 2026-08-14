@@ -1,7 +1,9 @@
 <script>
   // 自寫小確認框（不用 window.confirm，才能套主題與 busy 狀態）
+  // 焦點（移入最後一顆＝確定鈕／Tab 循環／關閉還原）與背景捲動鎖交給 focusTrap action
   import { fade, scale } from 'svelte/transition'
   import { t } from '../../i18n.svelte.js'
+  import { focusTrap } from '../focusTrap.svelte.js'
   import Button from './Button.svelte'
 
   let {
@@ -16,7 +18,11 @@
     oncancel = undefined,
   } = $props()
 
-  let boxEl = $state(null)
+  /** 初始焦點：面板最後一顆鈕＝確定（沿用原行為，Enter 直接確認） */
+  const lastButton = (node) => {
+    const buttons = node.querySelectorAll('button')
+    return buttons[buttons.length - 1] ?? null
+  }
 
   $effect(() => {
     if (!open) return
@@ -24,11 +30,6 @@
       if (e.key === 'Escape' && !e.isComposing && !busy) oncancel?.()
     }
     document.addEventListener('keydown', onKey)
-    const el = boxEl
-    queueMicrotask(() => {
-      const buttons = el?.querySelectorAll('button')
-      buttons?.[buttons.length - 1]?.focus({ preventScroll: true }) // 最後一顆＝確定
-    })
     return () => document.removeEventListener('keydown', onKey)
   })
 </script>
@@ -45,7 +46,8 @@
     ></button>
 
     <div
-      bind:this={boxEl}
+      use:focusTrap={() => ({ initial: lastButton })}
+      tabindex="-1"
       role="alertdialog"
       aria-modal="true"
       aria-label={title}

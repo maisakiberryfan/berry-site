@@ -19,6 +19,10 @@
     oninput = undefined,
     onkeydown = undefined,
     onblur = undefined,
+    // IME 組字：需要「組字中不動作」的使用處（如 SongList 歌手自動完成）自行接這兩個；
+    // 沒接的使用處行為完全不變（undefined＝不掛監聽）
+    oncompositionstart = undefined,
+    oncompositionend = undefined,
     class: extra = '',
   } = $props()
 
@@ -50,6 +54,8 @@
     oninput={handleInput}
     {onkeydown}
     {onblur}
+    {oncompositionstart}
+    {oncompositionend}
   ></textarea>
 {:else}
   <input
@@ -69,5 +75,7 @@
     oninput={handleInput}
     {onkeydown}
     {onblur}
+    {oncompositionstart}
+    {oncompositionend}
   />
 {/if}

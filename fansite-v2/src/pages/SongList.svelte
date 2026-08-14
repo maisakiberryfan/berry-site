@@ -169,10 +169,17 @@
   /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
   let colFilters = $state({})
 
+  /**
+   * 先排序、再篩選（四頁共用的作法）：排序結果只依賴「資料 ∧ 排序條件」，$derived 會替它
+   * 快取——篩選每變一次（欄位篩選列每敲一鍵）都重排整表的成本因此消失。篩選保序、
+   * Array#sort 穩定，輸出序列與「先篩後排」逐列相同。sort 為 null 時 applySort 原樣回傳。
+   */
+  const sorted = $derived(applySort(songlist.rows, sort, columns))
+
   // 兩段套用：先算「類型以外的全部條件」——類型 select 的選項計數以此為基準（cascade：
   // 不裁選項，只更新計數）——再補上類型本身。
   const beforeGenre = $derived.by(() => {
-    const rows = filterRows(songlist.rows, tokenize(query), SEARCH_FIELDS, SEARCH_ALIASES)
+    const rows = filterRows(sorted, tokenize(query), SEARCH_FIELDS, SEARCH_ALIASES)
     const active = compileColumnFilters(colFilters, columns, 'genre')
     return active ? rows.filter((r) => matchesColumnFilters(r, active)) : rows
   })
@@ -185,12 +192,10 @@
       .map(([value]) => ({ value, label: value, count: counts.get(value) ?? 0 }))
   })
 
-  const filtered = $derived.by(() => {
+  const view = $derived.by(() => {
     const g = String(colFilters.genre ?? '')
     return g ? beforeGenre.filter((r) => String(r.genre ?? '') === g) : beforeGenre
   })
-
-  const view = $derived(applySort(filtered, sort, columns))
 
   /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
   const tableColumns = $derived(
@@ -230,16 +235,37 @@
 
   const artistSuggestions = $derived([...artistPairs.keys()].sort((a, b) => a.localeCompare(b)))
 
-  /** 上一次由建議自動帶入的英文名：只覆寫自己寫過的值，不踩使用者手打的 */
+  /** 上一次由建議自動帶入的英文名：只覆寫／撤銷自己寫過的值，不踩使用者手打的 */
   let autoArtistEn = ''
+  /** IME 組字中不動 artistEn（組字中間態「よね」也可能剛好命中某個歌手） */
+  let artistComposing = false
+
+  /**
+   * 歌手欄自動完成：命中就帶英文名，**不再命中就把自己帶的值撤掉**。
+   * 撤銷是必要的——「米津玄師さん」一路打過去會在「米津玄師」那一刻命中，
+   * 不撤銷就留下錯的 Kenshi Yonezu 一起寫進 DB（打字中途的命中不是使用者的選擇）。
+   */
+  function applyArtistAuto(value) {
+    const en = artistPairs.get(String(value ?? '').trim()) ?? ''
+    const cur = (form.artistEn ?? '').trim()
+    if (cur && cur !== autoArtistEn) return // 使用者手打過的英文名一律不動
+    if (en) {
+      form.artistEn = en
+      autoArtistEn = en
+    } else if (autoArtistEn) {
+      form.artistEn = ''
+      autoArtistEn = ''
+    }
+  }
 
   function onArtistInput(e) {
-    const en = artistPairs.get((e.currentTarget.value ?? '').trim())
-    if (!en) return
-    const cur = (form.artistEn ?? '').trim()
-    if (cur && cur !== autoArtistEn) return
-    form.artistEn = en
-    autoArtistEn = en
+    if (artistComposing) return
+    applyArtistAuto(e.currentTarget.value)
+  }
+
+  function onArtistCompositionEnd(e) {
+    artistComposing = false
+    applyArtistAuto(e.currentTarget.value)
   }
 
   /* ---------- Drawer 表單 ---------- */
@@ -287,6 +313,7 @@
     fieldErrors = {}
     deleteError = ''
     autoArtistEn = ''
+    artistComposing = false
     drawerSeq++
     drawerOpen = true
   }
@@ -454,6 +481,7 @@
   open={drawerOpen}
   title={editing ? m.editTitle : m.addTitle}
   subtitle={editing ? `#${editing.songID}` : ''}
+  focusSeq={drawerSeq}
   onclose={requestClose}
 >
   {#key drawerSeq}
@@ -481,6 +509,8 @@
         maxlength={500}
         list="songlist-artist-suggestions"
         oninput={onArtistInput}
+        oncompositionstart={() => (artistComposing = true)}
+        oncompositionend={onArtistCompositionEnd}
       />
     </Field>
 

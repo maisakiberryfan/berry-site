@@ -22,8 +22,12 @@
   //   與排序同一套分工：DataTable 只出 UI 與值（{ 欄key: 值 }），實際過濾在頁面端做
   //   （才能與全域搜尋、FilterChips 疊成同一個 AND、共用同一次走訪）。
   //   text 欄有 IME 組字防護與 debounce；select 立即生效。
-  //   注意：文字框的顯示值是元件內部草稿，頁面把 columnFilters 改掉不會回寫進輸入框
-  //   （清空一律走篩選列自己的 × / 清除鈕）。
+  //   文字框的顯示值是元件內部草稿（drafts），與 columnFilters 單向同步；外部改寫
+  //   columnFilters 時由 $effect 回寫進輸入框——但正在輸入／組字／等 debounce 的那一欄
+  //   不覆寫（會把使用者打到一半的字吃掉）。
+  //   **手機（<768px）不渲染篩選列**（沒有欄的概念），但條件仍在頁面端生效——
+  //   縮窗後資料被靜默裁切、找不到出口，故改為顯示一列唯讀提示（幾項生效中＋清除鈕）。
+  //   刻意不自動清空：只是把視窗縮窄一下就把桌面辛苦設好的條件丟掉更糟。
   //
   // onedit 有給時，桌面在行尾補一個窄欄放鉛筆鈕；列本身不吃點擊（整列可點會在選取表格文字時誤觸編輯）。
   // **手機不渲染鉛筆**——用戶裁示 2026-08-08「手機＝查資料、PC＝編輯」，四頁通用，各頁不必自己藏。
@@ -37,6 +41,7 @@
   // 欄寬拖拉（桌面）：欄頭右緣的把手可拖動改該欄寬度，改過的欄以 px 覆寫 col.width，
   // 未改的欄維持原本的 fr/minmax 定義（因此拖寬一欄＝其餘彈性欄讓出空間）。
   // 刻意不持久化：重整即回到預設欄寬。
+  import { untrack } from 'svelte'
   import { t } from '../../i18n.svelte.js'
   import { nextSort, MOBILE_MQ } from './utils.js'
 
@@ -86,15 +91,23 @@
 
   const filterMode = (col) => col.filter ?? 'text'
 
+  /** columnFilters 取值：Object.hasOwn 把關，欄 key 撞到 Object.prototype 成員時不誤判成有條件 */
+  const filterOf = (key) =>
+    columnFilters && Object.hasOwn(columnFilters, key) ? (columnFilters[key] ?? '') : ''
+  const draftOf = (key) => (Object.hasOwn(drafts, key) ? (drafts[key] ?? '') : '')
+
   const rowH = $derived(isMobile ? mobileRowHeight : rowHeight)
   const showFilters = $derived(
     !isMobile && !!onfilterchange && columns.some((c) => filterMode(c) !== false),
   )
   // 表頭＋篩選列都 sticky 在捲動容器頂端，虛擬滾動的起算高度要含兩者
   const headerH = $derived(isMobile ? 0 : HEADER_H + (showFilters ? FILTER_H : 0))
-  const hasFilterValue = $derived(
-    Object.values(columnFilters ?? {}).some((v) => v != null && String(v) !== ''),
+  const activeFilterCount = $derived(
+    Object.values(columnFilters ?? {}).filter((v) => v != null && String(v) !== '').length,
   )
+  const hasFilterValue = $derived(activeFilterCount > 0)
+  /** 手機：篩選列不渲染，改用唯讀提示列當出口（條件仍在頁面端生效，不能不告而別） */
+  const showMobileFilterNotice = $derived(isMobile && !!onfilterchange && hasFilterValue)
   const total = $derived(rows.length)
   const bodyTop = $derived(Math.max(0, scrollTop - headerH))
   const start = $derived(Math.max(0, Math.floor(bodyTop / rowH) - OVERSCAN))
@@ -169,6 +182,34 @@
     filterTimers.clear()
   })
 
+  /** columnFilters 想要的文字框內容（只算 text 欄；select 直接綁 columnFilters 不需草稿） */
+  const desiredDrafts = $derived.by(() => {
+    const out = {}
+    for (const col of columns) {
+      if (filterMode(col) !== 'text') continue
+      out[col.key] = String(filterOf(col.key))
+    }
+    return out
+  })
+
+  // 單向同步的回程：頁面／提示列改寫 columnFilters 後，輸入框顯示值要跟著回來
+  // （不然「清除」按了條件沒了、框裡的字還在）。三種情況不覆寫：
+  // 該欄正在被輸入（聚焦中）、IME 組字中、debounce 還沒送出——都會搶掉使用者打的字。
+  $effect(() => {
+    const want = desiredDrafts
+    untrack(() => {
+      let next = null
+      for (const key of Object.keys(want)) {
+        if (want[key] === String(draftOf(key))) continue
+        if (composingKey === key || filterTimers.has(key)) continue
+        if (document.activeElement?.dataset?.filter === key) continue
+        next ??= { ...drafts }
+        next[key] = want[key]
+      }
+      if (next) drafts = next
+    })
+  })
+
   function commitFilter(key, value) {
     const next = { ...columnFilters }
     const v = String(value ?? '').trim()
@@ -179,8 +220,17 @@
 
   function scheduleFilter(key, value) {
     clearTimeout(filterTimers.get(key))
+    filterTimers.delete(key)
     if (composingKey === key) return // 組字中不送出
-    filterTimers.set(key, setTimeout(() => commitFilter(key, value), filterDelay))
+    // 送出後把自己從表上移除：filterTimers.has(key)＝「這一欄還有沒送出的輸入」，
+    // 上面的草稿回寫 effect 靠它判斷該不該讓路
+    filterTimers.set(
+      key,
+      setTimeout(() => {
+        filterTimers.delete(key)
+        commitFilter(key, value)
+      }, filterDelay),
+    )
   }
 
   function onFilterInput(col, e) {
@@ -291,6 +341,27 @@
 {/snippet}
 
 <div class="rounded-lg border border-berry-border bg-berry-bg">
+  <!-- 手機：篩選列不渲染，但條件照樣生效——出一列唯讀提示＋清除鈕當出口 -->
+  {#if showMobileFilterNotice}
+    <div
+      class="flex items-center gap-2 border-b border-berry-border px-3 py-2 text-sm"
+      style="background: var(--berry-subtle-bg); color: var(--berry-text-emphasis)"
+      role="status"
+    >
+      <span class="min-w-0 flex-1">
+        {t('common.columnFiltersActive', { n: activeFilterCount })}
+      </span>
+      <button
+        type="button"
+        class="shrink-0 rounded-md border px-2 py-1 text-sm transition-colors hover:bg-berry-bg-3"
+        style="border-color: var(--berry-subtle-border)"
+        onclick={clearAllFilters}
+      >
+        ✕ {t('common.clear')}
+      </button>
+    </div>
+  {/if}
+
   <!-- 手機：欄頭消失，改用緊湊排序控制 -->
   {#if isMobile && sortableCols.length && onsort}
     <div class="flex items-center gap-2 border-b border-berry-border px-3 py-2">
@@ -398,10 +469,10 @@
               {#if filterMode(col) === 'select'}
                 <select
                   class="h-7 w-full min-w-0 rounded border border-berry-border bg-berry-bg-3 px-1 text-sm text-berry-fg outline-none focus:border-[var(--berry-primary)]"
-                  style={columnFilters[col.key] ? 'border-color: var(--berry-primary)' : ''}
+                  style={filterOf(col.key) ? 'border-color: var(--berry-primary)' : ''}
                   aria-label={t('common.filterColumn', { label: col.label })}
                   title={t('common.filterColumn', { label: col.label })}
-                  value={columnFilters[col.key] ?? ''}
+                  value={filterOf(col.key)}
                   onchange={(e) => commitFilter(col.key, e.currentTarget.value)}
                 >
                   <option value="">{t('common.all')}</option>
@@ -415,22 +486,22 @@
                 <div class="relative min-w-0 flex-1">
                   <input
                     type="text"
-                    class="h-7 w-full min-w-0 rounded border border-berry-border bg-berry-bg-3 pl-1.5 text-sm text-berry-fg outline-none transition-colors placeholder:text-berry-fg-3 focus:border-[var(--berry-primary)] {drafts[
-                      col.key
-                    ]
+                    class="h-7 w-full min-w-0 rounded border border-berry-border bg-berry-bg-3 pl-1.5 text-sm text-berry-fg outline-none transition-colors placeholder:text-berry-fg-3 focus:border-[var(--berry-primary)] {draftOf(
+                      col.key,
+                    )
                       ? 'pr-5'
                       : 'pr-1.5'}"
-                    style={columnFilters[col.key] ? 'border-color: var(--berry-primary)' : ''}
+                    style={filterOf(col.key) ? 'border-color: var(--berry-primary)' : ''}
                     placeholder={col.label}
                     aria-label={t('common.filterColumn', { label: col.label })}
                     title={t('common.filterColumn', { label: col.label })}
                     data-filter={col.key}
-                    value={drafts[col.key] ?? ''}
+                    value={draftOf(col.key)}
                     oninput={(e) => onFilterInput(col, e)}
                     oncompositionstart={() => (composingKey = col.key)}
                     oncompositionend={(e) => onFilterCompositionEnd(col, e)}
                   />
-                  {#if drafts[col.key]}
+                  {#if draftOf(col.key)}
                     <button
                       type="button"
                       class="absolute right-0.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-berry-fg-3 transition-colors hover:text-berry-fg"
@@ -456,16 +527,14 @@
           {/each}
 
           {#if hasActionCol}
-            <!-- 行尾動作欄的位置不放篩選輸入，只在有條件時放「清除欄位篩選」 -->
+            <!-- 行尾動作欄的位置不放篩選輸入，只在有條件時放「清除欄位篩選」。
+                 ⚠️ 沒有行尾動作欄的表格就沒有這個出口——原本的退路是絕對定位貼在
+                 min-width 畫布右緣，橫向捲動時會躲到視窗外（比沒有更糟），已移除。
+                 四張表都有動作欄故走不到；日後真有無動作欄的表格，請在工具列另給清除入口。 -->
             <div class="flex items-center justify-center">
               {#if hasFilterValue}
                 {@render clearAllBtn()}
               {/if}
-            </div>
-          {:else if hasFilterValue}
-            <!-- 沒有行尾動作欄的表格：清除鈕改貼在列尾（sticky 已是絕對定位的容器） -->
-            <div class="absolute right-1 top-1/2 -translate-y-1/2">
-              {@render clearAllBtn()}
             </div>
           {/if}
         </div>

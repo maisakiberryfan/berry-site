@@ -1,20 +1,27 @@
 <script>
   // 右側抽屜表單：遮罩點擊 / Esc / 關閉鈕都走 onclose（是否二次確認由頁面決定）
   // ⚠️ Esc 在 IME 組字中（e.isComposing）不關閉——日文輸入取消候選也會送 Esc
+  //
+  // 焦點（移入／Tab 循環／關閉還原）與背景捲動鎖交給 focusTrap action。
+  // focusSeq：頁面把面板內容整批換掉（SetList 的 edit⇄alias⇄reorder）時遞增，
+  //   焦點才會跟著移到新內容——只靠 open 的話，模式切換後焦點還留在已消失的舊控制項上。
   import { fade, fly } from 'svelte/transition'
   import { t } from '../../i18n.svelte.js'
+  import { focusTrap } from '../focusTrap.svelte.js'
 
   let {
     open = false,
     title = '',
     subtitle = '',
     width = '460px',
+    focusSeq = 0,
     onclose = undefined,
     children,
     footer,
   } = $props()
 
-  let panelEl = $state(null)
+  // combobox 排除在外：它 focus 就展開下拉，一開 drawer 就蓋一片清單太吵
+  const FIRST_FIELD = 'input:not([type=hidden]):not([role=combobox]), textarea, select'
 
   $effect(() => {
     if (!open) return
@@ -26,25 +33,7 @@
       onclose?.()
     }
     document.addEventListener('keydown', onKey)
-
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    // 開啟後把焦點帶進面板（無輸入欄時退回面板本身）
-    // combobox 排除在外：它 focus 就展開下拉，一開 drawer 就蓋一片清單太吵
-    const el = panelEl
-    queueMicrotask(() => {
-      const first = el?.querySelector(
-        'input:not([type=hidden]):not([role=combobox]), textarea, select',
-      )
-      if (first) first.focus({ preventScroll: true })
-      else el?.focus({ preventScroll: true })
-    })
-
-    return () => {
-      document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
-    }
+    return () => document.removeEventListener('keydown', onKey)
   })
 </script>
 
@@ -61,7 +50,7 @@
     ></button>
 
     <div
-      bind:this={panelEl}
+      use:focusTrap={() => ({ seq: focusSeq, initial: FIRST_FIELD })}
       tabindex="-1"
       role="dialog"
       aria-modal="true"
