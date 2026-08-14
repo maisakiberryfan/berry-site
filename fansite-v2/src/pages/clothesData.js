@@ -32,9 +32,18 @@ export function clothesDim(item) {
   return item.name.startsWith('3D') ? '3D' : '2D'
 }
 
-/** YYYYMMDD → YYYY/MM/DD */
-export function formatClothesDate(d) {
-  return `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}`
+/**
+ * YYYYMMDD → 顯示用日期。日文介面走「YYYY年M月D日」（與 discographyData 的
+ * formatReleaseDate 同一套規則），其餘語言走 YYYY/MM/DD。
+ * @param {string} d  YYYYMMDD
+ * @param {'zh'|'en'|'ja'} [lang]
+ */
+export function formatClothesDate(d, lang = 'zh') {
+  const s = String(d ?? '')
+  if (s.length < 8) return s
+  const [y, mo, day] = [s.slice(0, 4), s.slice(4, 6), s.slice(6, 8)]
+  if (lang === 'ja') return `${y}年${Number(mo)}月${Number(day)}日`
+  return `${y}/${mo}/${day}`
 }
 
 /** 產生某套衣裝某系列（s/t/c）圖片的 Lightbox 用陣列 */

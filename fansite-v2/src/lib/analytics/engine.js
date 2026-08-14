@@ -155,8 +155,33 @@ function executeBound(sql, params) {
   }
 }
 
-/** 由實際值推欄位型別（sql.js 不提供 schema；ResultTable 只需要對齊與寬度提示） */
+/**
+ * 由實際值推欄位型別（sql.js 不提供 schema；ResultTable 只需要對齊與寬度提示）。
+ *
+ * ⚠️ **key 必須全域唯一**：SQLite 允許同名欄同時出現（`SELECT songName, songName …`、
+ *    多表 join 的同名欄、`SELECT *` 疊聚合），而 key 同時是
+ *    (a) ResultTable `{#each columns as col (col.key)}` 的 each key——重複會直接
+ *        拋 each_key_duplicate 讓整個結果區炸掉；
+ *    (b) row 物件的欄位名（下方 runQuery 以 columns[c].key 組裝）——重複會讓後面的值
+ *        覆蓋前面的，第二欄看起來與第一欄一模一樣。
+ *    故第 2 次以後出現的同名欄改叫 `name_2`、`name_3`…（沿用 SQL 客戶端的慣例），
+ *    並保留 `name` 記錄 SQL 原本的欄名（tooltip／日後需要時可用）。
+ *    去重後的名字若又與別的原始欄名相撞，繼續往上加號直到真的沒人用過。
+ */
 function inferColumns(names, values) {
+  const used = new Set()
+  const keyFor = (name) => {
+    if (!used.has(name)) {
+      used.add(name)
+      return name
+    }
+    let n = 2
+    while (used.has(`${name}_${n}`)) n++
+    const key = `${name}_${n}`
+    used.add(key)
+    return key
+  }
+
   return names.map((name, i) => {
     let sawNumber = false
     let sawOther = false
@@ -175,7 +200,8 @@ function inferColumns(names, values) {
     const numeric = sawNumber && !sawString && !sawOther
     const time = sawDate && !sawOther && !sawNumber
     return {
-      key: name,
+      key: keyFor(name),
+      name,
       type: numeric ? 'INTEGER' : time ? 'DATETIME' : sawString ? 'TEXT' : 'NULL',
       numeric,
       time,

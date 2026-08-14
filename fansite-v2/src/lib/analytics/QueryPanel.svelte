@@ -36,7 +36,7 @@
     aggAlias,
   } from './builder.js'
   import { buildDataset } from './dataset.js'
-  import { runQuery, engineReady } from './engine.js'
+  import { runQuery } from './engine.js'
   import ResultTable from './ResultTable.svelte'
 
   /* ---------- 頁內三語字典 ---------- */
@@ -304,7 +304,6 @@
 
   let running = $state(false)
   let stage = $state(null)
-  let engineLoaded = $state(engineReady())
   let error = $state(null)
   let result = $state(null)
   let ran = $state(false)
@@ -430,7 +429,6 @@
     try {
       const rows = await readyDataset()
       result = await runQuery(q, rows, (s) => (stage = s), params)
-      engineLoaded = true
     } catch (err) {
       result = null
       error = String(err?.message ?? err)
@@ -778,8 +776,6 @@
         >
           {running ? (m.stage[stage] ?? m.stage.query) : m.run}
         </button>
-        {#if !engineLoaded}
-        {/if}
       </div>
     </div>
   {:else}
@@ -852,8 +848,6 @@
         >
           {running ? (m.stage[stage] ?? m.stage.query) : m.runSql}
         </button>
-        {#if !engineLoaded}
-        {/if}
       </div>
     </div>
   {/if}

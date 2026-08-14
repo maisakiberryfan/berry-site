@@ -46,6 +46,15 @@ export default {
     filterColumn: 'Filter: {label}',
     clearColumnFilters: 'Clear column filters',
     columnFiltersActive: '{n} column filter(s) active',
+    // Localized write-failure messages (dispatched by HTTP status; the backend's
+    // English message is shown only as secondary technical detail)
+    errValidation: 'Some values are invalid. Please fix the highlighted fields and try again.',
+    errNotFound: 'This record no longer exists (it may have been deleted). Please reload the page.',
+    errConflict: 'Someone else changed this record. Please reload and try again.',
+    errServer: 'The server ran into a problem. Please try again shortly.',
+    errNetwork: 'Connection failed. Check your network and try again.',
+    errUnknown: 'The operation failed. Please try again shortly.',
+    errField: 'This value is invalid',
   },
   page: {
     home: 'Home',

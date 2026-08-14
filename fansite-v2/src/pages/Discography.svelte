@@ -50,6 +50,7 @@
       showingRecent: (shown, total) => `顯示最近 ${shown} 場，共 ${total} 場`,
       loadingRecords: '演唱紀錄載入中…',
       noRecords: '無演唱紀錄',
+      partialRecords: '尚未取得完整紀錄',
       noStreamTitle: '（無場次標題）',
       noArchive: '無存檔',
       roleLabel: {
@@ -94,6 +95,7 @@
       showingRecent: (shown, total) => `Showing the latest ${shown} of ${total}`,
       loadingRecords: 'Loading performances…',
       noRecords: 'no performances',
+      partialRecords: 'records not fully loaded',
       noStreamTitle: '(untitled stream)',
       noArchive: 'no archive',
       roleLabel: {
@@ -138,6 +140,7 @@
       showingRecent: (shown, total) => `最新 ${shown} 件を表示（全 ${total} 件）`,
       loadingRecords: '歌唱記録を読み込み中…',
       noRecords: '歌唱記録なし',
+      partialRecords: '歌唱記録は未取得',
       noStreamTitle: '（配信タイトルなし）',
       noArchive: 'アーカイブなし',
       roleLabel: {
@@ -216,6 +219,15 @@
    * 或 load() 已結束（含失敗與真空）就不再等：兩者都不成立時才是骨架。
    */
   const recordsReady = $derived(recordsPhase === 'ready' || setlist.rows.length > 0)
+
+  /**
+   * 「0 場」到底是真的沒唱過，還是資料沒到齊？
+   * setlist 的背景校正尚未成功（載入失敗、月度重抓有缺）時，rows 可能只是 IDB／快照的
+   * 舊值甚至空的——這時候寫「無演唱紀錄」是在斷言一件我們並不知道的事，
+   * 改說「尚未取得完整紀錄」。（不細看 isMonthComplete：這裡只要「別說謊」的粒度，
+   * 逐月精度留給 SetList 頁。）
+   */
+  const recordsTrustworthy = $derived(setlist.synced)
 
   /** 曲名：有 songID 一律以 songlist 為準，其餘用資料模組的 name */
   function trackName(track) {
@@ -529,7 +541,9 @@
                  載好之後才知道場次數，才把數字補上（載好且為 0＝真的沒唱過，整條不顯示） -->
             {#if g.songID != null}
               {@const guestCount = recordsReady ? recordsOf(g.songID).length : -1}
-              {#if guestCount !== 0}
+              <!-- 0 場才整條收起來——但「資料還沒取齊的 0」不算數（見 recordsTrustworthy），
+                   那時照樣給連結、只是不寫數字 -->
+              {#if guestCount !== 0 || !recordsTrustworthy}
                 <a href={setlistHref(g.songID, trackName({ songID: g.songID, name: g.title }))} class="no-underline hover:underline">
                   🎤 {guestCount > 0 ? `${guestCount} · ` : ''}{m.openInSetlist}
                 </a>
@@ -683,8 +697,11 @@
                           aria-label={m.loadingRecords}
                         ></span>
                       {:else if track.songID != null}
-                        <!-- 載完了但這首沒有紀錄（含載入失敗的空資料）——骨架不留在那裡轉 -->
-                        <span class="text-sm text-berry-fg-3">{m.noRecords}</span>
+                        <!-- 載完了但這首沒有紀錄——骨架不留在那裡轉。校正沒成功時只敢說
+                             「還沒取齊」，不敢說「沒唱過」 -->
+                        <span class="text-sm text-berry-fg-3">
+                          {recordsTrustworthy ? m.noRecords : m.partialRecords}
+                        </span>
                       {/if}
                     </div>
                     {@render creditLine(track.credits)}

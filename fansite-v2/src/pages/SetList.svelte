@@ -140,6 +140,7 @@
       aliasSame: '別名與正式名稱相同，不需要新增。',
       aliasAdded: '已新增別名「{v}」',
       aliasUpdated: '已更新別名「{v}」',
+      aliasRebound: '⚠️ 這個別名原本指向其他歌曲，已改綁到目前這一首。',
       aliasSubmit: '新增別名',
       aliasBack: '返回編輯',
     },
@@ -230,6 +231,7 @@
       aliasSame: 'The alias equals the canonical name — nothing to add.',
       aliasAdded: 'Alias “{v}” added',
       aliasUpdated: 'Alias “{v}” updated',
+      aliasRebound: '⚠️ This alias pointed at another song; it now binds to this one.',
       aliasSubmit: 'Add alias',
       aliasBack: 'Back to edit',
     },
@@ -319,6 +321,7 @@
       aliasSame: 'エイリアスが正式名称と同じです。追加する必要はありません。',
       aliasAdded: 'エイリアス「{v}」を追加しました',
       aliasUpdated: 'エイリアス「{v}」を更新しました',
+      aliasRebound: '⚠️ このエイリアスは別の曲に紐づいていましたが、この曲に付け替えました。',
       aliasSubmit: 'エイリアスを追加',
       aliasBack: '編集に戻る',
     },
@@ -614,6 +617,11 @@
   let saving = $state(false)
   let formError = $state('')
   let fieldErrors = $state({})
+  /** 後端原文（英文），降級成主訊息下方的小字技術細節 */
+  let formErrorDetail = $state('')
+  /** detail 所屬的那一則主訊息：本頁有十幾處直接改寫 formError（批次流程的各種提示），
+   *  綁定來源才不會讓上一次 API 失敗的英文小字黏在後來的中文提示底下 */
+  let formErrorDetailFor = $state('')
 
   let discardOpen = $state(false)
   let deleteOpen = $state(false)
@@ -650,6 +658,8 @@
   let aliasPicking = $state(false)
   /** 送出成功訊息（連續新增時每次覆蓋） */
   let aliasResult = $state('')
+  /** 該則訊息是否為「改綁警示」（後端回報 rebound 時）：警示用黃色，不是綠色的成功 */
+  let aliasRebound = $state(false)
 
   const batchStreamID = $derived(parseYouTubeId(batch.url))
   const batchStream = $derived(batchStreamID ? (streamIndex.map.get(batchStreamID) ?? null) : null)
@@ -828,6 +838,7 @@
     }
     aliasPicking = aliasForm.aliasType === 'title' && !hasSong
     aliasResult = ''
+    aliasRebound = false
     formError = ''
     fieldErrors = {}
     mode = 'alias'
@@ -839,6 +850,7 @@
     if (aliasForm.aliasType === type) return
     aliasForm.aliasType = type
     aliasResult = ''
+    aliasRebound = false
     fieldErrors = {}
     if (type === 'artist') {
       aliasForm.songID = null
@@ -873,6 +885,7 @@
     formError = ''
     fieldErrors = {}
     aliasResult = ''
+    aliasRebound = false
 
     const canonicalName = nullIfBlank(aliasForm.canonicalName)
     const aliasValue = nullIfBlank(aliasForm.aliasValue)
@@ -901,6 +914,12 @@
       const res = await request('/api/aliases/quick-add', { method: 'POST', body: payload })
       const row = res.data
       const isNew = res.raw?.isNew !== false
+      // 前瞻相容：後端日後若回報「既有別名被改綁到另一首歌」（rebound／previousSongID），
+      // 就把成功訊息升級成警示（改綁會讓過去對到舊曲的解析結果與現在不一致，值得看一眼）。
+      // 欄位不存在時整條恆為 false，完全不依賴後端先上線。
+      const prevSongID = res.raw?.previousSongID
+      const rebound =
+        res.raw?.rebound === true || (prevSongID != null && prevSongID !== (payload.songID ?? null))
 
       // 別名表這一頁沒載入（load 是 Aliases 頁才呼叫的），沒載入就別為了同步硬拉整表
       if (aliases.synced || aliases.rows.length) {
@@ -914,7 +933,10 @@
         }
       }
 
-      aliasResult = (isNew ? m.aliasAdded : m.aliasUpdated).replace('{v}', aliasValue)
+      aliasRebound = rebound
+      aliasResult =
+        (isNew ? m.aliasAdded : m.aliasUpdated).replace('{v}', aliasValue) +
+        (rebound ? ` ${m.aliasRebound}` : '')
       // 連續新增：保留類型與正式名稱，只清別名值並把游標送回去
       aliasForm.aliasValue = ''
       queueMicrotask(() => document.getElementById('setlist-alias-value')?.focus())
@@ -1076,9 +1098,54 @@
     }
   }
 
+  /* ---------- 錯誤呈現 ----------
+     後端訊息一律是英文，而且多半是 'invalid' / 'Validation failed' 這種機器語彙——
+     直接上畫面對三語站的使用者等於沒有訊息。看得懂的那一句由 HTTP status 決定，
+     後端原文降級成小字（回報問題時仍找得到）。 */
+
+  /** HTTP status → 三語一句（reorder 的 400/409 有更精確的說法，由呼叫端先攔） */
+  function errorText(err) {
+    const s = Number(err?.status) || 0
+    if (s === 400) return t('common.errValidation')
+    if (s === 404) return t('common.errNotFound')
+    if (s === 409) return t('common.errConflict')
+    if (s === 429) return m.rateLimited
+    if (s >= 500) return t('common.errServer')
+    if (s === 0) return t('common.errNetwork') // status 0＝逾時／連線失敗（見 client.js）
+    return t('common.errUnknown')
+  }
+
+  /** 後端原文（與主訊息重複時不顯示） */
+  function errorDetail(err) {
+    const s = String(err?.message ?? '').trim()
+    return s && s !== errorText(err) ? s : ''
+  }
+
+  /** 欄位錯誤：後端給的是機器碼（'invalid'／'required'），換成本頁既有的三語訊息 */
+  const FIELD_MESSAGES = $derived({
+    startTime: m.timeInvalid,
+    endTime: m.timeInvalid,
+    url: m.idInvalid,
+    segmentNo: m.segmentRange,
+    trackNo: m.startTrackRange,
+    count: m.countRange,
+    canonicalName: m.aliasCanonicalRequired,
+    aliasValue: m.aliasValueRequired,
+  })
+
+  function localizedFieldErrors(err) {
+    const out = {}
+    for (const key of Object.keys(fieldErrorMap(err))) {
+      out[key] = FIELD_MESSAGES[key] ?? t('common.errField')
+    }
+    return out
+  }
+
   function handleError(err) {
-    fieldErrors = fieldErrorMap(err)
-    formError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+    fieldErrors = localizedFieldErrors(err)
+    formError = errorText(err)
+    formErrorDetail = errorDetail(err)
+    formErrorDetailFor = formError
   }
 
   /* ---------- 編輯：PUT composite key ---------- */
@@ -1146,7 +1213,7 @@
       deleteOpen = false
       drawerOpen = false
     } catch (err) {
-      deleteError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+      deleteError = errorText(err)
     } finally {
       deleting = false
     }
@@ -1691,6 +1758,9 @@
     {#if formError}
       <Alert>
         {formError}
+        {#if formErrorDetail && formError === formErrorDetailFor}
+          <div class="mt-1 text-sm opacity-70">{formErrorDetail}</div>
+        {/if}
         {#if reorderStale}
           <div class="mt-2">
             <Button onclick={reloadSegment} disabled={saving}>{t('common.reload')}</Button>
@@ -2002,7 +2072,7 @@
       <p class="mb-3 text-sm text-berry-fg-3">{m.aliasHint}</p>
 
       {#if aliasResult}
-        <Alert kind="success">{aliasResult}</Alert>
+        <Alert kind={aliasRebound ? 'warn' : 'success'}>{aliasResult}</Alert>
       {/if}
 
       <Field label={t('field.aliasType')}>

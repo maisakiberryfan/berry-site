@@ -4,6 +4,7 @@
   // 這是圖片檢視器的通用視覺慣例（滿版沉浸感），不是「亮/暗主題前提色」，
   // 罩層上只有白色圖示按鈕，兩種主題下都自洽，不受 app.css tokens 支配。
   import { untrack } from 'svelte'
+  import { focusTrap } from '../focusTrap.svelte.js'
 
   /** @type {{ images: Array<{src: string, alt?: string}>, startIndex?: number, onClose: () => void }} */
   let { images, startIndex = 0, onClose } = $props()
@@ -15,10 +16,14 @@
   const total = $derived(images.length)
   const current = $derived(images[index])
 
+  // total < 2 時直接不動：0 張時 `% 0` 會算出 NaN（index 變 NaN ⇒ 圖與「n / total」
+  // 一起壞掉，且再也回不來），1 張時切換也沒有意義
   function next() {
+    if (total < 2) return
     index = (index + 1) % total
   }
   function prev() {
+    if (total < 2) return
     index = (index - 1 + total) % total
   }
 
@@ -43,7 +48,10 @@
   })
 </script>
 
+<!-- focusTrap：Lightbox 永遠是最上層（下層 modal 的 trap 靠 hasDialogAbove 讓位給它），
+     焦點進得來也跑不出去；關閉時還原到開啟它的縮圖鈕 -->
 <div
+  use:focusTrap={() => ({})}
   class="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm"
   role="dialog"
   aria-modal="true"

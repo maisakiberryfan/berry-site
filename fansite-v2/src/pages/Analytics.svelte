@@ -11,9 +11,13 @@
   //   總演唱次數 = setlist 列數（同一首唱 N 次算 N 次）
   //   總場次數   = streamlist 列數（直播＋投稿影片＋Shorts，即「登錄影片數」）
   //   歌枠場數   = streamlist 中 categories 任一項含「歌枠」者
-  //   月份分桶   = time 字串前 7 碼（UTC 月份，與後端 setlist 月度分段同語意）
+  //   月份分桶   = time 換算成**使用者本地時區**後的年月（monthKeyOf；與查詢寬表的 month
+  //                欄同口徑）。⚠️ 不是 UTC 月——跨月的深夜場在兩種口徑下會落在不同月份，
+  //                統計卡與查詢結果對不上；代價是不能直接與後端 manifest 的 UTC 月度分段對帳
+  import { untrack } from 'svelte'
   import Page from '../lib/Page.svelte'
   import { t, getLang } from '../i18n.svelte.js'
+  import { route, navigate } from '../router.svelte.js'
   import { songlist, streamlist, setlist, songIndex, loadAll } from '../api/store.svelte.js'
   import ChartCard from '../lib/charts/ChartCard.svelte'
   import StatTile from '../lib/charts/StatTile.svelte'
@@ -239,7 +243,11 @@
       if (key) bump(songsBy, key)
     }
     if (!latest) return { keys: [], labels: [], streams: [], songs: [] }
-    const keys = monthsEndingAt(latest, TREND_MONTHS)
+    // 右界＝min(資料最大月, 本地當月)：預告排程的直播（time 落在未來）會把軸拉到還沒發生的
+    // 月份，尾端多出幾根 0 柱看起來像「停更了」。字典序＝時序，直接比字串即可
+    const now = new Date()
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const keys = monthsEndingAt(latest > thisMonth ? thisMonth : latest, TREND_MONTHS)
     return {
       keys,
       labels: keys.map((k) => `${k.slice(2, 4)}/${k.slice(5, 7)}`),
@@ -271,15 +279,22 @@
     }
   }
 
-  function syncFromHash() {
-    openTab(location.hash === '#query' ? 'query' : 'stats')
+  function syncFromHash(raw) {
+    openTab(String(raw ?? '') === '#query' ? 'query' : 'stats')
   }
 
   function setTab(next) {
     if (!TABS.includes(next) || tab === next) return
     openTab(next)
-    // 分享連結可直達，但切籤不該塞爆上一頁按鈕 ⇒ replaceState
-    history.replaceState(history.state, '', next === 'query' ? '#query' : location.pathname + location.search)
+    // 分享連結可直達，但切籤不該塞爆上一頁按鈕 ⇒ replace。
+    // 走 router 而非裸 replaceState（同 Clothes／Discography）：分頁籤綁 route.hash，
+    // 導覽列點同頁「資料分析」時（pushState 清 hash、不發 hashchange）才回得到統計籤
+    navigate(
+      next === 'query'
+        ? `${location.pathname}${location.search}#query`
+        : `${location.pathname}${location.search}`,
+      { replace: true, scroll: false },
+    )
   }
 
   /* ---------- 查詢面板（lazy） ----------
@@ -303,9 +318,17 @@
     }
   }
 
+  // 分頁籤跟著 router 的 hash 走。⚠️ 整段 untrack：openTab → loadQueryPanel 會讀
+  // QueryPanel／panelLoading，被收成依賴的話面板載完就重跑一次 syncFromHash
   $effect(() => {
-    syncFromHash()
-    window.addEventListener('hashchange', syncFromHash)
+    const h = route.hash
+    untrack(() => syncFromHash(h))
+  })
+
+  // 手動改網址列的 hash 不經 router（也不發 popstate），補一條 hashchange
+  $effect(() => {
+    const onHash = () => syncFromHash(location.hash)
+    window.addEventListener('hashchange', onHash)
 
     const idle =
       typeof requestIdleCallback === 'function'
@@ -313,7 +336,7 @@
         : setTimeout(() => loadQueryPanel(), 1500)
 
     return () => {
-      window.removeEventListener('hashchange', syncFromHash)
+      window.removeEventListener('hashchange', onHash)
       if (typeof cancelIdleCallback === 'function' && typeof idle === 'number') cancelIdleCallback(idle)
       else clearTimeout(idle)
     }

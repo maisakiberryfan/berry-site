@@ -84,20 +84,26 @@
   streamlist.load()
 
   let manifestCount = $state(null)
+  /** 快照與 API 都問過了（不論成敗）——用來把卡片的 skeleton 收掉 */
+  let manifestSettled = $state(false)
 
   async function loadSetlistCount() {
-    const snap = await fetchSnapshot('manifest.json')
-    if (Array.isArray(snap?.months)) {
-      manifestCount = snap.months.reduce((sum, x) => sum + (Number(x.count) || 0), 0)
-      return
-    }
     try {
+      const snap = await fetchSnapshot('manifest.json')
+      if (Array.isArray(snap?.months)) {
+        manifestCount = snap.months.reduce((sum, x) => sum + (Number(x.count) || 0), 0)
+        return
+      }
       const res = await apiGet('/api/setlist/manifest')
       if (Array.isArray(res.data?.months)) {
         manifestCount = res.data.months.reduce((sum, x) => sum + (Number(x.count) || 0), 0)
       }
     } catch {
       /* 首頁數字缺一個不致命，卡片直接不顯示數字 */
+    } finally {
+      // 兩條路都沒拿到數字時也要收尾：不收的話 loading 永遠是 true，
+      // 卡片就留一塊永遠在跳動的 skeleton（比乾脆不顯示數字更糟）
+      manifestSettled = true
     }
   }
   loadSetlistCount()
@@ -129,7 +135,9 @@
       description: m.cards.setlist,
       count: setlistCount ?? null,
       unit: m.unit.entries,
-      loading: setlistCount == null,
+      // 拿不到數字（快照 404 ＋ API 也掛）就把 skeleton 收掉：卡片少一個數字還能點進去，
+      // 一塊永遠在跳的 skeleton 則是在假裝「馬上就好」
+      loading: setlistCount == null && !manifestSettled,
     },
     {
       href: '/analytics',

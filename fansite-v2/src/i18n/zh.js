@@ -47,6 +47,14 @@ export default {
     filterColumn: '篩選：{label}',
     clearColumnFilters: '清除欄位篩選',
     columnFiltersActive: '{n} 項欄位篩選生效中',
+    // 寫入失敗的三語說明（依 HTTP status 分派；後端英文 message 只當次要的技術細節顯示）
+    errValidation: '輸入內容有誤，請修正標示的欄位後再送出。',
+    errNotFound: '找不到這筆資料，可能已被刪除；請重新載入頁面。',
+    errConflict: '資料已被其他人修改，請重新載入後再試。',
+    errServer: '伺服器發生錯誤，請稍後再試。',
+    errNetwork: '連線失敗，請確認網路後再試。',
+    errUnknown: '操作失敗，請稍後再試。',
+    errField: '此欄位的值無效',
   },
   page: {
     home: '首頁',

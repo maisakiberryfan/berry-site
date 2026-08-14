@@ -58,6 +58,10 @@
       discardOk: '關閉不儲存',
       filtered: '篩選後 {n} 筆',
       artistHint: '可從既有歌手選取（選定會自動帶入英文名）',
+      newArtistTitle: '這位歌手不在資料庫中',
+      newArtistMessage:
+        '目前沒有任何歌曲使用「{name}」。確定要以這個名稱建立嗎？（打錯字會讓歌單對不上這位歌手）',
+      newArtistOk: '確定建立',
     },
     en: {
       searchPlaceholder: 'Search all columns… (artist:xx genre:xx)',
@@ -73,6 +77,10 @@
       discardOk: 'Close without saving',
       filtered: '{n} filtered',
       artistHint: 'Pick an existing artist (the English name is filled in automatically).',
+      newArtistTitle: 'Artist not in the database',
+      newArtistMessage:
+        'No song uses “{name}” yet. Create it with this exact name? (A typo here leaves set lists pointing at a different artist.)',
+      newArtistOk: 'Create anyway',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（アーティスト:xx ジャンル:xx）',
@@ -88,6 +96,10 @@
       discardOk: '保存せずに閉じる',
       filtered: '絞り込み {n} 件',
       artistHint: '既存のアーティストから選べます（選ぶと英語名が自動入力されます）',
+      newArtistTitle: 'このアーティストはデータベースにありません',
+      newArtistMessage:
+        '「{name}」を使用している曲はまだありません。この名前で作成しますか？（誤字があるとセットリストと一致しなくなります）',
+      newArtistOk: 'このまま作成',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
@@ -285,6 +297,8 @@
   let snapshot = $state('')
   let saving = $state(false)
   let formError = $state('')
+  /** 後端原文（英文），降級成主訊息下方的小字技術細節 */
+  let formErrorDetail = $state('')
   let fieldErrors = $state({})
   let drawerSeq = $state(0)
 
@@ -292,6 +306,8 @@
   let deleteOpen = $state(false)
   let deleting = $state(false)
   let deleteError = $state('')
+  /** 歌手不在資料庫時的軟確認（自由輸入欄，打錯字沒有任何東西擋得住） */
+  let newArtistOpen = $state(false)
 
   const dirty = $derived(JSON.stringify(form) !== snapshot)
 
@@ -310,6 +326,7 @@
       : blank()
     snapshot = JSON.stringify(form)
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
     deleteError = ''
     autoArtistEn = ''
@@ -332,14 +349,66 @@
     drawerOpen = false
   }
 
+  /* ---------- 錯誤呈現 ----------
+     後端訊息一律是英文，而且多半是 'invalid' / 'Validation failed' 這種機器語彙——
+     直接上畫面對三語站的使用者等於沒有訊息。看得懂的那一句由 HTTP status 決定，
+     後端原文降級成小字（回報問題時仍找得到）。 */
+
+  /** HTTP status → 三語一句 */
+  function errorText(err) {
+    const s = Number(err?.status) || 0
+    if (s === 400) return t('common.errValidation')
+    if (s === 404) return t('common.errNotFound')
+    if (s === 409) return t('common.errConflict')
+    if (s === 429) return m.rateLimited
+    if (s >= 500) return t('common.errServer')
+    if (s === 0) return t('common.errNetwork') // status 0＝逾時／連線失敗（見 client.js）
+    return t('common.errUnknown')
+  }
+
+  /** 後端原文（與主訊息重複時不顯示） */
+  function errorDetail(err) {
+    const s = String(err?.message ?? '').trim()
+    return s && s !== errorText(err) ? s : ''
+  }
+
+  /** 欄位錯誤：後端給的是機器碼（'invalid'／'required'），換成本頁的三語訊息 */
+  const FIELD_MESSAGES = $derived({ songName: m.nameRequired })
+
+  function localizedFieldErrors(err) {
+    const out = {}
+    for (const key of Object.keys(fieldErrorMap(err))) {
+      out[key] = FIELD_MESSAGES[key] ?? t('common.errField')
+    }
+    return out
+  }
+
   function handleError(err) {
-    fieldErrors = fieldErrorMap(err)
-    formError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+    fieldErrors = localizedFieldErrors(err)
+    formError = errorText(err)
+    formErrorDetail = errorDetail(err)
+  }
+
+  /**
+   * 歌手欄是自由輸入（datalist 只是建議，不限制值）：打錯一個字就會多出一個
+   * 「只有這一首用」的歌手，歌單／別名再也對不上。送出前確認一次，不擋（也不該擋——
+   * 新歌手本來就得有人第一次建）。曲名還沒填時直接送，讓既有的必填驗證先講話。
+   */
+  function requestSave() {
+    if (saving) return
+    const artist = String(form.artist ?? '').trim()
+    if (artist && nullIfBlank(form.songName) && !artistPairs.has(artist)) {
+      newArtistOpen = true
+      return
+    }
+    save()
   }
 
   async function save() {
+    newArtistOpen = false
     if (saving) return
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
 
     const payload = {
@@ -391,8 +460,7 @@
       deleteOpen = false
       drawerOpen = false
     } catch (err) {
-      deleteError =
-        err?.status === 409 ? m.inUse : err?.status === 429 ? m.rateLimited : err?.message || String(err)
+      deleteError = err?.status === 409 ? m.inUse : errorText(err)
     } finally {
       deleting = false
     }
@@ -486,7 +554,12 @@
 >
   {#key drawerSeq}
     {#if formError}
-      <Alert>{formError}</Alert>
+      <Alert>
+        {formError}
+        {#if formErrorDetail}
+          <div class="mt-1 text-sm opacity-70">{formErrorDetail}</div>
+        {/if}
+      </Alert>
     {/if}
 
     <Field label={t('field.songName')} required error={fieldErrors.songName} forId="song-name">
@@ -545,9 +618,19 @@
     {/if}
     <div class="flex-1"></div>
     <Button onclick={requestClose} disabled={saving}>{t('common.cancel')}</Button>
-    <Button variant="primary" busy={saving} onclick={save}>{t('common.save')}</Button>
+    <Button variant="primary" busy={saving} onclick={requestSave}>{t('common.save')}</Button>
   {/snippet}
 </Drawer>
+
+<!-- 歌手是自由輸入欄：不在資料庫中的名稱送出前確認一次（軟確認，不阻擋建立新歌手） -->
+<ConfirmDialog
+  open={newArtistOpen}
+  title={m.newArtistTitle}
+  message={m.newArtistMessage.replace('{name}', String(form.artist ?? '').trim())}
+  confirmLabel={m.newArtistOk}
+  onconfirm={save}
+  oncancel={() => (newArtistOpen = false)}
+/>
 
 <ConfirmDialog
   open={discardOpen}
