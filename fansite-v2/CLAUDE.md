@@ -72,6 +72,18 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
 - **SongList**：歌手欄自動完成（本地 distinct＋datalist、選定帶日英雙欄）
 - **StreamList**：RowMenu（查看歌單→`/setlist?stream=`／快速新增→`?add=`／KL 格式歌單／複製／開 YT，歌單類僅歌枠列）；新增 drawer 貼網址自動查 `/api/yt` 帶標題時間分類（手改不覆蓋；三頻道白名單外→警告＋「仍要新增」確認）
 - **SetList**：編輯 drawer 四模式（edit／batch 新增／reorder 曲序／alias 快速新增別名）；
+  batch 草稿列有「開始／結束時間」欄（與單列編輯共用 `parseHmsToSeconds`，範圍 0~360000 擋在前端，
+  一列格式錯就整批不送）：**批次＝所見即所得的整段狀態替換**（用戶裁示 2026-08-14）——
+  payload 每列一律帶齊 songID/note/startTime/endTime，空欄送 `null`＝清空既有值
+  （後端 ON DUPLICATE 四欄全 `VALUES(x)` 無條件覆寫，沒有 COALESCE 保護）。
+  **例外是曲目**：`setlist_ori.songID` 為 NOT NULL＋FK，沒有「清空」這回事，未選曲的列會讓
+  整批 INSERT 在 DB 層失敗 ⇒ 送出前驗證每列必選曲，未選的列 Combobox 標紅＋訊息點名曲序
+  （與時間格式驗證同一套 `draftErrors` 呈現，兩類同時發生就兩句一起顯示）。
+  **防丟資料全靠 prefill**：草稿列撞到既有 trackNo 時整列帶入既有的曲目／時間戳／備註進 value，
+  並在曲序下標「既有」提示這列是覆寫（全空的既有列光看欄位分辨不出來）；時間欄刻意不給
+  placeholder（空欄＝清空，灰字舊值會誤導成保留）。**對位一變就整批重灌**：場次／段落／起始曲序
+  任一改動都重新編號並重新 prefill（未送出的輸入會被捨棄——舊輸入對新對位已失義，留著會被
+  當成「這列現在的內容」寫進別列）；送出後本地狀態以回應的 `entries`（DB 真值）為準；
   reorder 面板有「依時間戳排序」鈕（有戳列升冪填回原位、無戳列不動）＋時間戳矛盾即時警告
   （不阻擋儲存）——不變量：trackNo 順序 ≡ 時間戳順序；`?stream=`/`?add=`/`?songID=`/`?song=`
   query 直達（**`?songID=` 是 Discography 導來的正路**：對 songID 精確等值過濾，與搜尋框／

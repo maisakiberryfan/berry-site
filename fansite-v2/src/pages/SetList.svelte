@@ -80,6 +80,12 @@
       draftsHint: '逐列選歌後一次送出（單一批次請求）',
       noDrafts: '先填好場次與曲數，再按「產生草稿列」。',
       countRange: '曲數需介於 1～50',
+      batchTimeHint:
+        '已存在的曲序會帶入現有內容（曲目／時間／備註），可直接沿用或修改；送出以表單所見為準——清空的欄位會清除既有值。時間格式 h:mm:ss、m:ss 或秒數。',
+      existingMark: '既有',
+      songMissingRows: '請先選擇曲目：第 {n} 首（每列都必須指定歌曲）',
+      timeInvalidRows: '時間格式無效或超出範圍：第 {n} 首（例：1:23:45、23:45 或 5025，上限 100 小時）',
+      listSep: '、',
       rateLimited: '寫入太頻繁（每分鐘 30 次上限），請稍候再試。',
       discardTitle: '放棄未儲存的變更？',
       discardMessage: '表單有尚未儲存的修改，關閉後將遺失。',
@@ -149,6 +155,13 @@
       draftsHint: 'Pick songs per row, then submit once (single batch request).',
       noDrafts: 'Fill in the stream and row count, then press “Generate draft rows”.',
       countRange: 'Rows must be between 1 and 50',
+      batchTimeHint:
+        'Track numbers that already exist are prefilled with their stored song, times and note — keep or edit them as you like. Submitting writes exactly what the form shows, so a field you clear clears the stored value. Time format: h:mm:ss, m:ss or seconds.',
+      existingMark: 'exists',
+      songMissingRows: 'Pick a song for track {n} — every row needs one.',
+      timeInvalidRows:
+        'Invalid or out-of-range time on track {n} (e.g. 1:23:45, 23:45 or 5025; max 100 hours)',
+      listSep: ', ',
       rateLimited: 'Too many writes (30/min limit). Please retry shortly.',
       discardTitle: 'Discard unsaved changes?',
       discardMessage: 'The form has unsaved edits that will be lost.',
@@ -223,6 +236,13 @@
       draftsHint: '各行で曲を選んでから一括送信します（リクエスト1回）',
       noDrafts: '配信と曲数を入力してから「下書き行を作成」を押してください。',
       countRange: '曲数は 1〜50 の範囲で指定してください',
+      batchTimeHint:
+        '既にある曲順には現在の内容（曲・時間・備考）が読み込まれます。そのままでも編集しても構いません。送信するとフォームの内容がそのまま保存され、空欄にした項目は既存の値が消えます。時間の形式は h:mm:ss・m:ss・秒数。',
+      existingMark: '既存',
+      songMissingRows: '曲を選択してください：{n} 曲目（各行に曲の指定が必要です）',
+      timeInvalidRows:
+        '時間の形式が無効または範囲外です：{n} 曲目（例：1:23:45、23:45、5025／上限 100 時間）',
+      listSep: '、',
       rateLimited: '書き込みが多すぎます（毎分30回）。少し待って再試行してください。',
       discardTitle: '未保存の変更を破棄しますか？',
       discardMessage: '保存していない編集内容が失われます。',
@@ -574,8 +594,12 @@
   let snapshot = $state('')
 
   // 批次新增模式
+  // drafts 元素：{ trackNo, songID, note, startTime, endTime }（時間為輸入字串，送出時才轉秒）
   let batch = $state({ url: '', segmentNo: 1, startTrack: 1, count: 5, drafts: [] })
   let batchSnapshot = $state('')
+  /** 草稿列的欄位錯誤：{ [索引]: { songID?: true, startTime?: true, endTime?: true } }
+   *  （草稿列沒有 Field 標籤，只標紅框＋在表單頂端的訊息點名曲序） */
+  let draftErrors = $state({})
 
   // 曲序調整模式（同一個 drawer 換內容）
   /** { streamID, segmentNo, month, date, streamTitle } | null */
@@ -663,6 +687,7 @@
     batchSnapshot = JSON.stringify(batch)
     formError = ''
     fieldErrors = {}
+    draftErrors = {}
     drawerSeq++
     drawerOpen = true
   }
@@ -1073,16 +1098,30 @@
   }
 
   /* ---------- 批次新增 ---------- */
-  /** 建議起始曲序：該場該段既有最大 trackNo + 1 */
-  const suggestedStart = $derived.by(() => {
-    if (!batchStreamID) return 1
+  /**
+   * 該場該段的既有列：trackNo → row。
+   * 用途兩個：建議起始曲序（max+1），以及草稿列撞到既有 trackNo 時 **prefill 既有內容**。
+   *
+   * 批次＝所見即所得的整段狀態替換（用戶裁示 2026-08-14）：後端 ON DUPLICATE 對
+   * songID/note/startTime/endTime 一律無條件覆寫，**防丟資料完全靠這份 prefill**——
+   * 既有的曲目／時間戳／備註直接進 value（看得到、可改可留），清空欄位＝真的清空。
+   */
+  const segmentExisting = $derived.by(() => {
+    const map = new Map()
+    if (!batchStreamID) return map
     const seg = Number(batch.segmentNo) || 1
-    let max = 0
     for (const r of setlist.rows) {
       if (r.streamID !== batchStreamID) continue
       if ((r.segmentNo ?? 1) !== seg) continue
-      if (Number(r.trackNo) > max) max = Number(r.trackNo)
+      map.set(Number(r.trackNo), r)
     }
+    return map
+  })
+
+  /** 建議起始曲序：該場該段既有最大 trackNo + 1 */
+  const suggestedStart = $derived.by(() => {
+    let max = 0
+    for (const n of segmentExisting.keys()) if (n > max) max = n
     return max + 1
   })
 
@@ -1094,25 +1133,73 @@
     if (batchStreamID) batch.startTrack = suggestedStart
   })
 
+  /** 一列草稿：撞到既有 trackNo 就整列帶入既有值（時間戳轉成 h:mm:ss 字串），否則全空 */
+  function makeDraft(trackNo) {
+    const prev = segmentExisting.get(trackNo)
+    return {
+      trackNo,
+      songID: prev?.songID ?? null,
+      note: prev?.note ?? '',
+      startTime: prev?.startTime != null ? secondsToHms(prev.startTime) : '',
+      endTime: prev?.endTime != null ? secondsToHms(prev.endTime) : '',
+    }
+  }
+
+  /** 對位鍵：這三者任一改變，「草稿第 i 列 ↔ 哪一列既有資料」的對應就換人了 */
+  const alignKey = $derived(
+    `${batchStreamID ?? ''}/${Number(batch.segmentNo) || 1}/${Number(batch.startTrack) || 1}`,
+  )
+
+  /**
+   * 對位變更 → 整批重新編號並重灌 prefill（使用者尚未送出的輸入會被捨棄）。
+   * 理由：全覆寫語意下留著舊輸入更危險——那些值原本對應的是別列，畫面上卻長得像
+   * 「這一列現在的內容」，不察覺送出就把 A 列的舊值寫進 B 列。對位一變舊輸入即失義，
+   * 整批依新對位重來是唯一能維持「所見＝將寫入」的作法。
+   */
+  let lastAlignKey = ''
+  $effect(() => {
+    const key = alignKey
+    if (key === lastAlignKey) return
+    lastAlignKey = key
+    if (!batch.drafts.length) return
+    const start = Number(batch.startTrack) || 1
+    // 讀 length 之外不碰舊列：重灌＝依新對位重建（寫回 drafts 會讓本 effect 再跑一次，
+    // 但 key 已相同、上面就 return 了，不會遞迴）
+    batch.drafts = batch.drafts.map((_, i) => makeDraft(start + i))
+    draftErrors = {}
+  })
+
   function generateDrafts() {
     fieldErrors = {}
+    draftErrors = {}
+    formError = '' // 重產草稿列＝上一輪的驗證結果全失效（紅框已清，訊息不該還留在上面）
     const n = Number(batch.count)
     if (!Number.isFinite(n) || n < 1 || n > 50) {
       fieldErrors = { count: m.countRange }
       return
     }
     const start = Number(batch.startTrack) || 1
-    batch.drafts = Array.from({ length: n }, (_, i) => ({
-      trackNo: start + i,
-      songID: null,
-      note: '',
-    }))
+    batch.drafts = Array.from({ length: n }, (_, i) => makeDraft(start + i))
+    lastAlignKey = alignKey // 這批的對位基準（免得緊接著又被重灌一次）
+  }
+
+  /**
+   * 草稿列的時間欄 → 秒。空＝null（＝payload 帶 null＝清空既有值）；
+   * 格式無效或超出後端允許範圍（0~360000 整數秒）→ NaN。
+   * 解析走與單列編輯同一支 parseHmsToSeconds，範圍與 API 驗證一致。
+   */
+  function draftSeconds(v) {
+    const n = parseHmsToSeconds(v)
+    if (n == null) return null
+    if (!Number.isInteger(n) || n < 0 || n > 360000) return NaN
+    return n
   }
 
   async function submitBatch() {
     if (saving) return
     formError = ''
     fieldErrors = {}
+    draftErrors = {}
 
     if (!batchStreamID) {
       fieldErrors = { url: m.idInvalid }
@@ -1128,23 +1215,65 @@
     }
 
     const seg = Number(batch.segmentNo) || 1
-    const payload = batch.drafts.map((d) => {
-      const item = { streamID: batchStreamID, segmentNo: seg, trackNo: Number(d.trackNo) }
-      if (d.songID != null) item.songID = d.songID
-      const note = nullIfBlank(d.note)
-      if (note) item.note = note
-      return item
+
+    // 整批前置驗證：一列有問題就整批不送（後端是單一事務，錯了也是整批 rollback，
+    // 與其讓 DB 丟通用錯誤訊息，不如在這裡點名是哪一首的哪一格）。
+    //   曲目——`setlist_ori.songID` 是 NOT NULL＋FK(fk_setlist_songID)，沒選曲送出去
+    //          會在 DB 層炸掉整批（不是寫成 NULL）。「未對應曲」的列在 setlist_ori
+    //          根本不存在（matcher 的無戳防線是不建列），所以每列都必須有歌。
+    //   時間——格式／範圍（0~360000 秒）與後端驗證一致。
+    const rowErrs = {}
+    const noSongTracks = []
+    const badTimeTracks = []
+    batch.drafts.forEach((d, i) => {
+      const bad = {}
+      if (d.songID == null) bad.songID = true
+      if (Number.isNaN(draftSeconds(d.startTime))) bad.startTime = true
+      if (Number.isNaN(draftSeconds(d.endTime))) bad.endTime = true
+      if (!Object.keys(bad).length) return
+      rowErrs[i] = bad
+      if (bad.songID) noSongTracks.push(Number(d.trackNo))
+      if (bad.startTime || bad.endTime) badTimeTracks.push(Number(d.trackNo))
     })
+    if (noSongTracks.length || badTimeTracks.length) {
+      draftErrors = rowErrs
+      // 兩類同時發生就兩句都給——使用者一輪就能把該修的都修完（Alert 不吃 \n，用空白接）
+      formError = [
+        noSongTracks.length && m.songMissingRows.replace('{n}', noSongTracks.join(m.listSep)),
+        badTimeTracks.length && m.timeInvalidRows.replace('{n}', badTimeTracks.join(m.listSep)),
+      ]
+        .filter(Boolean)
+        .join(' ')
+      return
+    }
+
+    // 所見即所得：每列都帶齊全欄位，空欄一律送 null＝清空既有值。
+    // 「省略欄位」在全覆寫語意下沒有保留效果（後端 `note || null`、`startTime ?? null`
+    // 照樣寫成 NULL），所以不做任何條件式省略——表單長什麼樣，DB 就變成什麼樣。
+    // 例外只有 songID：NOT NULL 欄位，不存在「清空」，上面已擋掉沒選曲的列。
+    // 0 秒是合法值：draftSeconds 回 0，用 `!= null` 判斷不會被當成空。
+    const payload = batch.drafts.map((d) => ({
+      streamID: batchStreamID,
+      segmentNo: seg,
+      trackNo: Number(d.trackNo),
+      songID: d.songID ?? null,
+      note: nullIfBlank(d.note),
+      startTime: draftSeconds(d.startTime),
+      endTime: draftSeconds(d.endTime),
+    }))
 
     saving = true
     try {
       // 陣列一次送出（≤200）＝ rate limit 只算 1 次
       const res = await createSetlistEntry(payload)
 
+      // 回應優先於 payload：全覆寫下 payload 已等於真值，但 DB 回來的 row 才是最終狀態
+      // （型別正規化、觸發器/預設值、以及與並發寫入的實際結果）——能拿就以它為準
       let created = null
       if (Array.isArray(res)) created = res
       else if (res && typeof res === 'object') {
-        if (Array.isArray(res.created)) created = res.created
+        if (Array.isArray(res.entries)) created = res.entries // 現行批次信封：{message, entries}
+        else if (Array.isArray(res.created)) created = res.created
         else if (Array.isArray(res.rows)) created = res.rows
         else if (res.streamID) created = [res]
       }
@@ -1320,7 +1449,7 @@
       : mode === 'alias' && editing
         ? `${editing.segmentNo ?? 1}-${editing.trackNo} · ${editing.songName ?? m.unmatched}`
         : ''}
-  width={mode === 'batch' ? '620px' : mode === 'reorder' ? '520px' : '460px'}
+  width={mode === 'batch' ? '720px' : mode === 'reorder' ? '520px' : '460px'}
   focusSeq={drawerSeq}
   onclose={requestClose}
 >
@@ -1431,25 +1560,62 @@
       </div>
 
       {#if batch.drafts.length}
-        <div class="space-y-2 border-t border-berry-border pt-3">
-          {#each batch.drafts as draft, i (i)}
-            <div class="flex items-start gap-2">
-              <span class="w-8 shrink-0 pt-2 text-right text-sm text-berry-fg-3 tabular-nums">
-                {draft.trackNo}
-              </span>
-              <div class="min-w-0 flex-1">
-                <Combobox
-                  options={songOptions}
-                  value={draft.songID}
-                  placeholder={m.pickSong}
-                  onselect={(o) => (batch.drafts[i].songID = o ? o.id : null)}
-                />
+        <div class="border-t border-berry-border pt-3">
+          <p class="mb-2 text-sm text-berry-fg-3">{m.batchTimeHint}</p>
+
+          <!-- 草稿列沒有 Field 標籤（一列五個控制項），欄位名走這一排表頭。
+               flex-wrap＋同一組寬度：窄視窗（?add= 深連結在手機開）時表頭與草稿列在同一點折行，
+               欄位不會被擠爛也不用橫向捲動容器（overflow 容器會把 Combobox 下拉裁掉） -->
+          <div class="mb-1.5 flex flex-wrap items-center gap-2 text-sm text-berry-fg-3">
+            <span class="w-10 shrink-0 text-right">#</span>
+            <span class="min-w-0 flex-1 basis-56">{m.pickSong}</span>
+            <span class="w-24 shrink-0">{m.startLabel}</span>
+            <span class="w-24 shrink-0">{m.endLabel}</span>
+            <span class="w-28 shrink-0">{t('field.note')}</span>
+          </div>
+
+          <div class="space-y-2">
+            {#each batch.drafts as draft, i (i)}
+              <!-- 撞既有列：內容已 prefill 進 value（見 makeDraft），這裡只標「既有」讓使用者
+                   知道這列是覆寫而非新增——全空的既有列（未對應曲、無戳無備註）光看欄位分辨不出來。
+                   時間欄刻意不給 placeholder：空欄在全覆寫下就是「清空」，灰字舊值會誤導成保留。 -->
+              {@const prev = segmentExisting.get(Number(draft.trackNo))}
+              <div class="flex flex-wrap items-start gap-2">
+                <div class="w-10 shrink-0 pt-2 text-right">
+                  <div class="text-sm text-berry-fg-3 tabular-nums">{draft.trackNo}</div>
+                  {#if prev}
+                    <div class="text-[10px] leading-tight text-berry-fg-3">{m.existingMark}</div>
+                  {/if}
+                </div>
+                <div class="min-w-0 flex-1 basis-56">
+                  <Combobox
+                    options={songOptions}
+                    value={draft.songID}
+                    placeholder={m.pickSong}
+                    invalid={!!draftErrors[i]?.songID}
+                    onselect={(o) => (batch.drafts[i].songID = o ? o.id : null)}
+                  />
+                </div>
+                <div class="w-24 shrink-0">
+                  <TextInput
+                    class="tabular-nums"
+                    bind:value={batch.drafts[i].startTime}
+                    invalid={!!draftErrors[i]?.startTime}
+                  />
+                </div>
+                <div class="w-24 shrink-0">
+                  <TextInput
+                    class="tabular-nums"
+                    bind:value={batch.drafts[i].endTime}
+                    invalid={!!draftErrors[i]?.endTime}
+                  />
+                </div>
+                <div class="w-28 shrink-0">
+                  <TextInput bind:value={batch.drafts[i].note} placeholder={t('field.note')} maxlength={1000} />
+                </div>
               </div>
-              <div class="w-32 shrink-0">
-                <TextInput bind:value={batch.drafts[i].note} placeholder={t('field.note')} maxlength={1000} />
-              </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
         </div>
       {:else}
         <p class="text-sm text-berry-fg-3">{m.noDrafts}</p>

@@ -1,8 +1,8 @@
 {
   "time": "2026-08-14T12:00:00+08:00",
   "msg": {
-    "zh": "全站品質修正：音樂作品頁跳轉歌單改精準比對（同名不同曲不再混入）且頁面載入更快；表格手機版篩選提示、鍵盤操作與讀屏支援全面改善",
-    "en": "Site-wide quality fixes: Discography-to-setlist links now match the exact song (no more same-title mix-ups) and the page loads faster; better mobile filter hints, keyboard navigation, and screen-reader support across all tables",
-    "ja": "サイト全体の品質改善：ディスコグラフィからセットリストへのリンクが正確な曲単位の絞り込みになり（同名異曲の混入を解消）、ページの読み込みも高速化。テーブルのモバイル表示・キーボード操作・スクリーンリーダー対応も改善しました"
+    "zh": "全站品質修正與編輯強化：音樂作品頁跳轉歌單改精準比對且載入更快；歌單批次編輯現可直接填時間戳（既有內容自動帶入表單）；表格手機篩選提示、鍵盤操作與讀屏支援全面改善",
+    "en": "Site-wide fixes and editing upgrades: Discography-to-setlist links now match the exact song and load faster; batch setlist editing now supports timestamps with existing values pre-filled; better mobile filter hints, keyboard navigation, and screen-reader support across all tables",
+    "ja": "サイト全体の品質改善と編集機能強化：ディスコグラフィからセットリストへのリンクが正確な曲単位になり読み込みも高速化。セットリストの一括編集でタイムスタンプ入力に対応（既存の内容はフォームに自動反映）。テーブルのモバイル表示・キーボード操作・スクリーンリーダー対応も改善しました"
   }
 }

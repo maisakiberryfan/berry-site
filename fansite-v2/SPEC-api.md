@@ -34,10 +34,22 @@ error.code 值：VALIDATION_ERROR、NOT_FOUND、CONFLICT、CONSTRAINT_VIOLATION(
   {"data":{"version":"v1","months":[{"month":"2026-07","count":42,"maxUpdated":"2026-07-24 12:03:11.000000"}]}}
   ```
   - maxUpdated 是 **MySQL 原始字串**，當不透明指紋用勿 parse；month 有 `"none"` 值恆排最後；version 要摻進快取指紋
-- `POST /api/setlist`：單筆或陣列（≤200）。必填 streamID、trackNo；選填 segmentNo(預設1)、songID、note(≤1000)
-  - streamID 必須存在於 streamlist（否則 404）、songID 若給必須存在（否則 404）
+- `POST /api/setlist`：單筆或陣列（≤200）。必填 streamID、trackNo、songID；選填 segmentNo(預設1)、note(≤1000)、startTime/endTime
+  - streamID 必須存在於 streamlist（否則 404）、songID 必須存在（否則 404）；startTime/endTime 為 null 或 0~360000 整數秒（否則 400，整批 rollback）
+  - ⚠️ **`setlist_ori.songID` 是 `int unsigned NOT NULL`＋FK `fk_setlist_songID`**（權威：sqlBackUp
+    repo 的 mysqldump）——「未對應曲」的列在 setlist_ori 並不存在（matcher 匹配不到就不建列）。
+    後端的 required 檢查只有 streamID/trackNo，缺 songID 不會被擋在應用層，而是**在 DB 層炸掉整批
+    並 rollback**（錯誤訊息不友善）⇒ 呼叫端必須自己擋
   - **必帶 `X-Source: user`** header——否則被當 worker 自動更新，只在原值 NULL/空時才生效！
-  - 201 回應是 setlist_ori 原始 row（**不含 join 欄位**）——前端寫入後自行本地補 join
+  - 撞既有 composite key 走 ON DUPLICATE：**songID／note／startTime／endTime 全部無條件覆寫
+    （`VALUES(x)`）**。批次＝所見即所得的整段狀態替換（用戶裁示 2026-08-14），後端不做任何
+    「偷偷保留舊值」的例外；**呼叫端必須每列帶齊四個欄位**——note/startTime/endTime 帶 null
+    或不帶都寫成 NULL＝清空，songID 則因 NOT NULL 不存在「清空」（缺值＝整批失敗）。
+    防止「重打整段把留言回補的時間戳洗掉」是前端的責任——v3 批次表單撞既有 trackNo 時會
+    prefill 既有值（見 fansite-v2/CLAUDE.md 的 SetList 節）
+  - 201 回應是 setlist_ori 原始 row（**不含 join 欄位**）——前端寫入後自行本地補 join。
+    陣列版信封為 `{"data":{"message":"...","entries":[<upsert 後的 row>]}}`：全覆寫下 payload
+    已等於真值，但本地狀態仍以 `entries`（DB 回傳的最終 row）優先
 - `PUT /api/setlist/:streamID/:segmentNo/:trackNo`：body 選填 `{songID?, note?, startTime?, endTime?}`；
   startTime/endTime 為 null 或 0~360000 整數秒（**fansite-v2 分支新增**，向後相容——舊前端不送即不動）；
   無欄位變動回 200 現有 row；404 找不到
