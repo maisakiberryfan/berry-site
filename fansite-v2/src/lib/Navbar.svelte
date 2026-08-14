@@ -11,7 +11,9 @@
   let mobileOpen = $state(false)
   let langOpen = $state(false)
 
-  const isActive = (href) => route.path === href
+  // 目前頁：比對 route.page（樣式去掉動態段）——`/clothes/20260611` 這種詳細頁
+  // 深連結仍要讓導覽列的「衣裝」保持在作用中，拿 route.path 比會漏掉
+  const isActive = (href) => route.page === href
 
   function closeAll() {
     openGroup = -1

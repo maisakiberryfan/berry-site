@@ -113,7 +113,8 @@ else
 fi
 
 # --- 3) 其餘非 hash 檔（含 index.html）：覆蓋式 ＋ --delete 清死檔 -----------
-# 涵蓋 index.html、favicon.ico、theme-init.js。
+# 涵蓋 index.html、favicon.ico、theme-init.js、og/*.html（per-page 分享預覽）。
+# og/ 帶 --delete 是對的：改名／刪掉的作品應連同舊快照一起消失。
 # --exclude 同時作用於來源與目的地（aws cli filter 語意），所以 --delete
 # 不會碰到 assets/（保留窗口就靠這一點成立）與 data/（步驟 2 已各自處理）。
 # ⚠️ 若日後把 /img、/pages 等現站靜態資源改放同一 bucket，必須讓它們進 dist/
@@ -195,11 +196,12 @@ cleanup_stale_assets || log "! 回收步驟異常結束（不影響部署結果�
 #     請求全部回源。（舊命令用的 "/assets/*" 就是這種無效清除。）
 #   * index.html 是固定檔名的入口，每次部署內容都變，必清。
 #   * data/*.json 是固定檔名的快照，內容隨每次 snapshot 變動，必清。
+#   * og/*.html 同 index.html（固定檔名、每次部署都可能變），且資料模組一改內容就變。
 if [ -n "$DISTRIBUTION_ID" ]; then
-  log "[5/5] CloudFront invalidation（/index.html, /data/*）"
+  log "[5/5] CloudFront invalidation（/index.html, /data/*, /og/*）"
   run aws cloudfront create-invalidation \
     --distribution-id "$DISTRIBUTION_ID" \
-    --paths "/index.html" "/data/*"
+    --paths "/index.html" "/data/*" "/og/*"
 else
   log "[5/5] 未指定 DISTRIBUTION_ID，略過 invalidation"
 fi

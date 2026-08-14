@@ -393,16 +393,53 @@ Resources:
               uriLower.startsWith('/api/v1/') || uriLower.startsWith('/api/v2/')) {
             return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
           }
-          // SPA routes -> rewrite to /index.html
+          // SPA routes -> rewrite to /index.html（或該路徑專屬的 OG 快照）
           // 新增前端頁面時必須同步這個陣列（清單真相：fansite-v2/src/router.svelte.js 的
           // ROUTES；另有 App.svelte 的 PAGES 與 entry-worker.js 的 SPA_ROUTES）。
           // 陣列元素一律小寫，比對前把路徑轉小寫：URL 路徑大小寫敏感，`/SetList` 原本
           // 不會被 rewrite → 直接吃 S3 的 404（站內點得到、手打網址卻壞掉）。
           var spaRoutes = ['/', '/profile', '/history', '/clothes', '/discography', '/songlist', '/streamlist', '/setlist', '/aliases', '/analytics'];
-          var clean = uri.replace(/\/$/, '') || '/';
-          if (spaRoutes.indexOf(clean.toLowerCase()) >= 0) {
-            event.request.uri = '/index.html';
+          // 動態段路由（詳細頁 path 化）：/clothes/<日期>、/discography/<作品id>。
+          // 前綴命中就一定 rewrite 成站內 HTML —— 認不得的 id 也要拿到 SPA 殼，
+          // 否則直接落到 S3（OAC 無 ListBucket）＝一頁 403 AccessDenied 的 XML。
+          var spaPrefixes = ['/clothes', '/discography'];
+          // ── OG 快照（per-page 分享預覽）─────────────────────────────────────
+          // fansite-v2/scripts/generate-og-html.mjs 產的 /og/<slug>.html＝index.html
+          // 只換 meta 的副本，所以「所有訪客都拿它」是安全的（一般瀏覽毫無差別），
+          // 也讓快取鍵維持單一——若改成只對爬蟲 UA 送 og，CachingOptimized 不含 UA，
+          // 先到的那份會被快取給所有人，等於隨機二選一。
+          // ⚠️ 這裡的 id 清單是**必要之惡**：CloudFront Function 無法得知 S3 上有沒有
+          //    對應物件，一律機械式 rewrite 的話，不存在的 id 會變成 403/404 錯誤頁。
+          //    漏更新的代價只是「該項目退回站台級預覽」（仍是正常網頁），
+          //    與 spaRoutes 漏更新的硬壞不同。一致性檢查：
+          //    cd fansite-v2 && npm run check:routes（清單真相＝各頁的資料模組）
+          var ogPages = ['/discography', '/clothes', '/profile', '/setlist'];
+          var ogClothes = '|20260611|20260212|20250526|20250120|20241205|20240617|20240116|20230905|20230515|20220905|20220815|20220515|20210910|20210724|20210213|20200815|';
+          var ogDisco = '|rebirthr|lucisphere|reverser|animania|eee|peace|bbb|serve|bouquet|strawberry-garden|itsumo-doori|kisetsu-no-hohaba|happy-likey|towalove|genjitsu|drop-note|happy-story|love-letter|niji-no-mukougawa|tasting-my-love|kakurenbo|';
+          var clean = (uri.replace(/\/$/, '') || '/').toLowerCase();
+          if (spaRoutes.indexOf(clean) >= 0) {
+            event.request.uri = ogPages.indexOf(clean) >= 0 ? '/og' + clean + '.html' : '/index.html';
             return event.request;
+          }
+          var cut = clean.indexOf('/', 1);
+          if (cut > 0) {
+            var prefix = clean.slice(0, cut);
+            var rest = clean.slice(cut + 1);
+            if (rest && rest.indexOf('/') < 0 && spaPrefixes.indexOf(prefix) >= 0) {
+              var list = '';
+              var itemId = rest;
+              if (prefix === '/clothes') {
+                // /clothes/20260611-3（直開第 3 張立繪）與舊版 _s 後綴都屬於同一套衣裝
+                itemId = rest.split('-')[0].replace(/_s$/, '');
+                list = ogClothes;
+              } else if (prefix === '/discography') {
+                list = ogDisco;
+              }
+              event.request.uri = list.indexOf('|' + itemId + '|') >= 0
+                ? '/og' + prefix + '-' + itemId + '.html'
+                : '/index.html';
+              return event.request;
+            }
           }
           return event.request;
         }

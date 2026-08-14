@@ -266,13 +266,17 @@
     return roles ? `${roles}${en ? ': ' : '：'}${credit.name}` : credit.name
   }
 
+  /** 本頁的總覽路徑（詳細頁＝其下再加一段作品 id） */
+  const BASE_PATH = '/discography'
+
   function openDetail(id) {
     openId = id
     openTrack = -1
     ensureRecords()
-    // 走 router 而非裸 history.replaceState：route.hash 要跟著變，導覽列再點一次
-    // 「音樂作品」時（pushState 清掉 hash、不發 hashchange）面板才關得掉
-    navigate(`${location.pathname}${location.search}#${encodeURIComponent(id)}`, {
+    // 走 router 而非裸 history.replaceState：route.id 要跟著變，導覽列再點一次
+    // 「音樂作品」時（pushState 回總覽路徑）面板才關得掉。
+    // replace 而非 push：沿用改制前的行為——開著面板按上一頁是離開本頁，不是關面板
+    navigate(`${BASE_PATH}/${encodeURIComponent(id)}${location.search}`, {
       replace: true,
       scroll: false,
     })
@@ -281,7 +285,7 @@
   function closeDetail() {
     openId = ''
     openTrack = -1
-    if (location.hash) navigate(`${location.pathname}${location.search}`, { replace: true, scroll: false })
+    if (route.id) navigate(`${BASE_PATH}${location.search}`, { replace: true, scroll: false })
   }
 
   function toggleTrack(i) {
@@ -296,46 +300,65 @@
     el.focus({ preventScroll: true })
   }
 
-  // Hash 直達：#<id>（如 #rebirthr）直開該作品面板。認不得的 hash 不動作（可能是別人的錨點）
+  // 路徑直達：/discography/<id>（如 /discography/rebirthr）直開該作品面板。
+  // 認不得的 id ＝ 收掉面板顯示總覽（不轉 NotFound，理由見下方分支註解）。
   //
   // ⚠️ 本函式被 $effect 呼叫，兩處刻意切斷 reactive 依賴：
   //   1. `ensureRecords()` 讀 `recordsPhase`，若被收成 effect 的依賴，延遲載入完成
   //      （'loading' → 'ready'）就會讓 effect 重跑、把使用者剛展開的 🎤 列（openTrack）收掉。
-  //   2. 讀 `openId` 同理（開面板本身會讓 effect 再跑一次），順便讓「同一個 hash 重跑」
+  //   2. 讀 `openId` 同理（開面板本身會讓 effect 再跑一次），順便讓「同一個 id 重跑」
   //      不再重設 openTrack——雙保險，缺一都仍可能收合。
-  function applyHash(raw) {
-    let hash = String(raw ?? '').replace(/^#/, '')
+  function applyRouteId(raw) {
+    const id = String(raw ?? '') // route.id 已 decodeURIComponent
+    const current = untrack(() => openId)
+    if (!id) {
+      openId = ''
+      openTrack = -1
+      return
+    }
+    if (!releases.some((w) => w.id === id)) {
+      // 認不得的 id：當作沒開面板（顯示總覽）。改制前的 hash 版在這裡是「不動作」
+      // （怕動到別人的錨點），path 沒有這個顧慮——不收掉的話「開著面板時導到未知 id」
+      // 會留著上一張作品，與直接開該網址的結果不一致
+      if (current) {
+        openId = ''
+        openTrack = -1
+      }
+      return
+    }
+    if (current !== id) {
+      openId = id
+      openTrack = -1
+    }
+    untrack(() => ensureRecords())
+  }
+
+  // 面板狀態跟著 router 的動態段走：導覽列點同頁（pushState 回總覽路徑）不發任何
+  // hashchange，只有 route.id 會變，靠這個 effect 收斂
+  $effect(() => {
+    applyRouteId(route.id)
+  })
+
+  // 舊 hash 連結相容：`/discography#rebirthr` → replace 成 `/discography/rebirthr`
+  // （2026-08-14 由 hash 改 path 之前分享出去的網址）。hashchange 也掛著：手動在網址列
+  // 改 hash 不會重新載入頁面，沒有這條的話舊格式在同一分頁內完全沒反應。
+  // 只認「確實是作品 id」的 hash——其餘可能是別人的錨點（本頁分節錨點走捲動不寫 hash），不碰。
+  function migrateLegacyHash() {
+    let hash = String(location.hash || '').replace(/^#/, '')
+    if (!hash) return
     try {
       hash = decodeURIComponent(hash)
     } catch {
       // 壞的 % 序列：拿原字串去比對（比不到就當作別人的錨點，不動作）
     }
-    const current = untrack(() => openId)
-    if (!hash) {
-      openId = ''
-      openTrack = -1
-      return
-    }
-    if (releases.some((w) => w.id === hash)) {
-      if (current !== hash) {
-        openId = hash
-        openTrack = -1
-      }
-      untrack(() => ensureRecords())
-    }
+    if (!releases.some((w) => w.id === hash)) return
+    navigate(`${BASE_PATH}/${encodeURIComponent(hash)}${location.search}`, { replace: true, scroll: false })
   }
 
-  // 面板狀態跟著 router 的 hash 走：導覽列點同頁（pushState 清 hash）不發 hashchange，
-  // 只有 route.hash 會變，靠這個 effect 收斂
   $effect(() => {
-    applyHash(route.hash)
-  })
-
-  // 手動改網址列的 hash 不經 router（也不發 popstate），補一條 hashchange
-  $effect(() => {
-    const onHash = () => applyHash(location.hash)
-    window.addEventListener('hashchange', onHash)
-    return () => window.removeEventListener('hashchange', onHash)
+    migrateLegacyHash()
+    window.addEventListener('hashchange', migrateLegacyHash)
+    return () => window.removeEventListener('hashchange', migrateLegacyHash)
   })
 
   // Esc 關閉詳細面板

@@ -11,7 +11,8 @@ Vite 7 + Svelte 5（**runes**：$state/$derived/$effect）+ Tailwind 4 + idb-key
 npm run dev          # :5173，/api 代理 production（唯讀瀏覽安全；「編輯送出」會寫正式庫，測試勿按儲存）
 npm run dev:testdb   # :5175，/api 代理本地後端 8788（entry-dev.js + 測試庫）——測編輯用這個
 npm run snapshot     # 從 production API 抓資料快照 → public/data/（build 前要跑）
-npm run build        # 純靜態產物 → dist/
+npm run build        # 純靜態產物 → dist/（＝vite build ＋ 產 dist/og/*.html，見下方 OG 節）
+npm run check:routes # 路由／OG 白名單五份一致性檢查（改路由或加專輯後跑）
 ```
 
 v3 demo 站部署（獨立 CloudFront，與 git 無關）：
@@ -50,6 +51,26 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
 - store 介面統一：`.rows`（$state.raw，**不可就地 mutate、不可解構**）、`.load()/.reload()`、寫入成功後 `applyLocal{Insert,Update,Delete}`；setlist 另有 `.months`、`.refreshMonth(m)`
 - reorder 後 trackNo 重編、composite key 全變 → 一律 `refreshMonth()` 不要逐列 applyLocal
 - 客端 join：`setlistJoined.rows`（補 streamTitle）、`songIndex`/`streamIndex`、`hydrateSetlistRow()`（POST 201 的裸 row 補成 VIEW 形）
+
+### 路由與 per-page OG（2026-08-14）
+- **動態段路由**：`router.svelte.js` 的 `ROUTES` 除靜態路徑外收 `/clothes/:id`、
+  `/discography/:id`；`route.pattern`（比對到的樣式）／`route.page`（樣式去掉 `/:id`，
+  **App.svelte 的 `{#key}` 用它**——拿 `route.path` 當 key 會讓開關面板整頁重建）／
+  `route.id`（已 decode 的動態段）。id 合法性不由 router 判斷：認不得就顯示總覽
+  （兩頁 `applyRouteId` 會收掉面板，與直接開該網址的結果一致）。
+  舊 hash 連結（`/clothes#20260611`／`/discography#rebirthr`）由各頁的 `migrateLegacyHash`
+  在 mount／hashchange 時 replace 成 path
+- **白名單五份**：ROUTES／App.svelte PAGES／template.yaml（`spaRoutes`＋`spaPrefixes`
+  ＋OG 的 `ogPages`/`ogClothes`/`ogDisco`）／entry-worker.js（`SPA_ROUTES`＋`SPA_PREFIXES`
+  ＋`OG_PAGES`）／`scripts/og-config.mjs`。**改完一律跑 `npm run check:routes`**
+- **OG 快照**：`scripts/og-config.mjs`（清單，資料源＝`discographyData.js`／`clothesData.js`）
+  ＋`scripts/generate-og-html.mjs`（build 後把 `dist/index.html` 複製成
+  `dist/og/<slug>.html`，只換 og:*／description／twitter:card）。目前 41 支＝頁級 4
+  ＋專輯/單曲 21（封面 520x520，twitter:card 用 `summary` 免被裁）＋衣裝 16
+  （**圖尚未定案，先用站台 og 佔位**，換圖只要改 og-config 的 `clothesImage`）
+- ⚠️ **`clothesData.js`／`discographyData.js` 必須維持裸 Node 可 import**
+  （不得 import `assets.js` 這類吃 `import.meta.env` 的模組）——衣裝的
+  `clothesGalleryImages` 因此搬進 Clothes.svelte
 
 ### API 契約
 `SPEC-api.md` 是唯一依據（三套回應信封、ETag 範圍、rate limit 30 寫入/分）。要點：POST /api/setlist 必帶 `X-Source: user`（client.js 已自動）；編輯 UI 一律「一次儲存」不做逐鍵送出；批次操作用單一陣列 POST（算 1 次限流）。
@@ -91,8 +112,9 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
   `曲名:"…"` 語法字串走子字串比對——同名異曲會互染，只在沒有 songID 時才用）；月份下拉年份分組；快速新增別名 title 模式自動綁該列 songID（防同名互染——維運核心迴路）
 - **Aliases**：quick-add／test 端點接線；信封是 `{success,data}`（client 已統一解包，要 `isNew` 用 `request()` 讀 raw）
 - **Analytics**：統計／資料查詢分籤（`#query` 直達）；統計＝客端 JS 聚合；查詢＝建構器（白名單＋bind 防注入）＋進階 SQL（sql.js 659KB lazy self-host）；資料源＝瀏覽器快取攤平的 `berry_data` 寬表（time/month 為本地時區）
-- **Discography**：單頁三分節（專輯／單曲封面牆＋客座列表）＋點卡開詳細面板（`#<id>` hash 直達，
-  開關面板走 `navigate()` 而非裸 replaceState——面板狀態綁 `route.hash`，導覽列點同頁才關得掉）；
+- **Discography**：單頁三分節（專輯／單曲封面牆＋客座列表）＋點卡開詳細面板
+  （`/discography/<id>` path 直達，開關面板走 `navigate()`（replace）而非裸 replaceState——
+  面板狀態綁 `route.id`，導覽列點同頁才關得掉；舊 `#<id>` 連結自動轉址，見上方路由節）；
   **setlist／streamlist 延到第一次開面板才載**（封面牆只要 songlist），骨架由 `load()` promise
   完成時機收掉、空資料顯示「無演唱紀錄」；曲目的 🎤N 鈕就地展開該曲的 setlist 場次
   （客端 songID 索引建在 `setlist.rows`，場次標題展開時才 `streamTitleOf()`，連結帶 `?t=` 秒數，

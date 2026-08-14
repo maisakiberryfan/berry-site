@@ -18,6 +18,9 @@
 
   startRouter()
 
+  // 路由樣式 → 頁面元件（白名單四份之一，見 router.svelte.js 檔頭）。
+  // `/:id` 是動態段路由：同一個元件，由 route.id 決定要開哪一項詳細面板
+  // （id 認不得時頁面顯示總覽——合法性由頁面的資料模組判斷，不在 router）。
   const PAGES = {
     '/': Home,
     '/songlist': SongList,
@@ -28,17 +31,22 @@
     '/profile': Profile,
     '/history': History,
     '/clothes': Clothes,
+    '/clothes/:id': Clothes,
     '/discography': Discography,
+    '/discography/:id': Discography,
   }
 
-  const Current = $derived(PAGES[route.path] ?? NotFound)
+  const Current = $derived(PAGES[route.pattern] ?? NotFound)
 </script>
 
 <div class="min-h-dvh">
   <Navbar />
 
-  <!-- key：換頁時重建元件，避免頁面殘留上一頁的區域狀態 -->
-  {#key route.path}
+  <!-- key：換頁時重建元件，避免頁面殘留上一頁的區域狀態。
+       用 route.page 而非 route.path——開／關詳細面板只是換動態段（/clothes ↔
+       /clothes/20260611），拿 path 當 key 會把整頁重建：篩選狀態沒了、畫面閃一下，
+       面板還會在重建後才由 $effect 重開 -->
+  {#key route.page}
     <Current />
   {/key}
 
