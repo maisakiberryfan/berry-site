@@ -32,7 +32,7 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 | CloudFront | CDN + SPA fallback + API 路由（TPE edge） |
 | S3 | 靜態檔案 + 縮圖 hosting |
 | Lambda (Node.js 24, arm64) | Hono API + Cron |
-| EventBridge | Cron triggers + Lambda 保溫（每 5 分鐘） |
+| EventBridge | Cron triggers + Lambda 容器保溫（每 5 分鐘） |
 | ACM | SSL 憑證（us-east-1） |
 
 ### Cloudflare（備用站）
@@ -98,7 +98,19 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
 | `GH_PAT_TOKEN` | GitHub PAT（commit 查詢） |
+| `SNAPSHOT_BUCKET_A` | （選配）CDN 快照 cron 的目標 S3 bucket A（現行主站）。未設＝該站台不處理 |
+| `SNAPSHOT_DISTRIBUTION_A` | （選配）站台 A 的 CloudFront distribution ID，寫完後清 `/data/*`。未設＝不發 invalidation |
+| `SNAPSHOT_BUCKET_B` | （選配）快照 cron 的第二個目標 bucket（demo／備援站） |
+| `SNAPSHOT_DISTRIBUTION_B` | （選配）站台 B 的 distribution ID |
 | `ORIGIN_VERIFY_SECRET` | （選配）CloudFront→API 的 origin 驗證共享值，任意長隨機字串。設了才啟用限流的訪客真實 IP 識別；未設＝限流沿用 CloudFront edge IP（行為與導入前相同） |
+
+> **四個 `SNAPSHOT_*` 都未設＝快照 cron 整個步驟 skip 並 log**（`/data/*.json`
+> 只會在每次部署時更新，不再有每日兩次的保鮮）。bucket 名不寫進 public repo 是刻意的，
+> 故由 secret 傳入 → `template.yaml` 以 `!Sub` 拼成 `SNAPSHOT_TARGETS`。
+
+> ⚠️ `DB_PORT` 與 `LAMBDA_MATCHER_URL` 在 `template.yaml` 有**有意義的 Default**
+> （3306／matcher URL），secret 留空會把 Default 覆寫成空字串並靜默壞掉，
+> 故 workflow 在 `sam deploy` 前對這兩個做必填檢核（缺就讓部署失敗）。
 
 **GitHub Actions (Cloudflare)**：
 | Secret | 說明 |
@@ -150,10 +162,20 @@ npm run snapshot                       # ＝ node fansite-v2/scripts/fetch-snaps
 ```
 UTC 07:00           = 台灣 15:00         每日備援 runAutoUpdate
 UTC 14:00~19:00     = 台灣 22:00~03:00   每 10 分鐘 runPollingCheck
-rate(5 minutes)                           Lambda 保溫（避免 cold start）
+UTC 07:30           = 台灣 15:30         runSnapshot（每日更新後重產 CDN 快照）
+UTC 20:00           = 台灣 04:00         runSnapshot（polling 末班 19:50 之後重產）
+rate(5 minutes)                           Lambda 容器保溫（避免 cold start）
 ```
 
 AWS EventBridge 為主要排程，CF Worker cron 已停用。
+
+每個排程都以 EventBridge 的 `Input` 顯式指明工作，由 `entry-lambda.js` 分流：
+`{"source":"cron","job":"daily"|"polling"}` → `handleCronTrigger`、
+`{"source":"snapshot"}` → `runSnapshot`、`{"source":"warmup"}` → 立即回 200。
+
+**保溫的語意**：EventBridge 直接 invoke Lambda（`{"source":"warmup"}`），
+`entry-lambda.js` 在初始化 Hono／DB **之前**就回 200 —— 不經 `/health`、不碰資料庫，
+目的只是讓執行環境（容器）保持存活。要驗證 DB 連線請自己打 `/health`。
 
 ## Public API
 

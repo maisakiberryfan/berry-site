@@ -7,6 +7,18 @@ on:
       - '*.md'
   workflow_dispatch:
 
+# 最小權限：本 workflow 只需讀出原始碼（部署憑證走 CF token，不用 GITHUB_TOKEN）。
+# 未宣告時 GITHUB_TOKEN 會沿用 repo 預設權限，可能是 read-write。
+permissions:
+  contents: read
+
+# Workers 部署是「整份取代」，兩次併行只會讓後完成的那次勝出——而「後完成」不保證是
+# 「後推送」。cancel-in-progress: true 直接掐掉舊的，最終狀態必定對應最新 commit
+# （AWS 側因 CloudFormation／S3 的中途狀態問題刻意設 false，兩邊語意不同是有意的）。
+concurrency:
+  group: deploy-cf
+  cancel-in-progress: true
+
 # ⚠️ CF 憑證刻意「不」放頂層 env——頂層 env 會進每個 step 的行程環境，
 # 連 npm ci／npm run build 都帶著部署 token，任一 devDep 被投毒即可讀走外傳
 # （不經 GitHub log，secret 遮蔽機制擋不到）。只掛在真正需要的 wrangler deploy 那步。
@@ -19,9 +31,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 與 deploy.yml 一致的 '24'：兩支 workflow 都會跑 fansite-v2 的 npm ci／build，
+      # Node 版本分歧＝同一份 lockfile 在兩條管線下解出不同的 optional binary
+      # （esbuild/rollup 的平台包）與不同的引擎行為，AWS 綠、CF 紅這種差異最難查
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       # ── fansite-v2（v3 站）build → dist/，即 wrangler.toml 的 [assets] directory ──
       # 沒有 cache-bust 步驟：Vite 產物是內容 hash 檔名（assets/index-<hash>.js），
