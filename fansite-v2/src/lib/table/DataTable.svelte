@@ -124,7 +124,12 @@
 
   $effect(() => {
     const mq = window.matchMedia(MOBILE_MQ)
-    const apply = () => (isMobile = mq.matches)
+    const apply = () => {
+      isMobile = mq.matches
+      // 切到手機＝篩選列整排卸載，正在組字的那一欄不會再收到 compositionend；
+      // 旗標留著會讓「切回桌面後的第一次輸入」被當成組字中而不送出
+      if (isMobile) composingKey = null
+    }
     apply()
     mq.addEventListener('change', apply)
     return () => mq.removeEventListener('change', apply)
@@ -246,6 +251,19 @@
     scheduleFilter(col.key, v)
   }
 
+  /**
+   * 組字中途離開輸入框（點別欄／關抽屜／切視窗）時，compositionend 不保證會來
+   * （各 IME 行為不一）。旗標卡在 true 的話這一欄之後就再也送不出篩選條件——
+   * 使用者看到的是「打字沒反應」。blur 一律歸零，且把框裡目前的字補送一次。
+   */
+  function onFilterBlur(col, e) {
+    if (composingKey !== col.key) return
+    composingKey = null
+    const v = e.currentTarget.value
+    drafts = { ...drafts, [col.key]: v }
+    scheduleFilter(col.key, v)
+  }
+
   function clearFilter(key) {
     clearTimeout(filterTimers.get(key))
     filterTimers.delete(key)
@@ -256,6 +274,7 @@
   function clearAllFilters() {
     for (const id of filterTimers.values()) clearTimeout(id)
     filterTimers.clear()
+    composingKey = null // 全清＝重來，組字旗標不該留到下一輪
     drafts = {}
     onfilterchange?.({})
   }
@@ -282,6 +301,13 @@
   }
 
   function moveResize(e) {
+    // 自癒：收到 move 時按鍵已經放開（拖到視窗外放開、切到別的應用程式、pointerup 被
+    // 別的元素攔掉）就當作拖曳結束。少了這一刀，回到頁面後滑鼠一碰欄頭就繼續改欄寬，
+    // 而且 body 的 userSelect:none / col-resize 游標會一直卡著
+    if (e.buttons === 0) {
+      endResize(e)
+      return
+    }
     if (!resizing) return
     const w = Math.max(MIN_COL_W, Math.round(resizing.startW + (e.clientX - resizing.startX)))
     colWidths = { ...colWidths, [resizing.key]: w }
@@ -293,9 +319,17 @@
     document.body.style.userSelect = ''
     document.body.style.cursor = ''
     try {
-      e.currentTarget.releasePointerCapture?.(e.pointerId)
+      e?.currentTarget?.releasePointerCapture?.(e.pointerId)
     } catch {}
   }
+
+  // 拖曳中換頁／元件卸載時 pointerup 永遠不會來，body 的樣式會留在整站上
+  // （選不了字、游標一直是 col-resize）。卸載一律還原。
+  $effect(() => () => {
+    if (!untrack(() => resizing)) return
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+  })
 </script>
 
 {#snippet pencil()}
@@ -500,6 +534,7 @@
                     oninput={(e) => onFilterInput(col, e)}
                     oncompositionstart={() => (composingKey = col.key)}
                     oncompositionend={(e) => onFilterCompositionEnd(col, e)}
+                    onblur={(e) => onFilterBlur(col, e)}
                   />
                   {#if draftOf(col.key)}
                     <button

@@ -29,6 +29,13 @@
     if (v == null) return null
     return typeof v === 'string' ? v : String(v)
   }
+
+  // 欄名重複時 engine 會把第 2 次以後的改成 `name_2`（key 必須唯一：這裡的 each key
+  // 與 row 物件欄位名都靠它）。tooltip 補回 SQL 原本的欄名，免得使用者以為自己打錯字。
+  const headTitle = (col) =>
+    col.name && col.name !== col.key
+      ? `${col.key} (SQL: ${col.name}) · ${col.type}`
+      : `${col.key} · ${col.type}`
 </script>
 
 <div
@@ -51,7 +58,7 @@
             class="sticky top-0 z-10 truncate border-b border-berry-border bg-berry-bg-2 px-3 py-2 font-medium text-berry-fg-2 {col.numeric
               ? 'text-right'
               : 'text-left'}"
-            title="{col.key} · {col.type}"
+            title={headTitle(col)}
           >
             {col.key}
           </th>

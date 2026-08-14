@@ -24,13 +24,26 @@
     return buttons[buttons.length - 1] ?? null
   }
 
+  /** 面板本身（tabindex=-1）——busy 期間的焦點停泊處 */
+  let panelEl = $state(null)
+
   $effect(() => {
     if (!open) return
     const onKey = (e) => {
-      if (e.key === 'Escape' && !e.isComposing && !busy) oncancel?.()
+      // keyCode 229＝組字中（部分瀏覽器此時 isComposing 為 false）：Esc 是取消候選字，不是關對話框
+      if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229 && !busy) oncancel?.()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
+  })
+
+  // busy 一轉 true，兩顆鈕都 disabled ⇒ 瀏覽器把焦點丟回 <body>，焦點就此逸出 trap
+  // （focusTrap 的 Tab 循環只在焦點還在面板內時有意義，掉到 body 之後 Tab 會跑進背後的頁面）。
+  // 把焦點停在面板本身，送出結束後使用者仍在對話框裡。
+  $effect(() => {
+    if (!open || !busy || !panelEl) return
+    const active = document.activeElement
+    if (!panelEl.contains(active)) panelEl.focus({ preventScroll: true })
   })
 </script>
 
@@ -46,6 +59,7 @@
     ></button>
 
     <div
+      bind:this={panelEl}
       use:focusTrap={() => ({ initial: lastButton })}
       tabindex="-1"
       role="alertdialog"

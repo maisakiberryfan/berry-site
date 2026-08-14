@@ -2,9 +2,11 @@
   // 衣裝頁：搬運自 fansite/pages/clothes.htm + assets/js/clothes.js
   // 資料照搬進 clothesData.js；modal 換成自寫 detail 面板 + 自寫 Lightbox（不裝 Fancybox）。
   // hash 直達行為（#YYYYMMDD / #YYYYMMDD-N / 舊版 #YYYYMMDD_s）沿用現站邏輯。
+  import { untrack } from 'svelte'
   import Page from '../lib/Page.svelte'
   import Lightbox from '../lib/content/Lightbox.svelte'
   import { t, getLang } from '../i18n.svelte.js'
+  import { route, navigate } from '../router.svelte.js'
   import { clothesData, clothesDim, formatClothesDate, clothesGalleryImages } from './clothesData.js'
   import { assetUrl } from '../assets.js'
   import { focusTrap } from '../lib/focusTrap.svelte.js'
@@ -51,12 +53,18 @@
 
   function openDetail(idx) {
     openIndex = idx
-    history.replaceState(null, '', `#${clothesData[idx].date}`)
+    // 走 router 而非裸 history.replaceState（同 Discography）：route.hash 要跟著變，
+    // 導覽列再點一次「衣裝」時（同頁 pushState 清掉 hash、不發 hashchange）面板才關得掉
+    navigate(`${location.pathname}${location.search}#${clothesData[idx].date}`, {
+      replace: true,
+      scroll: false,
+    })
   }
 
   function closeDetail() {
     openIndex = -1
-    if (location.hash) history.replaceState(null, '', location.pathname)
+    // 保留 query string：裸 `location.pathname` 會把 ?lang= 之類的參數一併吃掉
+    if (location.hash) navigate(`${location.pathname}${location.search}`, { replace: true, scroll: false })
   }
 
   function openMainGallery(startIndex = 0) {
@@ -83,31 +91,47 @@
 
   // Hash 直達：#YYYYMMDD 開詳細面板；#YYYYMMDD-N 直開 Lightbox 第 N 張立繪；
   // 舊版 #YYYYMMDD_s（四面圖 gallery 舊連結）→ 開詳細面板即可（四面圖入口已在面板內）
-  function handleHash() {
-    const hash = window.location.hash.slice(1)
+  //
+  // ⚠️ 本函式由 $effect 呼叫，讀 openIndex 一律走 untrack：把它收成依賴的話，
+  //    開面板這個動作本身就會讓 effect 再跑一次（自我觸發），Lightbox 也會被重開。
+  /** 上一次套用過的 hash（非 $state：只給本函式比對用，不該引起重繪） */
+  let appliedHash = ''
+
+  function applyHash(raw) {
+    const hash = String(raw ?? '').replace(/^#/, '')
     if (!hash) {
+      appliedHash = ''
       openIndex = -1
       return
     }
     const parts = hash.split('-')
     const date = parts[0].replace(/_s$/, '')
     const idx = clothesData.findIndex((e) => e.date === date)
-    if (idx === -1) return
+    if (idx === -1) return // 認不得的 hash：可能是別人的錨點，不動作
 
-    if (parts[1] && !parts[0].endsWith('_s')) {
+    const prevHash = appliedHash
+    appliedHash = hash
+    if (untrack(() => openIndex) !== idx) openIndex = idx
+
+    // 只在 hash 真的變成這個值的當下開 Lightbox——effect 重跑不該把使用者關掉的圖再打開
+    if (parts[1] && !parts[0].endsWith('_s') && prevHash !== hash) {
       const item = clothesData[idx]
       const imgIndex = Math.max(0, parseInt(parts[1], 10) - 1)
-      openIndex = idx
       lightbox = { images: clothesGalleryImages(item, 's', item.count), index: Math.min(imgIndex, item.count - 1) }
-    } else {
-      openIndex = idx
     }
   }
 
+  // 面板狀態跟著 router 的 hash 走：導覽列點同頁（pushState 清 hash）不發 hashchange，
+  // 只有 route.hash 會變，靠這個 effect 收斂（與 Discography 同一套機制）
   $effect(() => {
-    handleHash()
-    window.addEventListener('hashchange', handleHash)
-    return () => window.removeEventListener('hashchange', handleHash)
+    applyHash(route.hash)
+  })
+
+  // 手動改網址列的 hash 不經 router（也不發 popstate），補一條 hashchange
+  $effect(() => {
+    const onHash = () => applyHash(location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
   })
 
   // Esc 關閉詳細面板（僅在 Lightbox 未開啟時掛聽，避免一次 Esc 同時關兩層）
@@ -155,7 +179,7 @@
           />
         </div>
         <p class="mt-1.5 text-sm font-medium">{item.name}</p>
-        <p class="text-sm text-berry-fg-3">{formatClothesDate(item.date)}</p>
+        <p class="text-sm text-berry-fg-3">{formatClothesDate(item.date, getLang())}</p>
       </button>
     {/each}
   </div>
@@ -230,7 +254,7 @@
           <div class="rounded-lg border border-berry-border p-3 text-sm">
             <div class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1.5">
               <span class="text-right text-berry-text-emphasis">{m.debutDate}</span>
-              <span>{formatClothesDate(item.date)}</span>
+              <span>{formatClothesDate(item.date, getLang())}</span>
               <span class="text-right text-berry-text-emphasis">{m.designer}</span>
               <span>{item.designer}</span>
               <span class="text-right text-berry-text-emphasis">{m.modeler}</span>

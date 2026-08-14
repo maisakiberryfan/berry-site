@@ -9,7 +9,10 @@
 // 連結 scheme 白名單（含 protocol-relative `//evil.com` 的防護）與首頁共用同一支
 import { safeHref } from '../safeHref.js'
 
-const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g
+// 與 home/util.js 逐字相同的擷取字元集（兩處都吃同一種來源格式，語意必須一致）：
+// 連結文字排除換行、URL 排除所有空白類——URL 內含空白時整段不成立、退回純文字，
+// 免得「看起來像連結」的東西被切一半送進 safeHref（`[x](/ evil)` 之類）
+const LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g
 
 /** 把一段文字拆成 {type:'text'} / {type:'link'} 片段陣列（供模板逐段渲染） */
 function parseInline(text) {

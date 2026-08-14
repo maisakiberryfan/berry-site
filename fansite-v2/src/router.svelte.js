@@ -8,7 +8,16 @@
 //   navigate('/songlist')
 //
 // 站內 <a href="/xxx"> 的點擊由本模組全域攔截，元件不必自己處理。
-// 部署端的 SPA rewrite 白名單見 template.yaml 的 BotBlockerFunction —— 新增路由要同步更新。
+//
+// ⚠️ **路由白名單有三份，新增／改名路由必須三處一起改**（漏一處的症狀各不相同，
+//    而且都只在部署後才看得出來）：
+//   1. 本檔的 `ROUTES`           —— 站內連結清單的單一真相（給導覽與日後的路由檢查用）
+//   2. `src/App.svelte` 的 `PAGES` —— 真正決定渲染哪個頁面元件；漏了就顯示 NotFound
+//   3. `template.yaml` 的 `BotBlockerFunction` 內 `spaRoutes`（AWS CloudFront Function）
+//      —— 決定「直接輸入網址／重新整理」時要不要 rewrite 成 /index.html；
+//      漏了就是站內點得到、但 F5 一按變 S3 的 404（v3 demo 站另有獨立 function
+//      `berry-v3-spa-rewrite`，同樣要同步）
+//   路由清單另見 `fansite/assets/data/nav.json`（v2 現站）。
 
 export const ROUTES = [
   '/',
@@ -30,15 +39,9 @@ function normalize(pathname) {
   return p || '/'
 }
 
-export function isKnownRoute(path) {
-  return ROUTES.includes(normalize(path))
-}
-
 function snapshot() {
-  const path = normalize(location.pathname)
   return {
-    path,
-    known: ROUTES.includes(path),
+    path: normalize(location.pathname),
     query: new URLSearchParams(location.search),
     hash: location.hash,
   }
@@ -46,17 +49,15 @@ function snapshot() {
 
 let current = $state.raw(
   typeof location === 'undefined'
-    ? { path: '/', known: true, query: new URLSearchParams(), hash: '' }
+    ? { path: '/', query: new URLSearchParams(), hash: '' }
     : snapshot(),
 )
 
+// 「路徑在不在白名單」刻意不由這裡回答：實際判斷是 App.svelte 的 `PAGES[route.path] ?? NotFound`
+// （元件表就是那份白名單）。另開一個 route.known／isKnownRoute 等於多養一份會走鐘的副本。
 export const route = {
   get path() {
     return current.path
-  },
-  /** 路徑是否在白名單內（否則頁面層顯示 NotFound） */
-  get known() {
-    return current.known
   },
   get query() {
     return current.query

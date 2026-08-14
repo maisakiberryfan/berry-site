@@ -40,6 +40,18 @@
     schedule()
   }
 
+  /**
+   * 組字中途離開輸入框時 compositionend 不保證會來（各 IME 行為不一）。
+   * 旗標卡在 true 的話之後每一次輸入都會被當成組字中間態而不送出——
+   * 使用者看到的是「搜尋框打字沒反應」。blur 一律歸零並補送目前的字。
+   */
+  function onBlur(e) {
+    if (!composing) return
+    composing = false
+    draft = e.currentTarget.value
+    schedule()
+  }
+
   function clear() {
     clearTimeout(timer)
     draft = ''
@@ -136,6 +148,7 @@
       oninput={onInput}
       oncompositionstart={() => (composing = true)}
       oncompositionend={onCompositionEnd}
+      onblur={onBlur}
     />
 
     {#if draft}

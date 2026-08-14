@@ -143,7 +143,13 @@ export function focusTrap(node, params) {
       node.removeEventListener('keydown', onKeydown)
       if (lock) lockScrollOff()
       // 元素已從文件移除（換頁等）就不還原，免得把焦點丟到 <body> 以外的怪地方
-      if (restore?.isConnected) restore.focus({ preventScroll: true })
+      if (!restore?.isConnected) return
+      // 焦點還在「本面板內」或已掉回 body 時才還原。關掉這一層的同時開了下一層
+      // 對話框（確認框接著開抽屜之類）時，焦點已經在新面板裡——這時還原等於把它
+      // 搶回上一個對話框的觸發鈕，使用者的鍵盤位置會莫名其妙跳走。
+      const active = document.activeElement
+      const inside = !active || active === document.body || node.contains(active)
+      if (inside) restore.focus({ preventScroll: true })
     }
   })
 

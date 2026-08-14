@@ -34,6 +34,8 @@
   } = $props()
 
   const listId = `combobox-list-${nextId()}`
+  /** 選項的 DOM id：aria-activedescendant 要指到「目前用鍵盤選到的那一項」 */
+  const optionId = (i) => `${listId}-opt-${i}`
 
   let query = $state('')
   let editing = $state(false)
@@ -101,21 +103,30 @@
   }
 
   function onKeyDown(e) {
+    // ⚠️ IME 組字中的按鍵**全部**交給輸入法：Enter＝確定候選、Escape＝取消候選、
+    //    上下鍵＝選候選。統一擋在函式最前面——原本各分支自己守門，漏掉哪一個
+    //    （上下鍵就沒守）日文輸入就會誤動作，一道門比四道門可靠（現站 Select2 的老坑）。
+    if (e.isComposing || e.keyCode === 229) return
+
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       if (!open) openList()
       else active = Math.min(active + 1, filtered.length - 1)
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      active = Math.max(active - 1, 0)
+      if (open) {
+        active = Math.max(active - 1, 0)
+      } else {
+        // 關著時按上鍵也開清單（原本只有下鍵會開），並定位末項——與下鍵開在首項對稱
+        openList()
+        active = Math.max(filtered.length - 1, 0)
+      }
     } else if (e.key === 'Enter') {
-      if (e.isComposing || e.keyCode === 229) return // 組字確定：交給 IME
       if (open && filtered[active]) {
         e.preventDefault()
         choose(filtered[active])
       }
     } else if (e.key === 'Escape') {
-      if (e.isComposing || e.keyCode === 229) return
       if (open) {
         e.stopPropagation() // 只關下拉，不讓 drawer 一起關掉
         open = false
@@ -146,6 +157,7 @@
       role="combobox"
       aria-expanded={open}
       aria-controls={listId}
+      aria-activedescendant={open && filtered.length ? optionId(Math.min(active, filtered.length - 1)) : undefined}
       aria-autocomplete="list"
       autocomplete="off"
       {disabled}
@@ -160,6 +172,9 @@
       onkeydown={onKeyDown}
       onfocus={openList}
       onblur={() => {
+        // 組字中途離開（點別的欄位／關抽屜）時 compositionend 不保證會來；旗標留著
+        // 會讓下一次聚焦後的輸入被當成組字中間態而不進 query，下拉就再也篩不動
+        composing = false
         open = false
         editing = false
         query = ''
@@ -211,6 +226,7 @@
             <button
               type="button"
               role="option"
+              id={optionId(i)}
               aria-selected={o.id === value}
               data-active={i === active}
               class="block w-full px-3 py-1.5 text-left text-sm transition-colors {i === active

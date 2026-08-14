@@ -75,6 +75,12 @@
       discardOk: '關閉不儲存',
       filtered: '篩選後 {n} 筆',
       unbound: '未綁定',
+      aliasUpdated: '別名「{v}」原本就存在，已更新既有那一筆（不是新增）。',
+      aliasRebound: '⚠️ 這個別名原本指向其他歌曲，已改綁到目前選定的這一首。',
+      newArtistTitle: '這位歌手不在資料庫中',
+      newArtistMessage:
+        '目前沒有任何歌曲使用「{name}」。確定要以這個名稱當正式名稱嗎？（打錯字的話，解析歌單時對不到任何一位歌手）',
+      newArtistOk: '確定使用',
     },
     en: {
       searchPlaceholder: 'Search all columns… (alias:xx type:xx)',
@@ -104,6 +110,12 @@
       discardOk: 'Close without saving',
       filtered: '{n} filtered',
       unbound: 'Unbound',
+      aliasUpdated: 'Alias “{v}” already existed — the existing entry was updated, not added.',
+      aliasRebound: '⚠️ This alias pointed at another song; it now binds to the selected one.',
+      newArtistTitle: 'Artist not in the database',
+      newArtistMessage:
+        'No song uses “{name}” yet. Use it as the canonical name? (A typo here matches no artist when set lists are parsed.)',
+      newArtistOk: 'Use this name',
     },
     ja: {
       searchPlaceholder: '全項目を検索…（エイリアス:xx タイプ:xx）',
@@ -133,6 +145,12 @@
       discardOk: '保存せずに閉じる',
       filtered: '絞り込み {n} 件',
       unbound: '未紐づけ',
+      aliasUpdated: 'エイリアス「{v}」は既に存在したため、既存のデータを更新しました（新規追加ではありません）。',
+      aliasRebound: '⚠️ このエイリアスは別の曲に紐づいていましたが、選択中の曲に付け替えました。',
+      newArtistTitle: 'このアーティストはデータベースにありません',
+      newArtistMessage:
+        '「{name}」を使用している曲はまだありません。この名前を正式名称として使用しますか？（誤字があると、セットリスト解析時にどのアーティストにも一致しません）',
+      newArtistOk: 'この名前を使う',
     },
   }
   const m = $derived(msgs[getLang()] ?? msgs.zh)
@@ -153,6 +171,9 @@
       key: 'songID',
       label: m.boundSong,
       width: 'minmax(120px, 1.2fr)',
+      // 排序依畫面上的曲名，不是 songID：這一欄顯示的是曲名，按 songID 排出來的順序
+      // 在使用者眼中等於亂序（未綁定＝空字串，由 applySort 統一殿後）
+      sortValue: (r) => (r.songID != null ? boundSongName(r) : ''),
       filterValue: (r) => (r.songID != null ? `${boundSongName(r)} #${r.songID}` : ''),
     },
     { key: 'note', label: t('field.note'), width: 'minmax(110px, 1fr)' },
@@ -289,12 +310,20 @@
     })),
   )
 
-  /** 歌手建議（datalist） */
-  const artistSuggestions = $derived.by(() => {
+  /** 既有歌手名（完整集合）：送出前判斷「這個正式名稱是不是新歌手」用 */
+  const artistNames = $derived.by(() => {
     const set = new Set()
-    for (const s of songlist.rows) if (s.artist) set.add(s.artist)
-    return [...set].sort((a, b) => a.localeCompare(b)).slice(0, 400)
+    for (const s of songlist.rows) {
+      const name = String(s.artist ?? '').trim()
+      if (name) set.add(name)
+    }
+    return set
   })
+
+  /** 歌手建議（datalist）。⚠️ 有截斷，只能拿來當建議，判斷「是否為既有歌手」要用 artistNames */
+  const artistSuggestions = $derived(
+    [...artistNames].sort((a, b) => a.localeCompare(b)).slice(0, 400),
+  )
 
   /* ---------- Drawer ---------- */
   const blank = () => ({
@@ -313,12 +342,29 @@
   let snapshot = $state('')
   let saving = $state(false)
   let formError = $state('')
+  /** 後端原文（英文），降級成主訊息下方的小字技術細節 */
+  let formErrorDetail = $state('')
   let fieldErrors = $state({})
 
   let discardOpen = $state(false)
   let deleteOpen = $state(false)
   let deleting = $state(false)
   let deleteError = $state('')
+  /** 正式名稱是新歌手時的軟確認（僅 artist 型別；自由輸入欄，打錯字沒有東西擋得住） */
+  let newArtistOpen = $state(false)
+
+  /** 頁級提示 { text, kind }：drawer 關掉之後仍要讓使用者看到 upsert 的實際結果 */
+  let notice = $state(null)
+  let noticeTimer
+
+  function showNotice(text, kind = 'success') {
+    notice = { text, kind }
+    clearTimeout(noticeTimer)
+    // 警示留久一點（改綁是可能要回頭處理的事），一般結果訊息看過就好
+    noticeTimer = setTimeout(() => (notice = null), kind === 'warn' ? 15000 : 8000)
+  }
+
+  $effect(() => () => clearTimeout(noticeTimer))
 
   // 測試工具
   let testForm = $state({ aliasType: 'title', inputText: '' })
@@ -342,6 +388,7 @@
       : blank()
     snapshot = JSON.stringify(form)
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
     deleteError = ''
     drawerSeq++
@@ -371,9 +418,47 @@
     drawerOpen = false
   }
 
+  /* ---------- 錯誤呈現 ----------
+     後端訊息一律是英文，而且多半是 'invalid' / 'Validation failed' 這種機器語彙——
+     直接上畫面對三語站的使用者等於沒有訊息。看得懂的那一句由 HTTP status 決定，
+     後端原文降級成小字（回報問題時仍找得到）。 */
+
+  /** HTTP status → 三語一句 */
+  function errorText(err) {
+    const s = Number(err?.status) || 0
+    if (s === 400) return t('common.errValidation')
+    if (s === 404) return t('common.errNotFound')
+    if (s === 409) return t('common.errConflict')
+    if (s === 429) return m.rateLimited
+    if (s >= 500) return t('common.errServer')
+    if (s === 0) return t('common.errNetwork') // status 0＝逾時／連線失敗（見 client.js）
+    return t('common.errUnknown')
+  }
+
+  /** 後端原文（與主訊息重複時不顯示） */
+  function errorDetail(err) {
+    const s = String(err?.message ?? '').trim()
+    return s && s !== errorText(err) ? s : ''
+  }
+
+  /** 欄位錯誤：後端給的是機器碼（'invalid'／'required'），換成本頁的三語訊息 */
+  const FIELD_MESSAGES = $derived({
+    canonicalName: m.canonicalRequired,
+    aliasValue: m.aliasRequired,
+  })
+
+  function localizedFieldErrors(err) {
+    const out = {}
+    for (const key of Object.keys(fieldErrorMap(err))) {
+      out[key] = FIELD_MESSAGES[key] ?? t('common.errField')
+    }
+    return out
+  }
+
   function handleError(err) {
-    fieldErrors = fieldErrorMap(err)
-    formError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+    fieldErrors = localizedFieldErrors(err)
+    formError = errorText(err)
+    formErrorDetail = errorDetail(err)
   }
 
   function onPickSong(o) {
@@ -381,9 +466,27 @@
     if (o) form.canonicalName = o.label
   }
 
+  /**
+   * artist 型別的正式名稱是自由輸入（datalist 只是建議）：打錯一個字，這條別名就永遠
+   * 對不到任何歌手——解析歌單時看起來「有登記卻沒生效」，最難查。送出前確認一次，不阻擋
+   * （新歌手本來就得有人第一次寫）。title 型別綁 songID，不適用。
+   */
+  function requestSave() {
+    if (saving) return
+    const name = String(form.canonicalName ?? '').trim()
+    // 必填未過時直接送，讓既有的必填驗證先講話（先跳確認框再說「別名必填」很怪）
+    if (form.aliasType === 'artist' && name && nullIfBlank(form.aliasValue) && !artistNames.has(name)) {
+      newArtistOpen = true
+      return
+    }
+    save()
+  }
+
   async function save() {
+    newArtistOpen = false
     if (saving) return
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
 
     const canonicalName = nullIfBlank(form.canonicalName)
@@ -419,17 +522,37 @@
         }
         if (form.aliasType === 'title' && form.songID != null) payload.songID = form.songID
 
-        // quick-add 是 upsert：isNew 決定本地是插入還是更新
+        // quick-add 是 upsert（apiPost 會吃掉信封，故用 request 讀 raw）
         const res = await request('/api/aliases/quick-add', { method: 'POST', body: payload })
         const row = res.data
+        // isNew=false ＝ 這筆別名本來就在，這次是「更新既有」而非新增。使用者按的是
+        // 「新增」鈕，drawer 靜靜關掉會讓人以為多了一筆、卻在表格裡找不到（其實是某一列
+        // 被改掉了）——所以要明講。
+        const isNew = res.raw?.isNew !== false
+        // 前瞻相容：後端日後若回報「既有別名被改綁到另一首歌」（rebound／previousSongID），
+        // 就一併警示。欄位不存在時整條恆為 false，完全不依賴後端先上線。
+        const prevSongID = res.raw?.previousSongID
+        const rebound =
+          res.raw?.rebound === true ||
+          (prevSongID != null && prevSongID !== (payload.songID ?? null))
+
         if (row && typeof row === 'object' && row.aliasID != null) {
-          // quick-add 是 upsert（回應帶 isNew），但本地一律以「這筆 aliasID 在不在」為準：
+          // 本地一律以「這筆 aliasID 在不在」為準（不看 isNew）：
           // 插入重複 key 會讓 {#each} 直接炸，漏插則會讓新別名看不見
           const exists = aliases.rows.some((r) => r.aliasID === row.aliasID)
           if (exists) await aliases.applyLocalUpdate(row)
           else await aliases.applyLocalInsert(row)
         } else {
           await aliases.reload()
+        }
+
+        if (!isNew || rebound) {
+          showNotice(
+            [!isNew && m.aliasUpdated.replace('{v}', aliasValue), rebound && m.aliasRebound]
+              .filter(Boolean)
+              .join(' '),
+            rebound ? 'warn' : 'success',
+          )
         }
       }
       drawerOpen = false
@@ -450,7 +573,7 @@
       deleteOpen = false
       drawerOpen = false
     } catch (err) {
-      deleteError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+      deleteError = errorText(err)
     } finally {
       deleting = false
     }
@@ -469,7 +592,7 @@
         inputText,
       })
     } catch (err) {
-      testError = err?.status === 429 ? m.rateLimited : err?.message || String(err)
+      testError = errorText(err)
     } finally {
       testing = false
     }
@@ -506,6 +629,11 @@
       <DownloadMenu rows={view} cols={exportCols} basename="aliases" />
     {/snippet}
   </Toolbar>
+
+  <!-- upsert 的實際結果（更新既有／改綁）：drawer 已關掉，提示留在頁面上 -->
+  {#if notice}
+    <Alert kind={notice.kind}>{notice.text}</Alert>
+  {/if}
 
   <DataTable
     rows={view}
@@ -646,7 +774,12 @@
       {/if}
     {:else}
       {#if formError}
-        <Alert>{formError}</Alert>
+        <Alert>
+          {formError}
+          {#if formErrorDetail}
+            <div class="mt-1 text-sm opacity-70">{formErrorDetail}</div>
+          {/if}
+        </Alert>
       {/if}
 
       <Field label={t('field.aliasType')} error={fieldErrors.aliasType}>
@@ -736,10 +869,20 @@
       {/if}
       <div class="flex-1"></div>
       <Button onclick={requestClose} disabled={saving}>{t('common.cancel')}</Button>
-      <Button variant="primary" busy={saving} onclick={save}>{t('common.save')}</Button>
+      <Button variant="primary" busy={saving} onclick={requestSave}>{t('common.save')}</Button>
     {/if}
   {/snippet}
 </Drawer>
+
+<!-- 歌手正式名稱是自由輸入欄：不在資料庫中的名稱送出前確認一次（軟確認，不阻擋） -->
+<ConfirmDialog
+  open={newArtistOpen}
+  title={m.newArtistTitle}
+  message={m.newArtistMessage.replace('{name}', String(form.canonicalName ?? '').trim())}
+  confirmLabel={m.newArtistOk}
+  onconfirm={save}
+  oncancel={() => (newArtistOpen = false)}
+/>
 
 <ConfirmDialog
   open={discardOpen}

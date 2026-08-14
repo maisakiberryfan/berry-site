@@ -64,12 +64,24 @@
     pos = { left, top }
   })
 
-  // 開啟時把焦點移進選單（鍵盤操作的起點）
+  // 開啟時把焦點移進選單（鍵盤操作的起點）；關閉時還給觸發元素
   $effect(() => {
     if (!open) return
+    // 開啟前的焦點：⋯ 鈕開啟時就是那顆鈕；右鍵開啟時可能是 body（那就沒得還原）
+    const restore = document.activeElement instanceof HTMLElement ? document.activeElement : null
     queueMicrotask(() => {
       if (open) (itemButtons()[0] ?? menuEl)?.focus?.()
     })
+    return () => {
+      // 選單節點一移除，焦點就掉回 <body>——鍵盤使用者關個選單卻要從頁首重 Tab 一遍。
+      // 只在「還沒有別人接手焦點」時還原：選項動作若開了抽屜／對話框，那邊已經把焦點
+      // 移進去了，這時搶回來反而是把使用者踢出新開的面板（同 focusTrap 的判斷）。
+      if (!restore?.isConnected) return
+      const active = document.activeElement
+      if (!active || active === document.body || menuEl?.contains(active)) {
+        restore.focus({ preventScroll: true })
+      }
+    }
   })
 
   // 點外面 / Esc / 捲動 / 改變視窗大小都關閉。

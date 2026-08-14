@@ -516,7 +516,7 @@
       klText = sorted.length ? formatKLSetlist(sorted) : ''
     } catch (err) {
       if (seq !== klSeq) return
-      klError = `${m.klFailed}：${err?.message || String(err)}`
+      klError = `${m.klFailed}　${errorText(err)}`
     } finally {
       if (seq === klSeq) klLoading = false
     }
@@ -530,6 +530,22 @@
   }
 
   /* ---------- Drawer ---------- */
+  /**
+   * ISO(UTC) → `<input type="datetime-local">` 的本地值，**帶秒**。
+   *
+   * lib 的 `toDatetimeLocalValue` 只到分鐘：拿它回填、再原樣送回去，就把原本的秒數抹成
+   * `:00`——而本頁任何一次儲存（改個備註也算）都會連 time 一起 PUT，開播時間的秒數
+   * 因此被靜默清掉（YouTube 回填的時間本來就帶秒）。輸入框另配 `step="1"`，
+   * 否則瀏覽器仍以分鐘為粒度、動一下就把秒歸零。
+   * 反向沿用 `fromDatetimeLocalValue`：`new Date('YYYY-MM-DDTHH:mm:ss')` 依規範以本地
+   * 時區解析，帶不帶秒都對。
+   */
+  function toLocalInput(iso) {
+    const base = toDatetimeLocalValue(iso)
+    if (!base) return ''
+    return `${base}:${pad2(new Date(iso).getSeconds())}`
+  }
+
   const blank = () => ({ url: '', streamID: '', title: '', time: '', categories: [], note: '' })
 
   let drawerOpen = $state(false)
@@ -538,6 +554,8 @@
   let snapshot = $state('')
   let saving = $state(false)
   let formError = $state('')
+  /** 後端原文（英文），降級成主訊息下方的小字技術細節 */
+  let formErrorDetail = $state('')
   let fieldErrors = $state({})
   let drawerSeq = $state(0)
 
@@ -587,13 +605,14 @@
           url: '',
           streamID: row.streamID,
           title: row.title ?? '',
-          time: toDatetimeLocalValue(row.time),
+          time: toLocalInput(row.time),
           categories: [...(row.categories ?? [])],
           note: row.note ?? '',
         }
       : blank()
     snapshot = JSON.stringify(form)
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
     deleteError = ''
     resetYtLookup()
@@ -627,7 +646,7 @@
   function applyVideoInfo(info) {
     if (!touched.title && info.title) form.title = info.title
     if (!touched.time && info.time) {
-      const local = toDatetimeLocalValue(info.time)
+      const local = toLocalInput(info.time)
       if (local) form.time = local
     }
     if (!touched.categories && form.categories.length === 0) {
@@ -674,6 +693,9 @@
     } catch (err) {
       if (seq !== ytSeq) return
       ytNotice = m.ytFailed
+      // 查詢失敗要清掉去重鍵，否則同一支 ID 永遠卡在「已查過」——使用者離開再回到
+      // 影片 ID 欄（或重貼同一條網址）都不會重試，只能關掉表單重開
+      ytLookupId = ''
     } finally {
       if (seq === ytSeq) ytLoading = false
     }
@@ -717,19 +739,54 @@
     drawerOpen = false
   }
 
+  /* ---------- 錯誤呈現 ----------
+     後端訊息一律是英文，而且多半是 'invalid' / 'Validation failed' 這種機器語彙——
+     直接上畫面對三語站的使用者等於沒有訊息。看得懂的那一句由 HTTP status 決定，
+     後端原文降級成小字（回報問題時仍找得到）。 */
+
+  /** HTTP status → 三語一句（409 在本頁有更精確的說法，由呼叫端先攔） */
+  function errorText(err) {
+    const s = Number(err?.status) || 0
+    if (s === 400) return t('common.errValidation')
+    if (s === 404) return t('common.errNotFound')
+    if (s === 409) return t('common.errConflict')
+    if (s === 429) return m.rateLimited
+    if (s >= 500) return t('common.errServer')
+    if (s === 0) return t('common.errNetwork') // status 0＝逾時／連線失敗（見 client.js）
+    return t('common.errUnknown')
+  }
+
+  /** 後端原文（與主訊息重複時不顯示） */
+  function errorDetail(err) {
+    const s = String(err?.message ?? '').trim()
+    return s && s !== errorText(err) ? s : ''
+  }
+
+  /** 欄位錯誤：後端給的是機器碼（'invalid'／'required'），換成本頁的三語訊息 */
+  const FIELD_MESSAGES = $derived({
+    streamID: m.idInvalid,
+    title: m.titleRequired,
+    time: m.timeRequired,
+  })
+
+  function localizedFieldErrors(err) {
+    const out = {}
+    for (const key of Object.keys(fieldErrorMap(err))) {
+      out[key] = FIELD_MESSAGES[key] ?? t('common.errField')
+    }
+    return out
+  }
+
   function handleError(err) {
-    fieldErrors = fieldErrorMap(err)
-    formError =
-      err?.status === 429
-        ? m.rateLimited
-        : err?.status === 409
-          ? m.exists
-          : err?.message || String(err)
+    fieldErrors = localizedFieldErrors(err)
+    formError = err?.status === 409 ? m.exists : errorText(err)
+    formErrorDetail = errorDetail(err)
   }
 
   async function save() {
     if (saving) return
     formError = ''
+    formErrorDetail = ''
     fieldErrors = {}
 
     // 非 berry 頻道的影片要先確認過才放行（原站也是確認後才繼續）
@@ -796,12 +853,7 @@
       deleteOpen = false
       drawerOpen = false
     } catch (err) {
-      deleteError =
-        err?.status === 409
-          ? m.inUse
-          : err?.status === 429
-            ? m.rateLimited
-            : err?.message || String(err)
+      deleteError = err?.status === 409 ? m.inUse : errorText(err)
     } finally {
       deleting = false
     }
@@ -990,7 +1042,12 @@
 >
   {#key drawerSeq}
     {#if formError}
-      <Alert>{formError}</Alert>
+      <Alert>
+        {formError}
+        {#if formErrorDetail}
+          <div class="mt-1 text-sm opacity-70">{formErrorDetail}</div>
+        {/if}
+      </Alert>
     {/if}
 
     <!-- 非 berry 頻道：警告＋明確確認才解除送出阻擋（確認後才自動帶入標題／時間） -->
@@ -1043,9 +1100,11 @@
     </Field>
 
     <Field label={labelWithTz(m.localTime)} required error={fieldErrors.time} forId="stream-time">
+      <!-- step="1"＝秒欄可見可編；沒有它，回填的秒數會在使用者動這個欄位時被歸零 -->
       <TextInput
         id="stream-time"
         type="datetime-local"
+        step="1"
         bind:value={form.time}
         invalid={!!fieldErrors.time}
         oninput={() => (touched = { ...touched, time: true })}
