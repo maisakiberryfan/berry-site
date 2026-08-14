@@ -1,8 +1,8 @@
 {
   "time": "2026-08-14T21:00:00+08:00",
   "msg": {
-    "zh": "全站品質修正與編輯強化：音樂作品頁跳轉歌單改精準比對且載入更快；歌單批次編輯現可直接填時間戳（既有內容自動帶入表單）；表格手機篩選提示、鍵盤操作與讀屏支援全面改善",
-    "en": "Site-wide fixes and editing upgrades: Discography-to-setlist links now match the exact song and load faster; batch setlist editing now supports timestamps with existing values pre-filled; better mobile filter hints, keyboard navigation, and screen-reader support across all tables",
-    "ja": "サイト全体の品質改善と編集機能強化：ディスコグラフィからセットリストへのリンクが正確な曲単位になり読み込みも高速化。セットリストの一括編集でタイムスタンプ入力に対応（既存の内容はフォームに自動反映）。テーブルのモバイル表示・キーボード操作・スクリーンリーダー対応も改善しました"
+    "zh": "分享連結現在有專屬預覽圖：貼出專輯、衣裝或各頁面連結會顯示對應的預覽卡（站台卡使用ねこざとう老師的插圖）；專輯與衣裝詳細頁改為獨立網址可直接分享；個人資料頭像更新為 10th 專輯視覺",
+    "en": "Link previews are here: sharing an album, costume, or page link now shows its own preview card (site card illustrated by Cat_of_Sugar); album and costume detail pages now have shareable URLs; profile avatar updated to the 10th album artwork",
+    "ja": "リンクプレビューに対応：アルバム・衣装・各ページのリンクを共有すると専用のプレビュー画像が表示されます(サイトカードはねこざとう様のイラスト)。アルバムと衣装の詳細ページは共有できる独立URLになりました。プロフィールのアイコンも10thアルバムのビジュアルに更新"
   }
 }
