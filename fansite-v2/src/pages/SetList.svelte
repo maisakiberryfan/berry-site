@@ -85,6 +85,8 @@
       discardMessage: '表單有尚未儲存的修改，關閉後將遺失。',
       discardOk: '關閉不儲存',
       filtered: '篩選後 {n} 筆',
+      songFilterChip: '曲目：{name}',
+      songFilterClear: '清除曲目篩選',
       duration: '時長',
       unmatched: '（未對應歌曲）',
       loadingBig: '歌單資料量大，首次載入需要幾秒…',
@@ -152,6 +154,8 @@
       discardMessage: 'The form has unsaved edits that will be lost.',
       discardOk: 'Close without saving',
       filtered: '{n} filtered',
+      songFilterChip: 'Song: {name}',
+      songFilterClear: 'Clear song filter',
       duration: 'Length',
       unmatched: '(no song matched)',
       loadingBig: 'Set list is large — the first load takes a few seconds…',
@@ -224,6 +228,8 @@
       discardMessage: '保存していない編集内容が失われます。',
       discardOk: '保存せずに閉じる',
       filtered: '絞り込み {n} 件',
+      songFilterChip: '曲：{name}',
+      songFilterClear: '曲の絞り込みを解除',
       duration: '長さ',
       unmatched: '（曲未対応）',
       loadingBig: 'データ量が多いため、初回の読み込みに数秒かかります…',
@@ -383,9 +389,10 @@
   })
 
   /* ---------- 網址參數（StreamList 的列選單／Discography 頁導過來） ----------
-     ?stream=<id>  搜尋框預填該 streamID（SEARCH_FIELDS 含 streamID＝篩出該場全部曲目）
-     ?song=<曲名>  搜尋框預填 `曲名:"<值>"`（Discography 的「在歌單中查看」）
-     ?add=<id>     直接開「新增場次歌單」批次 drawer 並預填網址欄
+     ?stream=<id>   搜尋框預填該 streamID（SEARCH_FIELDS 含 streamID＝篩出該場全部曲目）
+     ?songID=<id>   對 songID 做精確等值過濾（Discography 的「在歌單中查看」用這個）
+     ?song=<曲名>   搜尋框預填 `曲名:"<值>"`（曲名字串比對，無 songID 可用時的退路）
+     ?add=<id>      直接開「新增場次歌單」批次 drawer 並預填網址欄
      都在套用後把 query 從網址移除（replaceState），避免重整/分享時殘留。
      初值同步取用：SearchBox 的輸入值在 mount 時就定案，等 effect 再塞會慢一拍。 */
 
@@ -394,6 +401,8 @@
    * 欄位名跟著介面語言走（別名表三語全收，這裡挑使用者看得懂的那個）；
    * 值加引號才吃得下空白。曲名本身含引號時無法用引號包（tokenize 會提前收尾），
    * 退回全文搜尋——仍篩得出來，只是條件較寬。
+   * ⚠️ 這是子字串比對：同名異曲（かくれんぼ 167／優里 cover 168）會一起被撈進來，
+   *    所以有 songID 的來源一律改用 ?songID=（精確等值），這條只留給沒有 songID 的情況。
    */
   function songQuery(name) {
     const s = String(name ?? '')
@@ -409,8 +418,18 @@
     return songQuery(q?.get('song'))
   }
 
+  /** ?songID= → 數字（非數字／負值一律忽略，當作沒帶這個參數） */
+  function parseSongIDParam(q) {
+    const raw = q?.get('songID')
+    if (raw == null || raw === '') return null
+    const n = Number(raw)
+    return Number.isInteger(n) && n >= 0 ? n : null
+  }
+
   const initialQuery = typeof location === 'undefined' ? null : route.query
   let query = $state(initialSearch(initialQuery))
+  /** 曲目精確過濾的 songID（null＝未套用）；與搜尋框、欄位篩選 AND 疊加，chip 可清除 */
+  let songFilter = $state(parseSongIDParam(initialQuery))
   let month = $state('')
   let sort = $state(null)
   /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
@@ -449,15 +468,17 @@
     }
   })
 
-  // 全域搜尋 ∧ 月份 ∧ 欄位篩選（AND 疊加）；15k 列，便宜的條件排前面先淘汰
+  // 曲目(songID) ∧ 全域搜尋 ∧ 月份 ∧ 欄位篩選（AND 疊加）；15k 列，便宜的條件排前面先淘汰
   const filtered = $derived.by(() => {
     const tokens = tokenize(query)
     const mo = month
+    const sid = songFilter
     const active = compileColumnFilters(colFilters, columns)
     const rows = setlistJoined.rows
-    if (!tokens.length && !mo && !active) return rows
+    if (!tokens.length && !mo && !active && sid == null) return rows
     const out = []
     for (const row of rows) {
+      if (sid != null && row.songID !== sid) continue
       if (mo && monthOf(row) !== mo) continue
       if (active && !matchesColumnFilters(row, active)) continue
       if (tokens.length && !matchesQuery(row, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) continue
@@ -467,6 +488,11 @@
   })
 
   const view = $derived(applySort(filtered, sort, columns))
+
+  /** 曲目 chip 上的曲名：songlist 為準，還沒載到（或已被刪）就顯示 #id */
+  const songFilterName = $derived(
+    songFilter == null ? '' : (songIndex.map.get(songFilter)?.songName || `#${songFilter}`),
+  )
 
   const exportCols = $derived([
     { key: 'streamID', label: t('field.streamID') },
@@ -646,10 +672,20 @@
     const stream = q.get('stream')
     const add = q.get('add')
     const song = q.get('song')
-    if (!stream && !add && !song) return
-    const sig = `${stream ?? ''}|${add ?? ''}|${song ?? ''}`
+    const songID = q.get('songID')
+    if (!stream && !add && !song && !songID) return
+    const sig = `${stream ?? ''}|${add ?? ''}|${song ?? ''}|${songID ?? ''}`
     if (sig === appliedParams) return
     appliedParams = sig
+
+    const sid = parseSongIDParam(q)
+    if (sid != null) {
+      songFilter = sid
+      // 殘留的字串搜尋／月份會 AND 上去把結果洗成 0 筆，一併清掉（chip 保留可清除性）
+      query = ''
+      month = ''
+      searchSeq++
+    }
 
     const search = initialSearch(q)
     if (search) {
@@ -1168,6 +1204,27 @@
       <DownloadMenu rows={view} cols={exportCols} basename="setlist" />
     {/snippet}
   </Toolbar>
+
+  <!-- 曲目精確過濾（?songID= 導進來）：搜尋框看不到這個條件，所以用 chip 明示並提供清除 -->
+  {#if songFilter != null}
+    <div class="mb-3 -mt-0.5 flex flex-wrap items-center gap-1.5">
+      <span
+        class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm leading-none"
+        style="background: var(--berry-subtle-bg); border-color: var(--berry-subtle-border); color: var(--berry-text-emphasis)"
+      >
+        {m.songFilterChip.replace('{name}', songFilterName)}
+        <button
+          type="button"
+          class="rounded-full leading-none opacity-70 transition-opacity hover:opacity-100"
+          aria-label={m.songFilterClear}
+          title={m.songFilterClear}
+          onclick={() => (songFilter = null)}
+        >
+          ✕
+        </button>
+      </span>
+    </div>
+  {/if}
 
   <DataTable
     rows={view}

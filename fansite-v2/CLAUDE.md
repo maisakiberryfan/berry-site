@@ -73,13 +73,19 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
 - **StreamList**：RowMenu（查看歌單→`/setlist?stream=`／快速新增→`?add=`／KL 格式歌單／複製／開 YT，歌單類僅歌枠列）；新增 drawer 貼網址自動查 `/api/yt` 帶標題時間分類（手改不覆蓋；三頻道白名單外→警告＋「仍要新增」確認）
 - **SetList**：編輯 drawer 四模式（edit／batch 新增／reorder 曲序／alias 快速新增別名）；
   reorder 面板有「依時間戳排序」鈕（有戳列升冪填回原位、無戳列不動）＋時間戳矛盾即時警告
-  （不阻擋儲存）——不變量：trackNo 順序 ≡ 時間戳順序；`?stream=`/`?add=`/`?song=` query 直達
-  （`?song=` 由 Discography 導來，SetList 端組成 `曲名:"…"` 語法字串，欄位名跟著介面語言）；月份下拉年份分組；快速新增別名 title 模式自動綁該列 songID（防同名互染——維運核心迴路）
+  （不阻擋儲存）——不變量：trackNo 順序 ≡ 時間戳順序；`?stream=`/`?add=`/`?songID=`/`?song=`
+  query 直達（**`?songID=` 是 Discography 導來的正路**：對 songID 精確等值過濾，與搜尋框／
+  欄位篩選 AND 疊加，並在工具列下方出 chip 可清除；`?song=` 是曲名字串的退路，SetList 端組成
+  `曲名:"…"` 語法字串走子字串比對——同名異曲會互染，只在沒有 songID 時才用）；月份下拉年份分組；快速新增別名 title 模式自動綁該列 songID（防同名互染——維運核心迴路）
 - **Aliases**：quick-add／test 端點接線；信封是 `{success,data}`（client 已統一解包，要 `isNew` 用 `request()` 讀 raw）
 - **Analytics**：統計／資料查詢分籤（`#query` 直達）；統計＝客端 JS 聚合；查詢＝建構器（白名單＋bind 防注入）＋進階 SQL（sql.js 659KB lazy self-host）；資料源＝瀏覽器快取攤平的 `berry_data` 寬表（time/month 為本地時區）
-- **Discography**：單頁三分節（專輯／單曲封面牆＋客座列表）＋點卡開詳細面板（`#<id>` hash 直達）；
-  曲目的 🎤N 鈕就地展開該曲的 setlist 場次（客端 songID 索引，連結帶 `?t=` 秒數，最多 20 場），
-  尾端「在歌單中查看」導 `/setlist?song=<曲名>`；曲名一律以 songlist 為準，
+- **Discography**：單頁三分節（專輯／單曲封面牆＋客座列表）＋點卡開詳細面板（`#<id>` hash 直達，
+  開關面板走 `navigate()` 而非裸 replaceState——面板狀態綁 `route.hash`，導覽列點同頁才關得掉）；
+  **setlist／streamlist 延到第一次開面板才載**（封面牆只要 songlist），骨架由 `load()` promise
+  完成時機收掉、空資料顯示「無演唱紀錄」；曲目的 🎤N 鈕就地展開該曲的 setlist 場次
+  （客端 songID 索引建在 `setlist.rows`，場次標題展開時才 `streamTitleOf()`，連結帶 `?t=` 秒數，
+  最多 20 場），尾端「在歌單中查看」導 `/setlist?songID=<id>`（精確等值，不再用曲名字串以免
+  同名異曲互染）；曲名一律以 songlist 為準，
   `discographyData.js` 的 name 只是 fallback（songID 為 null＝未唱過，不顯示 🎤）；
   封面 `/img/albums/{id}.webp`（源：repo `fansite/img/albums/`，dev 由 vite middleware
   直接讀本地）缺圖時走主題色漸層佔位；links.stream＝配信聚合頁、links.xfd 與
