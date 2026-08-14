@@ -59,6 +59,12 @@ jobs:
       # 快照是從 https://m-b.win 抓的，那邊此刻仍是上一次部署的內容 → 不覆蓋的話
       # 備用站 /data/ 的沿革與更新紀錄永遠落後一次部署。
       # mkdir -p：snapshot 步驟是 continue-on-error，整支炸掉時 public/data/ 可能不存在
+      # changelog time 蓋成 commit 時間（與 AWS 側 deploy.yml 的同名步驟一致，理由見彼處）
+      - name: Stamp changelog time from commit
+        run: |
+          COMMIT_TIME=$(git log -1 --format=%cI)
+          node -e "const fs=require('fs');const f='fansite/changelog.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.time=process.argv[1];fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$COMMIT_TIME"
+
       - name: Overlay repo history/changelog into snapshot
         run: |
           mkdir -p fansite-v2/public/data

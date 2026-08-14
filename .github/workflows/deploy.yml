@@ -146,6 +146,15 @@ jobs:
       # 刻意不掛 snapshot 的 outcome 條件：這步只動 build 輸入，快照要不要上傳
       # 仍由下面的 `if: steps.snapshot.outcome == 'success'` 決定；mkdir -p 讓
       # snapshot 整支炸掉（public/data/ 沒建出來）時這步也不會再炸一次 CI
+      # changelog 的 time 一律蓋成本次 commit 的時間（就地改 checkout 內的檔，不 commit
+      # 回 repo）：手寫時間戳會過時（2026-08-14 預寫中午值晚上才上線的教訓）。改在
+      # overlay 之前＝原位上傳（aws s3 cp）與 /data/ 副本用同一份蓋過的檔，cron 快照
+      # 之後從原位抓也拿到正確值，三處一致。msg 內容維持人寫三語（訪客導向），不自動化
+      - name: Stamp changelog time from commit
+        run: |
+          COMMIT_TIME=$(git log -1 --format=%cI)
+          node -e "const fs=require('fs');const f='fansite/changelog.json';const j=JSON.parse(fs.readFileSync(f,'utf8'));j.time=process.argv[1];fs.writeFileSync(f,JSON.stringify(j,null,2)+'\n')" "$COMMIT_TIME"
+
       - name: Overlay repo history/changelog into snapshot
         run: |
           mkdir -p fansite-v2/public/data
