@@ -97,6 +97,19 @@ jobs:
         continue-on-error: true
         run: npm run snapshot
 
+      # history.md／changelog.json 用 repo 版覆蓋快照抓來的線上版：
+      # 上一步是從 https://m-b.win 抓的，而此刻線上仍是「上一次部署」的內容
+      # （本次的 S3 同步在下面才發生）→ 不覆蓋的話 /data/ 副本永遠落後一次部署，
+      # 這兩支又是「這次 commit 才改的」機率最高的檔（history-bot／commit skill）。
+      # 刻意不掛 snapshot 的 outcome 條件：這步只動 build 輸入，快照要不要上傳
+      # 仍由下面的 `if: steps.snapshot.outcome == 'success'` 決定；mkdir -p 讓
+      # snapshot 整支炸掉（public/data/ 沒建出來）時這步也不會再炸一次 CI
+      - name: Overlay repo history/changelog into snapshot
+        run: |
+          mkdir -p fansite-v2/public/data
+          cp fansite/pages/history.md fansite-v2/public/data/history.md
+          cp fansite/changelog.json fansite-v2/public/data/changelog.json
+
       - name: Build fansite-v2
         working-directory: fansite-v2
         run: npm run build

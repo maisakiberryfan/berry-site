@@ -40,6 +40,16 @@ jobs:
         continue-on-error: true
         run: npm run snapshot
 
+      # history.md／changelog.json 用 repo 版覆蓋快照抓來的線上版（同 deploy.yml）：
+      # 快照是從 https://m-b.win 抓的，那邊此刻仍是上一次部署的內容 → 不覆蓋的話
+      # 備用站 /data/ 的沿革與更新紀錄永遠落後一次部署。
+      # mkdir -p：snapshot 步驟是 continue-on-error，整支炸掉時 public/data/ 可能不存在
+      - name: Overlay repo history/changelog into snapshot
+        run: |
+          mkdir -p fansite-v2/public/data
+          cp fansite/pages/history.md fansite-v2/public/data/history.md
+          cp fansite/changelog.json fansite-v2/public/data/changelog.json
+
       - name: Build fansite-v2
         working-directory: fansite-v2
         run: npm run build
@@ -49,8 +59,12 @@ jobs:
       # CSP（img-src/media-src 'self'）免改。/pages/history.md 與 changelog.json
       # 不需要——v3 從 /data/ 快照讀它們（上面 snapshot 步驟已產）。
       # 必須在 build 之後：vite build 會清空 dist/。
+      # 用 `img/.` → `dist/img/`（而非 `img` → `dist/img`）：目標目錄若已存在，
+      # 後者會拷成巢狀的 dist/img/img，圖片全部 404
       - name: Bundle site images into dist
-        run: cp -r fansite/img fansite-v2/dist/img
+        run: |
+          mkdir -p fansite-v2/dist/img
+          cp -r fansite/img/. fansite-v2/dist/img/
 
       # Install root dependencies
       - run: npm ci

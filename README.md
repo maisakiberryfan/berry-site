@@ -68,16 +68,17 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 Push 到 `main` 分支會自動觸發兩個 workflow：
 
 ### AWS (`.github/workflows/deploy.yml`)
-1. Build fansite JS bundle
-2. 產生 CDN 靜態快照（`npm run snapshot` → `fansite/data/`）
-3. `sam build` → `sam deploy`（Lambda + CloudFront + S3）
-4. Sync fansite 至 S3（快照獨立一輪，短 cache-control）
-5. Invalidate CloudFront cache
+1. `sam build` → `sam deploy`（Lambda + API Gateway + CloudFront + S3）
+2. fansite-v2（v3 前端）：`npm ci` → `npm run snapshot`（best-effort，→ `public/data/`）
+   → 以 repo 版覆蓋快照中的 `history.md`／`changelog.json` → `npm run build`
+3. Sync `fansite-v2/dist/` 至 S3（快照獨立一輪，`max-age=300`＋`--delete`；
+   快照步驟失敗時跳過該輪，保住線上既有快照）
+4. Invalidate CloudFront cache
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
-1. Build fansite JS bundle
-2. 產生 CDN 靜態快照
-3. `wrangler deploy`（Worker + Static Assets）
+1. fansite-v2：`npm ci` → `npm run snapshot`（best-effort）→ 覆蓋 history/changelog
+   → `npm run build` → 併入 `fansite/img`
+2. `wrangler deploy`（Worker + Static Assets，`[assets] directory` = `fansite-v2/dist`）
 
 ### 需要的 Secrets
 
@@ -129,8 +130,9 @@ cd fansite && npm run build:js         # esbuild bundle（CI 跑這個）
 cd fansite && npm run build:bootstrap  # 主題 SCSS 改動後必跑（產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 
-# CDN 靜態快照（首訪資料來源；輸出 fansite/data/，gitignored，CI 每次部署重建）
-npm run snapshot                       # 來源預設 https://m-b.win，可用 BERRY_API 覆寫
+# CDN 靜態快照（首訪資料來源；輸出 fansite-v2/public/data/，gitignored，CI 每次部署重建）
+npm run snapshot                       # ＝ node fansite-v2/scripts/fetch-snapshot.mjs
+                                       # 來源預設 https://m-b.win，可用 BERRY_API 覆寫
 ```
 
 ### 環境檔案

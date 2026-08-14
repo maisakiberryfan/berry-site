@@ -94,11 +94,17 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 （回訪，不變）      （首訪，edge 直出）           （既有 manifest/ETag 邏輯）
 ```
 
-- **快照產生**：`npm run snapshot`（`scripts/fetch-snapshot.mjs`，純 Node 無相依）向正式
-  API 唯讀 GET，輸出到 `fansite/data/`（**gitignored**，部署時重建）：
-  `songlist.json`、`streamlist.json`、`manifest.json`、`setlist-{YYYY-MM}.json`（每月一檔）
-  ＋`setlist-none.json`。`BERRY_API=http://localhost:8788` 可改抓本地 API。
-  單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）
+- **快照產生**：`npm run snapshot`（＝`node fansite-v2/scripts/fetch-snapshot.mjs`，
+  純 Node 無相依）向正式 API 唯讀 GET，輸出到 `fansite-v2/public/data/`（**gitignored**，
+  部署時重建，vite build 會連同 `public/` 拷進 `dist/data/`）：
+  `songlist.json`、`streamlist.json`、`yt-latest.json`、`manifest.json`、
+  `setlist-{YYYY-MM}.json`（每月一檔）＋`setlist-none.json`
+  ＋`history.md`／`changelog.json`（現站靜態檔，CI 隨後以 repo 版覆蓋，見下）。
+  `BERRY_API=http://localhost:8788` 可改抓本地 API。
+  單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）——
+  **manifest 形狀不對（缺 months 陣列）與 songlist/streamlist/月度檔非陣列同樣計入
+  failures**：AWS 側的 `s3 sync --delete` 吃這個 exit code，靜默 exit 0 會清空線上 /data/
+  （v2 舊版本的根目錄腳本已於 2026-08-14 除役刪除）
 - **前端**（tool.js）：IDB 無快取時才抓快照。setlist 走 `primeSetlistFromSnapshot()`——
   manifest 快照給月份清單並 **seed fingerprints**，逐月快照併發 6 抓齊後灌入，之後
   **照常走既有的 manifest 比對**：快照過時的月份指紋對不上、自動由 API 重抓（缺檔的月份
@@ -107,8 +113,11 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 - **etag 一律為 null**：靜態快照沒有 ETag，帶假值會 304 短路把過時資料鎖死
 - **fallback**：快照 404／解析失敗 → 回傳 null → 完全走原本的 API 路徑（首訪漸進載入
   不變），代價只是一個 404 往返
-- **CI**：build 之後跑 `npm run snapshot`（`continue-on-error`——快照抓不全不該擋部署）；
-  AWS 側 `fansite/data/` 獨立一輪 s3 sync（`max-age=300`＋`--delete`，不用 `--size-only`），
+- **CI**：build **之前**跑 `npm run snapshot`（`continue-on-error`——快照抓不全不該擋部署），
+  緊接著用 repo 的 `fansite/pages/history.md`／`fansite/changelog.json` 覆蓋快照抓來的線上版
+  （快照是從 m-b.win 抓的，此刻線上還是上一次部署的內容，不覆蓋就永遠落後一次部署）；
+  AWS 側 `fansite-v2/dist/data/` 獨立一輪 s3 sync（`max-age=300`＋`--delete`，
+  不用 `--size-only`，且 `if: steps.snapshot.outcome == 'success'`），
   CF 側隨 Workers Static Assets 一起上傳。CloudFront 的 `/*` invalidation 已涵蓋 `/data/`
 - **新鮮度**：快照只跟得上「最近一次部署」，這是設計的一部分——正確性由 API 校正保證，
   快照只負責讓首訪先有東西看
@@ -182,7 +191,8 @@ cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI �
 cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
 cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 cd fansite && npm run vendor:sqljs     # sql.js dist → assets/vendor/（升 sql.js 後必跑，產物進 git）
-npm run snapshot                       # repo 根：產生 CDN 快照 → fansite/data/（CI 也跑這個）
+npm run snapshot                       # repo 根：＝ node fansite-v2/scripts/fetch-snapshot.mjs
+                                       # → fansite-v2/public/data/（CI 在 fansite-v2/ 內跑同一支）
 ```
 
 ---
@@ -251,14 +261,26 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 
 - 資料源用 Hono `app.request()` **內部調用自家 API**（零網路來回，輸出與前端拿到的一致）；
   `history.md`／`changelog.json` 是現站靜態檔不是 API，走 HTTP 抓（`SNAPSHOT_STATIC_BASE`）
-- 檔名／信封解包／過期月份清理的基準是 `scripts/fetch-snapshot.mjs`（v2 CI 版）與
-  `fansite-v2/scripts/fetch-snapshot.mjs`（v3 版）——**三處改動必須同步**
+- 檔名／信封解包／過期月份清理的基準與 `fansite-v2/scripts/fetch-snapshot.mjs`（CI 版）
+  共用——**兩處改動必須同步**（v2 時代的根目錄 `scripts/fetch-snapshot.mjs` 已除役刪除）
 - 目標站台：`SNAPSHOT_TARGETS`＝`bucket:distributionId,bucket2:distributionId2`
   （由 template 的 SnapshotBucketA/B ＋ SnapshotDistributionA/B 以 `!Sub` 拼成；
   **未設＝整個步驟 skip 並 log**）。CacheControl 固定 `public, max-age=300`，
   與 CI 的快照 sync 逐字一致；每站台寫完發一次 `/data/*` invalidation（1 path）
+- **manifest.json 一定最後寫**（commit point）：新 manifest ＋ 尚未更新的月度檔會讓前端
+  指紋對得上卻讀到舊資料且不自癒；反過來只是多一輪 API 校正。putAll 因此拆兩批依序
+  await（併發池內的完成順序不保證，光排在陣列尾端沒用）
+- **時間預算 120s**（Lambda Timeout 180s）：逐月迴圈超時就停止剩餘月份、ok=false，
+  且**不寫 manifest**；剩餘月份仍登記進 wanted 清單，免得清理把它們的 S3 舊檔誤刪
 - 失敗語意：單檔失敗只記錄不中斷（舊物件留在 S3 比缺檔安全）；某站台一個檔都沒寫成時
-  **不執行清理**（只刪不寫是最糟的組合）。manifest 失敗或有站台全滅 → 整體 ok=false
+  **不執行清理**（只刪不寫是最糟的組合）；清理自帶 try/catch（它拋錯不該連帶跳過
+  invalidation）。manifest 失敗／預算用盡／有站台全滅 → 整體 ok=false，
+  **並發 Discord 通知**（`type: 'snapshot'`；cron 沒人盯 CloudWatch，靜默＝快照停在舊版
+  卻沒人知道。通知失敗不影響 cron 結果）
+- 內部調用帶 `MODE: 'dev'`（`apiEnv`）＋失敗時讀 body 的 `error.message`：app.js 的
+  onError 只在 dev/test 附上真實錯誤，否則連未捕例外都只剩 "Internal server error"。
+  回應不外流（僅進 log／通知）。上限：路由層自己 catch 的錯誤本來就回泛化字串，
+  真因得看該路由 console.error 的 CloudWatch log
 
 ### 資料庫（MariaDB @ ConoHa 大阪）
 
@@ -336,14 +358,23 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 Push 到 `main` 自動觸發：
 
 ### AWS (`.github/workflows/deploy.yml`)
-1. Build fansite JS → `sam build` → `sam deploy`
-2. Sync fansite 至 S3（`--size-only` 跳過未變更檔案）
-3. Invalidate CloudFront cache
+1. `npm ci` → `sam build` → `sam deploy`（Lambda + API Gateway + CloudFront + S3）
+2. fansite-v2：`npm ci` → `npm run snapshot`（best-effort，`continue-on-error`，
+   刻意排在 sam deploy 之後＝快照與新版 API 輸出一致）→ 以 repo 版覆蓋快照中的
+   `history.md`／`changelog.json` → `npm run build`
+3. Sync S3：`dist/assets/`（`--size-only`＋`immutable`）、`dist/` 頂層（`no-cache`，
+   排除 assets/data）、`fansite/img/`、`fansite/pages/history.md`、`fansite/changelog.json`。
+   **全程不用全域 `--delete`**（hash 資產只增不刪、img/pages 是 bucket 上的非 dist 內容）
+4. 快照獨立一輪：`dist/data/` → `s3://.../data/`（`max-age=300`＋`--delete`，
+   `if: steps.snapshot.outcome == 'success'`）
+5. Invalidate CloudFront `/*`（1 path）
+6. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
-1. **（v3 切換準備，`fansite-v2` 分支已改）** fansite-v2：`npm ci` → `npm run snapshot`
-   （best-effort，`continue-on-error`）→ `npm run build` → `wrangler deploy`
-2. `wrangler.toml` 的 `[assets] directory` 指向 `fansite-v2/dist`（Vite hash 檔名，
+1. fansite-v2：`npm ci` → `npm run snapshot`（best-effort）→ 覆蓋 history/changelog
+   → `npm run build` → `cp -r fansite/img/. fansite-v2/dist/img/`（同源，CSP 免改）
+2. 根 `npm ci` → `npx wrangler deploy`（CF 憑證只注入這一步，不放頂層 env）
+3. `wrangler.toml` 的 `[assets] directory` 指向 `fansite-v2/dist`（Vite hash 檔名，
    無 cache-bust sed 步驟）
 
 ### Secrets

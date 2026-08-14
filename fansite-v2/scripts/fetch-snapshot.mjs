@@ -17,7 +17,10 @@
 // 後兩者是現站的「靜態檔」而非 API，來源固定走 STATIC_BASE（預設 https://m-b.win，
 // 可用 BERRY_STATIC 覆寫）——把它們納入快照後，前端不必再繞 vite proxy 打線上站。
 //
-// 單檔失敗只跳過不中斷；逐月之間 sleep 200ms 禮貌節流。
+// 失敗語意：單檔失敗不中斷（其餘檔案照產），但整支以 exit code 1 結束——CI 據此
+// 判斷「這批快照不完整」，跳過同步／不覆蓋線上既有的完整快照（AWS 側的
+// `aws s3 sync --delete` 尤其依賴這點：壞快照若靜默 exit 0，S3 的 /data/ 會被清空）。
+// 逐月之間 sleep 200ms 禮貌節流。
 
 import { mkdir, writeFile, readdir, unlink, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -65,10 +68,20 @@ function fmtSize(bytes) {
   return `${bytes} B`
 }
 
-/** 抓一支端點並寫檔；失敗只記錄不中斷 */
-async function snapshot(file, pathname, transform) {
+/**
+ * 抓一支端點並寫檔；失敗只記錄不中斷（最後以 exit code 反映）
+ * @param {Object} [opts]
+ * @param {boolean} [opts.expectArray] 形狀防呆：前端一律以 Array.isArray 驗收，這裡先擋掉
+ *   （例如 SPA fallback 回 HTML、或端點改了信封）——寧可少一個檔讓前端走 API，
+ *   也不要寫出前端讀不懂的快照
+ * @param {Function} [opts.transform] 寫檔前的轉換
+ */
+async function snapshot(file, pathname, { expectArray = false, transform } = {}) {
   try {
     const data = await fetchJson(pathname)
+    if (expectArray && !Array.isArray(data)) {
+      throw new Error(`回應不是陣列（${data === null ? 'null' : typeof data}）`)
+    }
     return await writeJson(file, transform ? transform(data) : data)
   } catch (err) {
     failures++
@@ -102,26 +115,30 @@ async function main() {
   await mkdir(OUT_DIR, { recursive: true })
 
   let total = 0
-  total += await snapshot('songlist.json', '/api/songlist')
-  total += await snapshot('streamlist.json', '/api/streamlist')
-  total += await snapshot('yt-latest.json', '/api/yt/latest')
+  total += await snapshot('songlist.json', '/api/songlist', { expectArray: true })
+  total += await snapshot('streamlist.json', '/api/streamlist', { expectArray: true })
+  total += await snapshot('yt-latest.json', '/api/yt/latest')   // 單一物件，不驗陣列
 
   // 現站靜態檔（沿革頁 / 首頁最近更新）——原樣快照，避免 runtime 打線上站
   total += await snapshotRaw('history.md', '/pages/history.md')
   total += await snapshotRaw('changelog.json', '/changelog.json')
 
   // manifest：月份清單 + 指紋（前端首訪拿它當初始 fingerprints）
+  // 形狀不對＝這批快照不可信：必須計入 failures（exit 1），否則 CI 會拿一份「只有
+  // songlist/streamlist、沒有任何月度檔」的快照去 sync --delete，把 S3 的月度快照清空
   let manifest = null
   try {
     manifest = await fetchJson('/api/setlist/manifest')
+    if (!manifest || !Array.isArray(manifest.months)) throw new Error('缺少 months 陣列')
   } catch (err) {
+    manifest = null
     failures++
     console.warn(`  ✗ manifest.json 失敗：${err.message}`)
   }
 
   const wantedMonthFiles = new Set()
 
-  if (manifest && Array.isArray(manifest.months)) {
+  if (manifest) {
     total += await writeJson('manifest.json', { ...manifest, fetchedAt: new Date().toISOString() })
 
     console.log(`[snapshot] 逐月抓 setlist（${manifest.months.length} 個 bucket）…`)
@@ -138,7 +155,7 @@ async function main() {
       const query =
         month === 'none' ? '/api/setlist?from=none&to=none' : `/api/setlist?from=${month}&to=${month}`
       wantedMonthFiles.add(file)
-      total += await snapshot(file, query)
+      total += await snapshot(file, query, { expectArray: true })
       await sleep(THROTTLE_MS)
     }
   }

@@ -21,7 +21,9 @@ scripts/*.sql
 scripts/*.parquet
 scripts/timestamps/
 
-# CDN 靜態快照（scripts/fetch-snapshot.mjs 由正式 API 產生，部署時重建；不進 git）
+# CDN 靜態快照（由正式 API 產生，部署時重建；不進 git）
+# 現行產物在 fansite-v2/public/data/（該目錄由 fansite-v2/.gitignore 管）；
+# 下面這條是 v2 現站時代的殘留，待 fansite/ 清理 commit 一併移除
 fansite/data/
 
 # traffic-report skill (auto-downloaded GeoIP DB + npm artifacts)
