@@ -300,6 +300,12 @@ export async function createSetlistEntry(c) {
         const { streamID, trackNo, segmentNo = 1, songID, note, startTime, endTime } = entry;
         return [streamID, trackNo, segmentNo, songID || null, note || null, startTime ?? null, endTime ?? null];
       });
+      // ⚠️ **單筆與批次走的是同一條 UPSERT**（函式開頭 `entries = isBatch ? body : [body]`，
+      // 陣列與物件只差在回應信封）⇒ 下面說的「全覆寫」對單筆 POST 一樣成立，
+      // **呼叫端每次都必須帶齊 songID／note／startTime／endTime 四欄**。
+      // 想只改一欄請用 `PUT /:streamID/:segmentNo/:trackNo`（只更新 body 有出現的欄位）——
+      // 拿 POST 當「部分更新」用會把沒帶的三欄清成 NULL（含留言回補的時間戳）。
+      //
       // 批次＝**所見即所得的整段狀態替換**（用戶裁示 2026-08-14）：
       // songID／note／startTime／endTime 全部無條件覆寫，payload 帶什麼就寫什麼，
       // 沒有「某些欄後端偷偷保留」的例外。note／startTime／endTime 帶 null＝真的清空；

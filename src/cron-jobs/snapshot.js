@@ -3,8 +3,11 @@
  *
  * 觸發：EventBridge Schedule，Input `{"source":"snapshot"}` → entry-lambda.js 分流。
  * 資料來源：Hono `app.request()` 內部調用自家 API（零網路來回、與前端拿到的
- *   完全同一份輸出）。格式基準是 `fansite-v2/scripts/fetch-snapshot.mjs`（v3）與
- *   `scripts/fetch-snapshot.mjs`（v2 現站，CI 版）——**檔名／信封解包／清理邏輯三處必須同步**。
+ *   完全同一份輸出）。格式基準是 `fansite-v2/scripts/fetch-snapshot.mjs`（CI 版，v3 切換後
+ *   根 `npm run snapshot` 也指向它；舊的 `scripts/fetch-snapshot.mjs` 已隨切換移除）
+ *   ——**檔名／信封解包／清理邏輯兩處必須同步**。
+ *   ※ CI 版任一檔失敗即 exit 1，deploy.yml 據此整批跳過同步（S3 保留上一份完整快照），
+ *     所以下面「manifest 不 commit」的機制是 cron 這條路徑特有的。
  *
  * 產物（S3 key 一律 `data/<file>`，內容是解包後的 data）：
  *   songlist.json / streamlist.json / yt-latest.json
@@ -26,9 +29,16 @@
  *   （invalidation 管不到瀏覽器快取，短 max-age 才是瀏覽器端的收斂手段）。
  *
  * 失敗語意：單檔失敗不中斷（照 fetch-snapshot.mjs 的 failures 模式）——舊物件留在 S3
- *   比缺檔安全；只有「manifest 失敗」「時間預算用盡」或「某個 target 一個檔都沒寫成」
+ *   比缺檔安全；只有「manifest 失敗」「這批月度檔不完整」或「某個 target 一個檔都沒寫成」
  *   才算整體失敗（ok=false）。ok=false 一律發 Discord 通知——cron 沒有人在看
  *   CloudWatch，靜默失敗等於快照永遠停在某個舊版本卻沒人知道。
+ *
+ * ⚠️ **manifest 是 commit point，「不完整就不 commit」**：manifest 是前端 fingerprints
+ *   的種子，「新 manifest ＋ 舊月度檔」會讓前端指紋對得上卻讀到舊資料且不會自癒。
+ *   故三種不完整都必須把 manifest 從上傳清單中拿掉——時間預算用盡（budgetExceeded）、
+ *   單月 API 抓失敗／月份格式非法（monthIncomplete，全域）、某站台的月度檔 PUT 失敗
+ *   （putAll 內 per-target 判斷，其他站台不受牽連）。月度檔本身照傳，「舊 manifest ＋
+ *   新月度檔」只是多一輪前端 API 校正。
  */
 
 import app from '../app.js'
@@ -159,14 +169,15 @@ async function fetchStatic(url) {
   return text
 }
 
-/** 併發寫入一批物件到單一 bucket（單檔失敗只記錄）；回傳成功筆數 */
+/** 併發寫入一批物件到單一 bucket（單檔失敗只記錄）；回傳 { uploaded, failed:[檔名] } */
 async function putBatch(bucket, files, failures) {
-  if (!files.length) return 0
+  if (!files.length) return { uploaded: 0, failed: [] }
   const { PutObjectCommand } = await import('@aws-sdk/client-s3')
   const client = await getS3Client()
 
   let uploaded = 0
   let cursor = 0
+  const failed = []
 
   const worker = async () => {
     while (cursor < files.length) {
@@ -181,6 +192,7 @@ async function putBatch(bucket, files, failures) {
         }))
         uploaded++
       } catch (err) {
+        failed.push(item.file)
         failures.push(`${bucket} put ${item.file}: ${err.message}`)
       }
     }
@@ -189,7 +201,7 @@ async function putBatch(bucket, files, failures) {
   await Promise.all(
     Array.from({ length: Math.min(PUT_CONCURRENCY, files.length) }, () => worker())
   )
-  return uploaded
+  return { uploaded, failed }
 }
 
 /**
@@ -198,14 +210,34 @@ async function putBatch(bucket, files, failures) {
  * 對得上卻讀到舊資料（前端不會察覺、不會重抓）；反過來「舊 manifest ＋ 新月度檔」
  * 只是多一輪 API 校正。Lambda 被 timeout 中砍或 S3 中途出錯時，後者才是安全的中間態。
  * 併發池（PUT_CONCURRENCY）內的完成順序不保證，故拆成兩批依序 await，而非只排在陣列尾端。
+ *
+ * 同一個理由延伸到「**這個 bucket 的月度檔沒寫成功**」：PUT 失敗是 per-target 的
+ * （bucket 名錯／權限／間歇 5xx 只影響該站台），故 commit 判斷也在 per-target 這層做——
+ * 先寫完 rest、看這批裡有沒有月度檔失敗，有就不寫 manifest（該站台保留舊 manifest，
+ * 前端照常靠 API 比對自癒），其他站台不受牽連。全域性的不完整（某月 API 抓失敗、
+ * 時間預算用盡）則在 runSnapshot 那層就把 manifest 從清單濾掉。
+ *
+ * @param {Set<string>} monthFiles - 這輪的月度檔名（判斷哪些失敗檔會讓 manifest 失真）
+ * @returns {Promise<{uploaded:number, manifestSkipped:boolean}>}
  */
-async function putAll(bucket, files, failures) {
+async function putAll(bucket, files, failures, monthFiles) {
   const manifestItems = files.filter((f) => f.file === MANIFEST_FILE)
   const rest = files.filter((f) => f.file !== MANIFEST_FILE)
 
-  let uploaded = await putBatch(bucket, rest, failures)
-  uploaded += await putBatch(bucket, manifestItems, failures)
-  return uploaded
+  const restRes = await putBatch(bucket, rest, failures)
+  let uploaded = restRes.uploaded
+
+  // 只有月度檔失敗會讓 manifest 失真；songlist/history 等失敗與 manifest 指紋無關
+  const failedMonths = restRes.failed.filter((f) => monthFiles.has(f))
+  if (failedMonths.length && manifestItems.length) {
+    const msg = `${bucket} 有 ${failedMonths.length} 個月度檔未寫入，manifest 不 commit：${failedMonths.join(', ')}`
+    failures.push(msg)
+    console.warn(`[SNAPSHOT] ${msg}`)
+    return { uploaded, manifestSkipped: true }
+  }
+
+  uploaded += (await putBatch(bucket, manifestItems, failures)).uploaded
+  return { uploaded, manifestSkipped: false }
 }
 
 /**
@@ -292,6 +324,9 @@ export async function runSnapshot(env = {}) {
   const wantedMonthFiles = new Set()
   let manifestOk = false
   let budgetExceeded = false
+  // 「manifest 說有的月份，這輪沒全部產出來」——與 budgetExceeded 同一個危害，
+  // 差別只在原因（單月 API 失敗／月份格式非法 vs 時間預算用盡），處置也相同：manifest 不 commit
+  let monthIncomplete = false
 
   /** 內部 API → JSON 字串，收進待寫清單 */
   const collectApi = async (file, pathname, transform) => {
@@ -338,6 +373,8 @@ export async function runSnapshot(env = {}) {
       const month = months[i]?.month
       const file = monthFile(month)
       if (!file) {
+        // manifest 有這個月、快照卻沒有對應檔 ⇒ 前端會 seed 一個永遠對不到檔的指紋
+        monthIncomplete = true
         failures.push(`manifest month 格式非法，已跳過: ${month}`)
         continue
       }
@@ -362,25 +399,32 @@ export async function runSnapshot(env = {}) {
         : `/api/setlist?from=${month}&to=${month}`
       // 先登記再抓：抓失敗的月份保留 S3 舊檔，不被下方清理誤刪
       wantedMonthFiles.add(file)
-      await collectApi(file, query)
+      // collectApi 失敗回 null（成功一定是陣列，`/api/setlist` 沒有回 null 的情形）：
+      // 這一個月會缺檔／保留 S3 舊檔，但 manifest 的指紋是新的 ⇒ 整批不 commit manifest
+      if (await collectApi(file, query) === null) monthIncomplete = true
       if (THROTTLE_MS) await sleep(THROTTLE_MS)
     }
   }
 
   const fetchedMs = Date.now() - startedAt
 
-  // 時間預算中止＝這批不完整，manifest 不 commit（保留 S3 上的舊 manifest）：
-  // 新 manifest 配上「這輪沒更新到」的月度檔，前端會指紋對上卻讀到舊資料且不自癒；
-  // 舊 manifest 則讓既有的 API 比對照常把變更月份抓回來
-  const uploadFiles = budgetExceeded ? files.filter((f) => f.file !== MANIFEST_FILE) : files
+  // 這批不完整（時間預算中止／某月 API 抓失敗／月份格式非法）＝manifest 不 commit
+  //（保留 S3 上的舊 manifest）：新 manifest 配上「這輪沒更新到」的月度檔，前端會指紋
+  // 對上卻讀到舊資料且不自癒（primeSetlistFromSnapshot 直接拿 manifest 當 fingerprints
+  // 種子，之後的比對就以為該月已是最新）；舊 manifest 則讓既有的 API 比對照常把變更
+  // 月份抓回來。月度檔本身照上傳——「舊 manifest ＋ 新月度檔」只是多一輪 API 校正
+  const manifestIncomplete = budgetExceeded || monthIncomplete
+  const uploadFiles = manifestIncomplete ? files.filter((f) => f.file !== MANIFEST_FILE) : files
 
   // 逐 target 寫入：單一站台出錯（bucket 名錯／權限缺）不影響其他站台
   const results = []
   for (const target of targets) {
     const { bucket, distributionId } = target
-    const result = { bucket, uploaded: 0, deleted: 0, invalidated: false }
+    const result = { bucket, uploaded: 0, deleted: 0, invalidated: false, manifestSkipped: false }
     try {
-      result.uploaded = await putAll(bucket, uploadFiles, failures)
+      const put = await putAll(bucket, uploadFiles, failures, wantedMonthFiles)
+      result.uploaded = put.uploaded
+      result.manifestSkipped = put.manifestSkipped
 
       // 清理的兩個前提：manifest 成功（wanted 清單可信）＋這輪至少寫成功一個檔
       // （一個都沒寫成＝bucket 名錯／權限缺／S3 出事，此時只刪不寫是最糟的組合）
@@ -414,12 +458,14 @@ export async function runSnapshot(env = {}) {
     results.push(result)
   }
 
-  const ok = manifestOk && !budgetExceeded && results.length > 0 &&
-    results.every((r) => r.uploaded > 0)
+  // manifestSkipped 也算整體失敗：該站台的快照這輪沒 commit，與「manifest 上傳失敗」同義
+  const ok = manifestOk && !manifestIncomplete && results.length > 0 &&
+    results.every((r) => r.uploaded > 0 && !r.manifestSkipped)
   const summary = {
     ok,
     skipped: false,
     budgetExceeded,
+    monthIncomplete,
     files: uploadFiles.length,
     months: wantedMonthFiles.size,
     targets: results,
