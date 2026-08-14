@@ -76,8 +76,16 @@ export const handler = async (event, context) => {
     }
   }
 
-  // EventBridge scheduled event
-  if (event.source === 'aws.events' || event['detail-type'] === 'Scheduled Event') {
+  // EventBridge scheduled event —— **兩代事件形狀都要吃**：
+  //   新（本 template 部署後）：Input '{"source":"cron","job":"daily"|"polling"}'
+  //                             ⇒ 帶 Input 的排程不再有 aws.events／detail-type，
+  //                                只能靠 source=cron 認出來
+  //   舊（部署前既存的規則）：無 Input ⇒ 原生 EventBridge 事件（source=aws.events）
+  // 兩者並存的窗口是真實存在的：template 更新前既有規則照樣觸發，且 CFN 若回滾
+  // 會把規則退回無 Input 版本——少認一種形狀就等於那段時間排程靜默不執行。
+  // 實際跑哪個工作由 handleCronTrigger 依 event.job 分派（無 job 時退回 UTC 小時推斷）。
+  if (event.source === 'cron' ||
+      event.source === 'aws.events' || event['detail-type'] === 'Scheduled Event') {
     // Pass env as empty object — Lambda uses process.env directly via platform.js
     await handleCronTrigger(event, {})
     return { statusCode: 200, body: 'Cron completed' }

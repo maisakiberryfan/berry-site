@@ -21,11 +21,13 @@ berry-site/
 ├── fansite/                   # 前端靜態網站
 │   └── assets/js/tool.js      # 主要前端邏輯
 ├── src/                       # 後端共用程式碼（Hono app）
-│   ├── app.js                 # 主應用程式 + 路由
+│   ├── app.js                 # 主應用程式 + 路由 + handleCronTrigger
 │   ├── config.js              # CORS 設定
-│   ├── database.js            # DB 連線管理（含 ping 保護）
 │   ├── platform.js            # 平台抽象（CF/Lambda/本地）
-│   └── routes/                # API 路由模組
+│   ├── routes/                # API 路由模組
+│   ├── cron-jobs/             # 排程工作（auto-update.js / snapshot.js）
+│   └── utils/                 # database.js（DB 連線＋ping 保護）、cache.js、
+│                              # data-processor.js、thumbnail.js…
 ├── entry-worker.js            # CF Workers 入口
 ├── entry-lambda.js            # AWS Lambda 入口
 ├── template.yaml              # AWS SAM 模板
@@ -180,9 +182,16 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 - 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋 + 快速搜尋語法（見上節）
 - SPA 路由：`setContent(path)` + `history.pushState`
 
-### ⚠️ SPA 路由同步
-新增前端頁面路由時，**必須同步更新** `template.yaml` 的 `BotBlockerFunction` 中 `spaRoutes` 陣列。
-路由清單來源：`fansite/assets/data/nav.json`
+### ⚠️ SPA 路由白名單（**四份，新增／改名路由必須四處一起改**）
+1. `fansite-v2/src/router.svelte.js` 的 `ROUTES` —— 站內連結清單的單一真相
+2. `fansite-v2/src/App.svelte` 的 `PAGES` —— 真正決定渲染哪個頁面元件（漏了顯示 NotFound）
+3. `template.yaml` `BotBlockerFunction` 的 `spaRoutes` —— AWS 主站（CloudFront Function）
+4. `entry-worker.js` 的 `SPA_ROUTES` —— CF 備用站
+
+漏 3／4 的症狀相同且都只在部署後才看得出來：站內點得到，直接輸入網址或 F5 就 404。
+兩處比對前都會 `toLowerCase()`（URL 路徑大小寫敏感），清單一律小寫。
+非白名單路徑回 `index.html` 的 body ＋ **404 狀態碼**（讓前端渲染站內 NotFound 頁，
+同時不製造 soft 404）。
 - `Promise.allSettled` 確保首頁各區塊獨立載入
 
 ### 建置
@@ -250,9 +259,19 @@ UTC 20:00       = 台灣 04:00     runSnapshot（polling 末發 19:50 之後重�
 
 AWS EventBridge 為主要排程。CF cron 已停用。
 
-前三者走 `event.source === 'aws.events'` → `handleCronTrigger`（依 UTC 小時分派）；
-快照排程改帶 `Input: '{"source":"snapshot"}'`，在 `entry-lambda.js` 直接分流到
-`src/cron-jobs/snapshot.js`（同 warmup 的作法）。
+**每個排程都以 `Input` 顯式指明工作**，`entry-lambda.js` 依 `event.source` 分流：
+
+| Input | 分流去向 |
+|-------|---------|
+| `{"source":"cron","job":"daily"}` | `handleCronTrigger` → `runAutoUpdate` |
+| `{"source":"cron","job":"polling"}` | `handleCronTrigger` → `runPollingCheck` |
+| `{"source":"snapshot"}` | `src/cron-jobs/snapshot.js` 的 `runSnapshot` |
+| `{"source":"warmup"}` | 立即回 200（不初始化 Hono／DB） |
+
+⚠️ `handleCronTrigger` **保留 UTC 小時 fallback**（無 `job` 時推斷），兩個理由：
+① 部署新 template 前，既有規則觸發的事件不帶 job（兩代並存窗口，CFN 回滾亦然）；
+② CF Workers 的 scheduled event 由 wrangler cron 產生，同樣沒有 job 欄位。
+`entry-lambda.js` 的分流條件同時認 `source=cron`（新）與 `aws.events`／`detail-type`（舊）。
 
 ### CDN 快照 cron（src/cron-jobs/snapshot.js）
 
@@ -346,9 +365,13 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 ⚠️ CSP 值必須與 `entry-worker.js` 的 CSP 常數**逐字一致**——改任一側必須同步另一側。
 
 **BotBlockerFunction**（CloudFront Function, viewer-request）：
+- UA blocklist（Bytespider／AhrefsBot…）→ 403
+- `/.well-known/*` → 放行（RFC 8615；**必須排在 `/.` 前綴封鎖之前**，否則憑證續期會 404）
 - 惡意路徑（`.php`, `/wp-*`, `/.env`）→ 404
-- SPA 路由白名單 → rewrite `/index.html`
+- SPA 路由白名單（比對前 `toLowerCase()`）→ rewrite `/index.html`
 - 其他 → 交給 S3（存在=200，不存在=真 404）
+
+CF 備用站的 `entry-worker.js` 有對應的一份（惡意路徑 404／SPA 白名單），改一側請同步另一側。
 
 **存取日誌**：LogBucket（30 天自動過期）
 
@@ -357,14 +380,24 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - 新影片透過 `runAutoUpdate` / PubSub 自動下載到 S3（`src/utils/thumbnail.js`）
 - 前端 `imageLink()` 使用 `/tb/{id}.jpg`，onerror fallback YouTube CDN
 - 小於 5KB 視為 YouTube 預設佔位圖，跳過上傳
+- **CF 備用站沒有縮圖 bucket**：`entry-worker.js` 把 `/tb/{11 碼}.jpg` 直接 302 到
+  `https://i.ytimg.com/vi/{id}/mqdefault.jpg`（`Cache-Control: max-age=86400`），
+  不再讓每張圖白跑 ASSETS 404 ＋ Hono 一輪；id 格式不符則 404（不做開放轉址）
 
 ---
 
 ## CI/CD
 
-Push 到 `main` 自動觸發：
+Push 到 `main` 自動觸發。兩支 workflow 各有 `concurrency` group（**語意刻意相反**）：
+AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 changeset，
+中途取消會留下半同步的 S3）；CF 側 `true`（掐掉舊的——Workers 部署是整份取代，
+最終狀態必須對應最新 commit）。Node 版本兩支統一 `'24'`。
+觸發併發的典型情境：history-bot 的 04:30 push 與人工 commit 相繼落地。
 
 ### AWS (`.github/workflows/deploy.yml`)
+0. `sam deploy` 前對 `DB_PORT`／`LAMBDA_MATCHER_URL` 做必填檢核（`: "${VAR:?...}"`）——
+   這兩個 secret 若被清空，`Key=""` 會蓋掉 template 的有意義 Default 而**靜默**壞掉
+   （NaN port ⇒ 全站 500／歌單解析失效）。其餘參數 Default 就是 `''`，留白合法
 1. `npm ci` → `sam build` → `sam deploy`（Lambda + API Gateway + CloudFront + S3）
 2. fansite-v2：`npm ci` → `npm run snapshot`（best-effort，`continue-on-error`，
    刻意排在 sam deploy 之後＝快照與新版 API 輸出一致）→ 以 repo 版覆蓋快照中的
@@ -374,8 +407,12 @@ Push 到 `main` 自動觸發：
    **全程不用全域 `--delete`**（hash 資產只增不刪、img/pages 是 bucket 上的非 dist 內容）
 4. 快照獨立一輪：`dist/data/` → `s3://.../data/`（`max-age=300`＋`--delete`，
    `if: steps.snapshot.outcome == 'success'`）
-5. Invalidate CloudFront `/*`（1 path）
-6. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署
+5. 孤兒 hash 資產回收（`continue-on-error`）：只掃 `assets/` 前綴，
+   「本地 dist 已無 ∧ S3 LastModified >14 天」兩條件同時成立才刪——第 3 步不帶
+   `--delete` 的另一半（邏輯與 `fansite-v2/scripts/deploy-sync.sh` 步驟 4 相同，
+   demo 站仍用該腳本，**改判準要兩邊同步**）
+6. Invalidate CloudFront `/*`（1 path）
+7. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
 1. fansite-v2：`npm ci` → `npm run snapshot`（best-effort）→ 覆蓋 history/changelog
@@ -448,7 +485,7 @@ cd fansite && npm run build:js
   在 change 後還會 toggleDropdown，同步 destroy 會拋 dataAdapter null
 
 ### DB 連線
-- `database.js` 的 `ping()` 有 3 秒 timeout 保護
+- `src/utils/database.js` 的 `ping()` 有 3 秒 timeout 保護
 - CF Workers TCP socket 行為跟 Node.js 不同，壞連線不會自動偵測
 - TLS 加密已啟用（自簽憑證，有效至 2036 年），`root@%` 強制 SSL
 - Lambda 直連用 `ssl: { rejectUnauthorized: false }`，Hyperdrive 自動處理 TLS
@@ -478,10 +515,14 @@ cd fansite && npm run build:js
   僅在 `lambda/setlist-matcher/**` 或 workflow 變更時執行）；本地 `sam deploy` 仍可用
 
 ### Lambda 保溫（EventBridge Keep-Warm）
-- EventBridge Rule 每 5 分鐘觸發 Lambda `/health`
+- EventBridge Rule 每 5 分鐘**直接 invoke Lambda**（`Input: '{"source":"warmup"}'`），
+  `entry-lambda.js` 在初始化 Hono／DB **之前**就回 200 ——
+  **不經 `/health`、不建立 DB 連線**，目的只是讓執行環境（容器）保持存活。
+  想確認 DB 通不通要自己打 `/health`（保溫成功 ≠ DB 健康）
 - 避免 cold start（首次請求延遲 ~400ms-5s）
 - 完全在免費額度內（8,640 次/月 << 100 萬次免費）
-- 設定在 `template.yaml` 的 `WarmUpRule` 資源
+- 設定在 `template.yaml` 的 `BerryApiFunction` → `Events.WarmUp`（`rate(5 minutes)`，
+  非獨立資源；SAM 生成的規則邏輯 ID 為 `BerryApiFunctionWarmUp`）
 
 ### 費用
 - 全部在 AWS/CF 免費額度內（預估 < $0.20/月）

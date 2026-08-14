@@ -31,7 +31,17 @@ try {
   for (const line of readFileSync(new URL('./.env', import.meta.url), 'utf8').split(/\r?\n/)) {
     if (!line.includes('=') || line.trimStart().startsWith('#')) continue
     const k = line.slice(0, line.indexOf('=')).trim()
-    if (!(k in process.env)) process.env[k] = line.slice(line.indexOf('=') + 1).trim()
+    if (k in process.env) continue
+    let v = line.slice(line.indexOf('=') + 1).trim()
+    // 剝除成對的包裹引號：dotenv 慣例允許 KEY="value"／KEY='value'（值含空白、`#`
+    // 或前後空白時是必要寫法）。不剝的話引號會變成值的一部分——密碼多兩個字元，
+    // 而 DB 只會回一句 "Access denied"，看不出是引號的問題。
+    // 只剝「頭尾同款且成對」的那一層，值本身內含的引號不動。
+    if (v.length >= 2 &&
+        ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
+      v = v.slice(1, -1)
+    }
+    process.env[k] = v
   }
 } catch { /* 無 .env 時仰賴外部環境變數 */ }
 
@@ -44,13 +54,20 @@ if (process.env.DB_NAME !== 'mbdb_test') {
 
 const indexHtml = readFileSync(new URL('./fansite/index.html', import.meta.url), 'utf8')
 
+// 傳給 Hono app 的 env（形狀比照 entry-lambda.js：Lambda 上是 `{}`，真值全在
+// process.env，由 platform.js 的 getSecret/getDbConfig fallback 取得）。
+// 多帶一個 MODE：app.js 的 onError 只在 MODE 為 dev/test 時把真實錯誤訊息放進回應
+// （正式環境一律泛化，不外洩 DB 細節）——不帶的話本地除錯只看得到
+// "Internal server error"，等於白開一個本地後端。同 snapshot.js 內部調用的作法。
+const DEV_ENV = { MODE: 'dev' }
+
 const dev = new Hono()
 // 路徑切割對齊 production（entry-worker.js / CloudFront behaviors）：只有 API 前綴
 // 進 Hono app——否則 app 的 GET /（API 資訊 JSON）會攔住根路徑，首頁變成 JSON
 dev.use('*', async (c, next) => {
   const p = new URL(c.req.url).pathname
   if (p.startsWith('/api/') || p.startsWith('/webhook/') || p.startsWith('/trigger-') || p === '/health') {
-    return app.fetch(c.req.raw)
+    return app.fetch(c.req.raw, DEV_ENV)
   }
   await next()
 })

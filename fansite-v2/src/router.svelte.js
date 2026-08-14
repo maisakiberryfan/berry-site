@@ -9,7 +9,7 @@
 //
 // 站內 <a href="/xxx"> 的點擊由本模組全域攔截，元件不必自己處理。
 //
-// ⚠️ **路由白名單有三份，新增／改名路由必須三處一起改**（漏一處的症狀各不相同，
+// ⚠️ **路由白名單有四份，新增／改名路由必須四處一起改**（漏一處的症狀各不相同，
 //    而且都只在部署後才看得出來）：
 //   1. 本檔的 `ROUTES`           —— 站內連結清單的單一真相（給導覽與日後的路由檢查用）
 //   2. `src/App.svelte` 的 `PAGES` —— 真正決定渲染哪個頁面元件；漏了就顯示 NotFound
@@ -17,7 +17,8 @@
 //      —— 決定「直接輸入網址／重新整理」時要不要 rewrite 成 /index.html；
 //      漏了就是站內點得到、但 F5 一按變 S3 的 404（v3 demo 站另有獨立 function
 //      `berry-v3-spa-rewrite`，同樣要同步）
-//   路由清單另見 `fansite/assets/data/nav.json`（v2 現站）。
+//   4. 根 `entry-worker.js` 的 `SPA_ROUTES`（CF 備用站）—— 決定 fallback 回 200 還是
+//      404 狀態碼；漏了就是備用站 F5 變 soft-404
 
 export const ROUTES = [
   '/',

@@ -8,6 +8,15 @@ on:
       - '.dev.vars'
       - 'wrangler.toml'
 
+# 同一 stack 不可有兩個 sam deploy 併行：CloudFormation 對 UPDATE_IN_PROGRESS 的 stack
+# 直接拒絕新 changeset（部署紅字），S3 sync 交錯更可能讓 bucket 停在兩次 build 的混合狀態。
+# history-bot（VPS cron 04:30 push history.md）與人工 commit 相繼落地就是典型觸發情境。
+# cancel-in-progress: false —— 部署跑到一半被取消會留下半同步的 S3／未完成的 changeset，
+# 排隊等前一次做完才是安全的收斂方式（AWS 側刻意與 CF 側相反）。
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+
 env:
   AWS_REGION: ap-northeast-1
   SAM_CLI_TELEMETRY: 0
@@ -75,6 +84,17 @@ jobs:
           SNAPSHOT_DISTRIBUTION_B: ${{ secrets.SNAPSHOT_DISTRIBUTION_B }}
           ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
         run: |
+          # ── 必填檢核 ──────────────────────────────────────────────────────
+          # 只針對「template.yaml 有**有意義的 Default**、而空值會靜默蓋掉它」的參數。
+          # secret 被刪／改名／打錯字時，下面的 Key="" 會把 Default 覆寫成空字串：
+          #   DbPort 空          → platform.js 的 parseInt('') = NaN → DB 全滅（全站 API 500）
+          #   LambdaMatcherUrl 空 → 歌單解析靜默失敗（沒人盯，過幾天才發現資料沒進來）
+          # 兩者都屬於「壞掉但不吵」的失敗模式，故改成部署當場失敗（吵）。
+          # 其餘參數（Discord/Github/Pubsub/Snapshot*/OriginVerify）的 Default 本來就是 ''，
+          # 留白＝該功能停用是合法狀態，不檢核。
+          : "${DB_PORT:?secret 未設或為空 —— 會覆蓋 template 的 Default 3306，DB 將連不上}"
+          : "${LAMBDA_MATCHER_URL:?secret 未設或為空 —— 會覆蓋 template 的 Default URL，歌單解析將失效}"
+
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
             --capabilities CAPABILITY_IAM \
@@ -177,6 +197,61 @@ jobs:
           aws s3 sync fansite-v2/dist/data/ s3://${{ steps.stack.outputs.bucket }}/data/ \
             --delete \
             --cache-control "public, max-age=300"
+
+      # ── 孤兒 hash 資產回收（邏輯移植自 fansite-v2/scripts/deploy-sync.sh 步驟 4）──
+      # 上面的 assets/ sync 刻意不帶 --delete（舊 hash chunk 要留給仍開著舊分頁的使用者
+      # lazy-load：Analytics 的 QueryPanel、sql.js wasm 一旦 404 整頁就壞），代價是
+      # assets/ 前綴只增不減。這步是它的另一半：
+      #   刪除條件（**兩者皆需成立**）本地 dist/assets/ 已無同名檔 ∧ LastModified 早於 N 天。
+      #   只掃 assets/ 前綴——img/、data/、pages/、index.html 一律碰不到。
+      # continue-on-error：檔案此刻都已同步完成，回收失敗不該把部署判紅（下次再收）。
+      - name: Reclaim stale hashed assets
+        continue-on-error: true
+        env:
+          BUCKET: ${{ steps.stack.outputs.bucket }}
+          RETENTION_DAYS: '14'
+        run: |
+          [ -d fansite-v2/dist/assets ] || { echo "dist/assets/ 不存在，略過回收"; exit 0; }
+          cutoff="$(date -u -d "${RETENTION_DAYS} days ago" +%Y-%m-%dT%H:%M:%S)"
+          # aws cli 會自動分頁 list-objects-v2（botocore paginator），--query 套用在合併後的
+          # 完整 Contents 上，1000 筆以上也不會漏——前提是別加 --max-items（加了才會截斷）。
+          # --output text 以 tab 分隔，免 jq 依賴。
+          listing="$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "assets/" \
+            --query 'Contents[].[Key,LastModified]' --output text)"
+          # 空 prefix 時 aws cli 對 null 會印出 "None"
+          if [ -z "$listing" ] || [ "$listing" = "None" ]; then
+            echo "bucket assets/ 下無物件，無須回收"
+            exit 0
+          fi
+          # 本地現役 key 清單（key 形式：assets/xxx）
+          declare -A local_keys=()
+          while IFS= read -r rel; do
+            [ -n "$rel" ] || continue
+            local_keys["assets/${rel#./}"]=1
+          done < <(cd fansite-v2/dist/assets && find . -type f)
+          deleted=0; kept=0; alive=0; scanned=0
+          while IFS=$'\t' read -r key lastmod; do
+            [ -n "$key" ] || continue
+            scanned=$((scanned + 1))
+            # 本地仍有＝現役資產，永不刪（連保留窗口都不必看）
+            if [ -n "${local_keys[$key]:-}" ]; then
+              alive=$((alive + 1))
+              continue
+            fi
+            # ISO8601（同格式、同為 UTC）字典序比較即等同時間比較；
+            # 取前 19 字元以吃掉 "+00:00" / "Z" / 小數秒等尾巴差異
+            if [[ "${lastmod:0:19}" < "$cutoff" ]]; then
+              echo "× 回收 $key（LastModified ${lastmod:0:19} < $cutoff）"
+              if aws s3 rm "s3://$BUCKET/$key" > /dev/null; then
+                deleted=$((deleted + 1))
+              else
+                echo "! 刪除 $key 失敗（略過）"
+              fi
+            else
+              kept=$((kept + 1))
+            fi
+          done <<< "$listing"
+          echo "掃描 $scanned 個物件：現役 $alive、保留窗口內 $kept、回收 $deleted"
 
       # Invalidate CloudFront cache for updated files
       - name: Invalidate CloudFront

@@ -8,6 +8,12 @@
 #   （例：Analytics 的 QueryPanel、sql.js wasm）就吃 404、整頁壞掉。
 #   對策：hash 資產只增不刪，舊物件放置 RETENTION_DAYS 天後才回收。
 #
+# 本腳本的用途＝**手動／demo 站部署**（v3.m-b.win 尚未退役，仍走這條）。
+# 正式站（m-b.win）的部署在 .github/workflows/deploy.yml，其 S3 sync 早已是本腳本
+# 步驟 1~3 的等價實作；**步驟 4 的孤兒 hash 資產回收已於 2026-08-14 移植成 CI 的
+# `Reclaim stale hashed assets` step（同樣的兩個條件、同樣只掃 assets/ 前綴、
+# 同為 best-effort 不擋部署）**。日後調整回收判準請兩邊同步，否則兩站的保留窗口會分歧。
+#
 # 用法（環境變數或位置參數皆可）：
 #   BUCKET=berry-fansite-v3-495219733379 DISTRIBUTION_ID=E1ZENENQETM5MD \
 #     bash scripts/deploy-sync.sh

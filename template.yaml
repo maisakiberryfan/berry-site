@@ -198,18 +198,25 @@ Resources:
             ApiId: !Ref BerryHttpApi
             Path: /
             Method: ANY
+        # 排程一律以 Input 顯式指明要跑哪個工作（形狀同 warmup／snapshot 的 source 分流，
+        # 另帶 job 供 handleCronTrigger 分派）。此前是「Lambda 端依 UTC 小時猜」——
+        # 改了這裡的 cron 卻沒改 src/app.js 的小時判斷，工作就靜默不執行。
+        # ⚠️ 帶 Input 之後 event 不再有 source=aws.events／detail-type，
+        #    entry-lambda.js 的分流條件必須認得 source=cron（已加，且保留舊形狀）。
         DailyUpdate:
           Type: Schedule
           Properties:
             Schedule: cron(0 7 * * ? *)
             Description: "Daily auto-update (UTC 07:00 = Taiwan 15:00)"
             Enabled: true
+            Input: '{"source":"cron","job":"daily"}'
         PollingCheck:
           Type: Schedule
           Properties:
             Schedule: cron(0/10 14-19 * * ? *)
             Description: "Polling check every 10min (UTC 14-19 = Taiwan 22-03)"
             Enabled: true
+            Input: '{"source":"cron","job":"polling"}'
         WarmUp:
           Type: Schedule
           Properties:
@@ -351,6 +358,13 @@ Resources:
               ua.indexOf('dotbot') >= 0) {
             return { statusCode: 403, statusDescription: 'Forbidden', body: { encoding: 'text', data: '' } };
           }
+          // /.well-known/*（ACME http-01 challenge、security.txt、apple-app-site-association…）
+          // 是 RFC 8615 的標準路徑，必須在下面的 '/.' 前綴封鎖之前放行——否則憑證續期
+          // 這類「平常用不到、要用時必須通」的流程會在最需要它的時候吃 404。
+          // 白名單只開這一個前綴，其餘 dotfile（/.env、/.git/…）照樣擋。
+          if (uriLower.startsWith('/.well-known/')) {
+            return event.request;
+          }
           if (uriLower.endsWith('.php') || uriLower.match(/\.php\d*$/) ||
               uriLower.startsWith('/wp-') || uriLower.startsWith('/wordpress/') ||
               uriLower.startsWith('/.') ||
@@ -380,10 +394,13 @@ Resources:
             return { statusCode: 404, statusDescription: 'Not Found', body: { encoding: 'text', data: '' } };
           }
           // SPA routes -> rewrite to /index.html
-          // When adding new frontend pages, update this array (see fansite/assets/data/nav.json)
+          // 新增前端頁面時必須同步這個陣列（清單真相：fansite-v2/src/router.svelte.js 的
+          // ROUTES；另有 App.svelte 的 PAGES 與 entry-worker.js 的 SPA_ROUTES）。
+          // 陣列元素一律小寫，比對前把路徑轉小寫：URL 路徑大小寫敏感，`/SetList` 原本
+          // 不會被 rewrite → 直接吃 S3 的 404（站內點得到、手打網址卻壞掉）。
           var spaRoutes = ['/', '/profile', '/history', '/clothes', '/discography', '/songlist', '/streamlist', '/setlist', '/aliases', '/analytics'];
           var clean = uri.replace(/\/$/, '') || '/';
-          if (spaRoutes.indexOf(clean) >= 0) {
+          if (spaRoutes.indexOf(clean.toLowerCase()) >= 0) {
             event.request.uri = '/index.html';
             return event.request;
           }

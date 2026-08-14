@@ -969,21 +969,39 @@ export async function handleCronTrigger(event, env) {
   const now = new Date()
   const utcHour = now.getUTCHours()
 
+  // 分派優先序：**排程 Input 的顯式 job** ＞ UTC 小時推斷（fallback）
+  //
+  // 顯式 job 來自 template.yaml 的 DailyUpdate／PollingCheck
+  // （`Input: '{"source":"cron","job":"daily"|"polling"}'`）——排程時間日後怎麼調，
+  // 都不會再出現「改了 cron 運算式卻忘了改這裡的小時判斷 ⇒ 工作靜默不跑」。
+  //
+  // fallback 不能拿掉，兩個理由：
+  //   ① 新 template 部署前，既有 EventBridge 規則觸發的事件不帶 job（兩代並存窗口，
+  //      CFN 回滾亦然）——那段時間只剩小時推斷能認出要跑什麼。
+  //   ② CF Workers 的 scheduled event 由 wrangler cron 產生，同樣沒有 job 欄位
+  //      （CF cron 目前停用，但 entry-worker.js 的 scheduled 入口仍在）。
+  const explicitJob = event?.job
+  const job = explicitJob ||
+    (utcHour === 7 ? 'daily'
+      : (utcHour >= 14 && utcHour <= 19 ? 'polling' : null))
+  const via = explicitJob ? 'job' : `utcHour=${utcHour} fallback`
+
   try {
     const { runAutoUpdate, runPollingCheck } = await import('./cron-jobs/auto-update.js')
 
-    if (utcHour === 7) {
+    if (job === 'daily') {
       // UTC 07:00 = Taiwan 15:00 - daily auto-update
-      console.log('Cron: daily runAutoUpdate')
+      console.log(`Cron: daily runAutoUpdate（${via}）`)
       await runAutoUpdate(env, 'recent', {}, 'CRON')
-    } else if (utcHour >= 14 && utcHour <= 19) {
+    } else if (job === 'polling') {
       // UTC 14:00~19:00 = Taiwan 22:00~03:00 - polling check
-      console.log('Cron: runPollingCheck')
+      console.log(`Cron: runPollingCheck（${via}）`)
       await runPollingCheck(env)
     } else {
-      // 排程被觸發卻沒有對應工作＝EventBridge 規則與這裡的小時分派不一致
-      // （改過 template.yaml 的 cron 卻忘了改這裡）。靜默 return 會讓它看起來一切正常。
-      console.warn(`Cron: 無對應工作的觸發時段 utcHour=${utcHour}（EventBridge 規則與分派邏輯不一致？）`)
+      // 排程被觸發卻沒有對應工作＝EventBridge 規則與這裡的分派不一致（新增了排程卻
+      // 沒給 job／給了認不得的 job，或改過 cron 運算式而 fallback 也對不上）。
+      // 靜默 return 會讓它看起來一切正常。
+      console.warn(`Cron: 無對應工作（job=${explicitJob ?? '(無)'} utcHour=${utcHour}，EventBridge 規則與分派邏輯不一致？）`)
     }
   } catch (error) {
     console.error('Cron error:', error)
