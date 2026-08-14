@@ -69,7 +69,9 @@ error.code 值：VALIDATION_ERROR、NOT_FOUND、CONFLICT、CONSTRAINT_VIOLATION(
 - `GET /api/songlist/:songID`：單曲（不含 updatedAt），404
 - `POST /api/songlist`：必填 songName；選填 songNameEn/artist/artistEn/genre/tieup/songNote（皆 ≤500）。201 回完整 row
 - `PUT /api/songlist/:songID`：只更新 body 有出現的欄位；404
-- `DELETE /api/songlist/:songID`：被 setlist 引用回 **409 CONSTRAINT_VIOLATION**
+- `DELETE /api/songlist/:songID`：被 setlist 引用回 **409 CONSTRAINT_VIOLATION**；
+  否則於同一事務內連帶刪掉綁這首歌的別名（FK 為 RESTRICT，見 §4），
+  成功回 `{"data":{"message":"...","deletedAliases":N}}`
 - `GET /api/songlist/artists?q=`：`{"data":[{"artist","artistEn"}]}` DISTINCT，LIKE %q% 只搜 artist
 - `GET /api/songlist.json`：`{"data":{"772":"songName|artist|songNameEn|artistEn"}}` **段數可變 2~4**（En 缺省不 push）
 - `GET /api/songlist/optimized`：同形狀但**固定 4 段**＋Content-Disposition 下載 header。兩支 parser 不可共用
@@ -96,14 +98,30 @@ error.code 值：VALIDATION_ERROR、NOT_FOUND、CONFLICT、CONSTRAINT_VIOLATION(
 ## 4. aliases（信封是 success+data！無任何快取）
 
 row：`{"aliasID":80,"aliasType":"title|artist","canonicalName":"...","aliasValue":"...","note":null,"songID":855,"createdAt","updatedAt"}`
-- songID 僅 title 別名有意義（精準綁曲）；artist 別名恆為字串表
-- `GET /api/aliases`：`{"success":true,"data":[...],"count":87}` ORDER BY aliasType, canonicalName, aliasValue
+- songID 僅 title 別名有意義（精準綁曲）；artist 別名恆為字串表（songID NULL）
+- **UNIQUE 是 (aliasType, canonicalName, aliasValue, songKey)**，`songKey = COALESCE(songID, 0)`
+  是 DB 生成欄位（**不在 API 輸出裡**，別去讀它）。語意：同一個別名寫法可以綁**不同 songID
+  並存多筆**（同名異曲各自的別名不再互搶）；artist 與未綁定的 title 別名 songID 皆為 NULL
+  ⇒ songKey 0 ⇒ 防重行為與過去相同（同組合只會有一筆）
+- `GET /api/aliases`：`{"success":true,"data":[...],"count":87}` ORDER BY aliasType, canonicalName, aliasValue, songID
 - `GET /api/aliases/grouped`：`{"success":true,"data":{"artistAliases":{canonical:[values]},"titleAliases":{...},"titleAliasesByID":{"855":[values]}}}`
-- `POST /api/aliases/quick-add`：`{aliasType, canonicalName, aliasValue, note?, songID?}`（各 ≤500）。Upsert on (type,canonical,value)。回 `{success, data, isNew}` 201/200
+  （字串 key 的兩張表已去重——同名異曲的別名在那裡長得一模一樣）
+- `POST /api/aliases/quick-add`：`{aliasType, canonicalName, aliasValue, note?, songID?}`（各 ≤500）。
+  Upsert on **(type, canonical, value, songID)**：帶不同 songID ⇒ 插新列（既有列原封不動），
+  同 songID ⇒ 更新既有列。回 `{success, data, isNew, alsoBoundTo?}` 201/200
+  - `isNew`：這個 **songID 組合**本來不存在（不是看 affectedRows）
+  - `alsoBoundTo`：同 (type, canonical, value) 但綁在**其他歌曲**上的 songID 陣列，
+    **有值才出現**。純告知（那些列不受影響），不是「被改綁」的警示
 - `POST /api/aliases/test`：`{aliasType, inputText}` → `{data:{inputText, aliasType, matches:[{canonicalName, aliases:[{value,note}]}], matchCount}}`
-- `POST /api/aliases/batch`：`{aliases:[{aliasType,canonicalName,aliasValue,note?}]}` 1-100 筆，**不支援 songID**。回 `{data:{total,inserted,updated,errors?}}`
-- `PUT /api/aliases/:aliasID`：選填 canonicalName/aliasValue/note/songID（null 或 "" =解綁）
+  （不看 songID ⇒ 同 canonical+value+note 的重複列已去重，matchCount 為去重後數量）
+- `POST /api/aliases/batch`：`{aliases:[{aliasType,canonicalName,aliasValue,note?}]}` 1-100 筆，**不支援 songID**
+  （寫入的恆為 songID NULL 那一列，不會覆蓋已綁曲的同寫法別名）。回 `{data:{total,inserted,updated,errors?}}`
+- `PUT /api/aliases/:aliasID`：選填 canonicalName/aliasValue/note/songID（null 或 "" =解綁）。
+  改動後撞到 UNIQUE（同寫法已綁在那首歌上）回 **409** `{success:false, error:{message:"Duplicate alias", details}}`
 - `DELETE /api/aliases/:aliasID`：`{success, data:{deletedAlias, message}}`
+- **刪歌會連帶刪別名**：`aliases.songID` 的 FK 是 `ON DELETE RESTRICT`，
+  `DELETE /api/songlist/:songID` 在同一事務內先 `DELETE FROM aliases WHERE songID = ?`
+  再刪歌，回應帶 `deletedAliases` 筆數（不再有 SET NULL 留下的無主別名）
 
 ## 5. 其他
 
