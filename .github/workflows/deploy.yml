@@ -50,9 +50,10 @@ jobs:
       # DiscordSetlistWebhookUrl 已於 2026-05-02 移轉至 yt-setlist-discord，故不傳入
       # ⚠️ --parameter-overrides 的續行序列中絕不可插入 `#` 註解：shell 會在該行結束續行，
       #    其後的參數變成獨立賦值語句、靜默不送出，SAM 對未 override 的參數則沿用 stack 現值
-      # ⚠️ Snapshot* 四個參數的值用 \" 包起來（→ 送出 `Key=""` 而非 `Key=`）：SAM CLI 的
-      #    --parameter-overrides 解析器不接受未加引號的空值，會整個部署失敗；
-      #    secrets 未設定時必須安全地落成空字串＝快照 cron skip（實測 1.151.0 行為）
+      # ⚠️ Snapshot* 四個與 OriginVerifySecret 的值用 \" 包起來（→ 送出 `Key=""` 而非 `Key=`）：
+      #    SAM CLI 的 --parameter-overrides 解析器不接受未加引號的空值，會整個部署失敗；
+      #    secrets 未設定時必須安全地落成空字串＝快照 cron skip／origin 驗證停用
+      #    （實測 1.151.0 行為）
       - run: |
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
@@ -72,7 +73,8 @@ jobs:
               SnapshotBucketA=\"${{ secrets.SNAPSHOT_BUCKET_A }}\" \
               SnapshotDistributionA=\"${{ secrets.SNAPSHOT_DISTRIBUTION_A }}\" \
               SnapshotBucketB=\"${{ secrets.SNAPSHOT_BUCKET_B }}\" \
-              SnapshotDistributionB=\"${{ secrets.SNAPSHOT_DISTRIBUTION_B }}\"
+              SnapshotDistributionB=\"${{ secrets.SNAPSHOT_DISTRIBUTION_B }}\" \
+              OriginVerifySecret=\"${{ secrets.ORIGIN_VERIFY_SECRET }}\"
 
       # Get S3 bucket name and CloudFront distribution ID from stack outputs
       - name: Get stack outputs
