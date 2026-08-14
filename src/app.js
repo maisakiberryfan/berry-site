@@ -47,7 +47,9 @@ app.use('*', cors({
   exposeHeaders: CONFIG.cors.exposeHeaders
 }))
 
-app.options('*', (c) => c.text('', 204))
+// 註：這裡曾有 `app.options('*', (c) => c.text('', 204))`——死碼，已移除。
+// hono/cors 的中介層自己處理 preflight（method === 'OPTIONS' 時直接回 204 並帶齊
+// Access-Control-* header，不呼叫 next），OPTIONS 請求永遠到不了下游 handler。
 
 // 全域錯誤處理。
 // 必須掛 onError 而非 `app.use('*', ...)` 中介層：Hono 的 compose 在每層 dispatch 都包
@@ -105,12 +107,42 @@ app.use('*', async (c, next) => {
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin')
 })
 
+// API 回應的快取預設：沒有明示 Cache-Control 的 /api/* 回應補 `no-store`。
+// 目的是關掉「無快取指示時由瀏覽器／中介 proxy 自行啟發式快取」這個灰色地帶
+// （寫入回應、錯誤回應、/api/yt* 等即時查詢都屬於這類）。
+// ⚠️ 只在「沒有」Cache-Control 時才補，絕不覆寫既有值——
+//   · 304 路徑的 CACHE_CONFIG.HEADERS.NOT_MODIFIED（`public, max-age=0, must-revalidate`）
+//   · 表格 GET 的 CACHEABLE（同上）——它們靠條件請求＋ETag 走 304 短路，
+//     一旦被改成 no-store，客戶端不再儲存回應⇒ If-None-Match 消失⇒ 整套 meta ETag 失效。
+app.use('/api/*', async (c, next) => {
+  await next()
+  if (!c.res.headers.get('Cache-Control')) {
+    c.header('Cache-Control', 'no-store')
+  }
+})
+
 // Rate limiting (in-memory, resets on cold start)
 const rateLimits = new Map()
 const RATE_WINDOW = 60_000 // 1 minute
+// Map 容量上限：key 是 `${ip}:${tier}`，來源 IP 由請求方決定 ⇒ 大量不同 IP（或殭屍網路）
+// 會讓這張表無上限成長，直到 isolate/容器 OOM。超限就整體 clear：最壞情況是所有人的
+// 計數在那一刻歸零（限流短暫放寬一個視窗），比記憶體耗盡整個 Worker/Lambda 掛掉好。
+const RATE_MAP_MAX = 10_000
+// cleanup 節流：原本每個請求都全掃一遍 Map（O(n) on the hot path），表大時是白花的 CPU。
+// 30 秒一次足夠——過期 entry 多留一會兒只佔記憶體，且容量上限已兜住最壞情況。
+const RATE_CLEANUP_INTERVAL = 30_000
+let lastRateCleanup = 0
 
 function getRateKey(ip, tier) {
   return `${ip}:${tier}`
+}
+
+function cleanupRateLimits(now) {
+  if (now - lastRateCleanup < RATE_CLEANUP_INTERVAL) return
+  lastRateCleanup = now
+  for (const [key, entry] of rateLimits) {
+    if (now - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
+  }
 }
 
 function checkRateLimit(ip, tier, maxRequests) {
@@ -119,6 +151,11 @@ function checkRateLimit(ip, tier, maxRequests) {
   let entry = rateLimits.get(key)
 
   if (!entry || now - entry.start > RATE_WINDOW) {
+    // 只在「要新增 key」時檢查容量（既有 key 的續用不會讓表變大）
+    if (!entry && rateLimits.size >= RATE_MAP_MAX) {
+      console.warn(`[RATELIMIT] map size ${rateLimits.size} >= ${RATE_MAP_MAX}, clearing all counters`)
+      rateLimits.clear()
+    }
     entry = { start: now, count: 0 }
     rateLimits.set(key, entry)
   }
@@ -128,14 +165,47 @@ function checkRateLimit(ip, tier, maxRequests) {
 }
 
 // 限流用的 client IP。**限流 key 若可被請求方控制，整條限流形同虛設**，故取值一律
-// 只信「平台自己填的、client 覆寫不了的」欄位：
+// 只信「該鏈路上由平台自己填、client 覆寫不了」的欄位。
 //
-//   1. cf-connecting-ip             CF 站，Cloudflare 覆寫填入，外部不可偽造
-//   2. XFF 倒數第二段（需 origin 驗證通過，見下）  主站 CloudFront→APIGW→Lambda 的訪客真實 IP
-//   3. requestContext.http.sourceIp Lambda（HTTP API v2），API Gateway 填入，client 不可偽造
-//   4. x-forwarded-for **末段**     僅本地/SAM local 兜底；取最接近平台的一段
+// ── 信任模型（輸入 × 鏈路 × 誰說了算）─────────────────────────────────────────
 //
-// 為何需要第 2 層：主站鏈路是 CloudFront → API Gateway (HTTP API v2) → Lambda，
+// A) `cf-connecting-ip`
+//    · CF 備用站（viewer → Cloudflare → Worker）：Cloudflare 邊緣**覆寫**填入，
+//      viewer 送同名 header 會被蓋掉 ⇒ 可信。
+//    · AWS 主站（viewer → CloudFront → API Gateway HTTP v2 → Lambda）：
+//      **viewer 完全可控** —— /api/* 等 behavior 用 AllViewerExceptHostHeader origin
+//      request policy，viewer 的 header 原樣轉發給 origin，而 CloudFront 不認識、
+//      也不會覆寫這個 Cloudflare 專有 header。採信它＝每個請求自帶一個假 IP 就換到
+//      一把新 rate key ⇒ **限流 100% 可繞過**（2026-08 深檢發現；舊註解說它
+//      「外部不可偽造」只在 CF 側成立）。
+//    ⇒ 修法：**只在非 Lambda 鏈路採信**。判準＝`c.env.requestContext.http.sourceIp`
+//      是否存在：hono/aws-lambda adapter 把 `{event, requestContext, lambdaContext}`
+//      當 env 傳進 app.fetch，該值在 Lambda 上恆存在；CF Workers 的 env 是 bindings，
+//      必不存在（wrangler dev 亦同）⇒ 判準本身不可被請求方影響。
+//
+// B) `x-forwarded-for` **首段**：兩條鏈路都是 viewer 自帶的原值（CloudFront 保留在首段）
+//    ⇒ 完全可控，**任何情況都不可採用**（每次換一個偽造首段就是一把新 rate key）。
+//
+// C) `x-forwarded-for` **倒數第二段**：只在 AWS 主站、且下述兩道把關都通過時＝訪客真實 IP
+//    （見下方「為何需要第 2 層」與「形狀自檢」）。CF 側不適用。
+//
+// D) `x-forwarded-for` **末段**：主站上是 API Gateway append 的直連來源（＝CloudFront
+//    edge）；本地/SAM local 沒有前面兩層時當兜底用。
+//
+// E) `requestContext.http.sourceIp`：API Gateway 填入，client 不可偽造 ⇒ 可信；
+//    但主站上它是 **CloudFront edge 的 IP**（不是訪客 IP），故只當保守 fallback。
+//    CF Workers／內部 app.request() 上不存在。
+//
+// F) `x-origin-verify`：CloudFront 的 origin custom header（值來自 CFN 參數），
+//    viewer 送同名 header 會被 CloudFront **覆寫** ⇒ 可用來證明「這個請求真的經過
+//    我們的 CloudFront」。CF 側／直打 execute-api 時不存在。
+//
+// G) 內部調用（cron 的 `app.request()`）：A~F 全部不存在 ⇒ 走到 'unknown'。
+//    限流中介層對這種請求直接豁免（見下方 isInternalRequest）。
+//
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// 為何需要 C 這一層：主站鏈路是 CloudFront → API Gateway (HTTP API v2) → Lambda，
 // sourceIp 是 **CloudFront edge 的 IP** 而非訪客 IP ⇒ 全站寫入擠進極少數 rate key，
 // 任何一人 30 寫入/分就能讓所有編輯者一起吃 429（2026-08 審查發現的副作用）。
 // 訪客真實 IP 在 XFF 的倒數第二段，因為這條鏈路上有兩次自動 append：
@@ -164,21 +234,30 @@ function checkRateLimit(ip, tier, maxRequests) {
 // ⚠️ 任何情況都不可取 XFF **首段**：CloudFront 保留 viewer 自帶的 XFF 值於首段，
 //    每次請求換一個偽造首段就是一把新 rate key，30/min 上限會被完全繞過。
 function getRateLimitIp(c) {
-  const cfIp = c.req.header('cf-connecting-ip')
-  if (cfIp) return cfIp
-
+  // Lambda 判準（見上方 A）：這個值存在 ⇔ 請求走 hono/aws-lambda adapter 進來
   const sourceIp = c.env?.requestContext?.http?.sourceIp
+  const isLambda = !!sourceIp
   const xff = c.req.header('x-forwarded-for')
 
-  // 經 CloudFront 驗證的鏈路才採信 XFF 倒數第二段（secret 值只做相等比較，不寫進任何 log）
-  const originSecret = getSecret(c.env, 'ORIGIN_VERIFY_SECRET')
-  if (originSecret && c.req.header('x-origin-verify') === originSecret && xff) {
-    const chain = xff.split(',')
-    // 段數 < 2＝鏈路與預期不符（少一次 append），寧可退回 sourceIp 也不猜；
-    // 末段 !== sourceIp＝鏈路形狀與 H1 不符（見上方自檢說明），同樣退回
-    if (chain.length >= 2 && sourceIp && chain[chain.length - 1].trim() === sourceIp) {
-      const viewerIp = chain[chain.length - 2].trim()
-      if (viewerIp) return viewerIp
+  // cf-connecting-ip 只在非 Lambda 鏈路採信（Lambda 側該 header 由 viewer 說了算）
+  if (!isLambda) {
+    const cfIp = c.req.header('cf-connecting-ip')
+    if (cfIp) return cfIp
+  }
+
+  // 經 CloudFront 驗證的鏈路才採信 XFF 倒數第二段（secret 值只做等長 constant-time
+  // 比較，不寫進任何 log）。非 Lambda 鏈路沒有這組 header，也沒有 XFF 兩次 append 的
+  // 形狀前提，整段跳過。
+  if (isLambda && xff) {
+    const originSecret = getSecret(c.env, 'ORIGIN_VERIFY_SECRET')
+    if (originSecret && timingSafeEqualStr(c.req.header('x-origin-verify') || '', originSecret)) {
+      const chain = xff.split(',')
+      // 段數 < 2＝鏈路與預期不符（少一次 append），寧可退回 sourceIp 也不猜；
+      // 末段 !== sourceIp＝鏈路形狀與 H1 不符（見上方自檢說明），同樣退回
+      if (chain.length >= 2 && chain[chain.length - 1].trim() === sourceIp) {
+        const viewerIp = chain[chain.length - 2].trim()
+        if (viewerIp) return viewerIp
+      }
     }
   }
 
@@ -187,28 +266,58 @@ function getRateLimitIp(c) {
     || 'unknown'
 }
 
-// Rate limit: write endpoints 30/min, expensive endpoints 5/min
-app.use('/api/*', async (c, next) => {
-  const method = c.req.method
-  const path = c.req.path
+// ── 限流覆蓋範圍 ──
+// 每分鐘上限（per IP per tier）。原本只掛 '/api/*' 且只算寫入方法 ⇒ /health（每次都
+// 開連線 ping DB）與 /trigger-*（token 錯了也會被無限次嘗試、且每次都跑 DB 查詢）
+// 完全沒有上限（2026-08 深檢）。現改為單一 '*' 中介層依路徑分 tier：
+const RATE_TIERS = {
+  expensive: 5,   // /api/parse-setlist：呼叫 matcher Lambda ＋寫 songlist/setlist
+  trigger: 10,    // /trigger-*：手動觸發（token 保護，但錯誤嘗試本身也要限速）
+  health: 30,     // /health：每次都做一次 DB 連線測試
+  write: 30,      // /api/* 的寫入方法（原有行為）
+}
 
-  // Skip rate limiting for read-only methods
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
-
-  // Cleanup stale entries on each request (lightweight, map is small)
-  const cleanupNow = Date.now()
-  for (const [key, entry] of rateLimits) {
-    if (cleanupNow - entry.start > RATE_WINDOW * 2) rateLimits.delete(key)
+/**
+ * 依路徑／方法決定 tier；null ＝ 不限流。
+ * ⚠️ /webhook/* 刻意不納入：PubSub hub 的通知已由 HMAC 簽名把關，限流反而可能
+ *    丟掉真通知（hub 重試有限）。
+ */
+function resolveRateTier(path, method) {
+  // 原本的 includes('/parse-setlist') 語意保留（實際路徑為 /api/parse-setlist；
+  // 注意 /trigger-setlist-parse 字面不同、不會誤入這個 tier）
+  if (path.includes('/parse-setlist')) return 'expensive'
+  if (path.startsWith('/trigger-')) return 'trigger'
+  if (path === '/health') return 'health'
+  if (path.startsWith('/api/')) {
+    // 讀取方法不限流（GET 全量表格是正常瀏覽行為，且 304 路徑成本極低）
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return null
+    return 'write'
   }
+  return null
+}
+
+/**
+ * 內部調用（cron 的 `app.request()`）豁免：正式環境的兩條鏈路一定帶得出來源
+ * （Lambda＝requestContext.http.sourceIp；CF＝cf-connecting-ip），三者全無＝
+ * 不是外部請求（app.request()／本地 node／SAM local）。
+ * 目前 snapshot cron 只打 GET /api/*（本來就不入 tier），這層是防它日後改用寫入端點
+ * 或 /health 時被自己的限流擋住。
+ */
+function isInternalRequest(c) {
+  return !c.env?.requestContext?.http?.sourceIp &&
+    !c.req.header('cf-connecting-ip') &&
+    !c.req.header('x-forwarded-for')
+}
+
+app.use('*', async (c, next) => {
+  const tier = resolveRateTier(c.req.path, c.req.method)
+  if (!tier) return next()
+  if (isInternalRequest(c)) return next()
+
+  cleanupRateLimits(Date.now())
 
   const ip = getRateLimitIp(c)
-
-  // Expensive endpoints: stricter limit
-  const isExpensive = path.includes('/parse-setlist')
-  const limit = isExpensive ? 5 : 30
-  const tier = isExpensive ? 'expensive' : 'write'
-
-  if (!checkRateLimit(ip, tier, limit)) {
+  if (!checkRateLimit(ip, tier, RATE_TIERS[tier])) {
     return c.json({ error: 'Too many requests' }, 429)
   }
 
@@ -406,8 +515,10 @@ api.post('/parse-setlist', async (c) => {
       setlistItems: setlistResult.items
     })
   } catch (error) {
+    // 原本回 `details: error.message`——把 DB／內部錯誤原文吐給呼叫端。
+    // 改為 rethrow 交給 app.onError：dev/test 才附真實訊息，正式環境泛化（分流集中一處）
     console.error('Parse setlist error:', error)
-    return c.json({ error: '歌單解析失敗', details: error.message }, 500)
+    throw error
   }
 })
 
@@ -456,6 +567,9 @@ api.post('/get-comments', async (c) => {
 })
 ============================================================ */
 
+// PubSub topic 的唯一合法形狀（renewPubSubSubscription 與手動 curl 註冊的都是這個字串）
+const PUBSUB_TOPIC_PREFIX = 'https://www.youtube.com/xml/feeds/videos.xml?channel_id='
+
 // PubSubHubbub webhook
 app.get('/webhook/youtube', (c) => {
   // Subscription verification：驗證 hub.mode 與 hub.topic，
@@ -464,7 +578,13 @@ app.get('/webhook/youtube', (c) => {
   if (challenge) {
     const mode = c.req.query('hub.mode')
     const topic = c.req.query('hub.topic') || ''
-    const isOurChannel = CONFIG.berryChannels.some(ch => topic.includes(`channel_id=${ch}`))
+    // ⚠️ 舊寫法 `topic.includes('channel_id=' + ch)` 是子字串比對：
+    //   `https://attacker.example/?x=channel_id=UC7A7...` 也能通過 ⇒ 我們會替任意
+    //   topic 的訂閱／注銷確認 challenge。改為「前綴是 YouTube feed URL、且其後
+    //   剩下的部分恰好等於白名單頻道 ID」（＝完整 URL 相等，同時滿足
+    //   startsWith(prefix) ∧ endsWith(ch)，並額外排掉中間夾雜參數的變形）。
+    const isOurChannel = topic.startsWith(PUBSUB_TOPIC_PREFIX) &&
+      CONFIG.berryChannels.some(ch => topic.slice(PUBSUB_TOPIC_PREFIX.length) === ch)
     if (mode === 'subscribe' && isOurChannel) {
       return c.text(challenge)
     }
@@ -485,21 +605,24 @@ async function hmacSha1Hex(secret, data) {
 }
 
 app.post('/webhook/youtube', async (c) => {
-  const body = await c.req.text()
-
   // 簽名驗證（hub.secret = TRIGGER_TOKEN）：2026-06-13 起所有訂閱已帶 secret
-  //（手動重訂閱完成＋renewPubSubSubscription 自動續訂亦帶），無簽名＝偽造來源，一律拒絕
+  //（手動重訂閱完成＋renewPubSubSubscription 自動續訂亦帶），無簽名＝偽造來源，一律拒絕。
+  // ⚠️ header 的存在與形狀先驗、**確認後才讀 body**：這個端點對外開放（CloudFront
+  //   /webhook/* 直通 API Gateway），先 await c.req.text() 等於讓任何人都能把任意大小的
+  //   body 灌進 Lambda 記憶體才被拒絕。形狀＝`sha1=` ＋ 40 個 hex（HMAC-SHA1 hex 長度）。
   const signature = c.req.header('X-Hub-Signature')
+  if (!signature || !/^sha1=[0-9a-fA-F]{40}$/.test(signature)) {
+    console.warn('[PUBSUB] 拒絕無簽名／簽名格式不符的通知（訂閱已全面帶 hub.secret）')
+    return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
+  }
   const secret = getSecret(c.env, 'TRIGGER_TOKEN')
   // 無 secret 時無從驗證來源，一律不處理（fail-closed）；三個部署環境皆已設定此變數
   if (!secret) {
     console.error('[PUBSUB] TRIGGER_TOKEN 未設定，無法驗證簽名，不處理此通知')
-    return c.text('OK', 200) // 與下方分支同策略：回 200 避免 hub 重試轟炸
+    return c.text('OK', 200) // 與上方分支同策略：回 200 避免 hub 重試轟炸
   }
-  if (!signature) {
-    console.warn('[PUBSUB] 拒絕無簽名通知（訂閱已全面帶 hub.secret）')
-    return c.text('OK', 200) // 回 200 避免 hub 重試轟炸，但不處理
-  }
+
+  const body = await c.req.text()
   const expected = 'sha1=' + await hmacSha1Hex(secret, body)
   if (!timingSafeEqualStr(signature, expected)) {
     console.warn('[PUBSUB] X-Hub-Signature 驗證失敗，忽略此通知')
@@ -621,7 +744,9 @@ app.post('/trigger-update', async (c) => {
 
     return c.json({ success: true, result })
   } catch (error) {
-    return c.json({ error: error.message }, 500)
+    // 不回 error.message 原文（可能含 DB／內部細節）——交給 app.onError 分流
+    console.error('Trigger update failed:', error)
+    throw error
   }
 })
 
@@ -645,7 +770,10 @@ app.get('/trigger-setlist-parse', async (c) => {
 
     const categories = typeof stream.categories === 'string' ? JSON.parse(stream.categories) : stream.categories
     const isSinging = categories?.some(cat => cat.includes('歌枠'))
-    const force = !!c.req.query('force')
+    // ⚠️ 原本是 `!!c.req.query('force')`——只要參數存在就成立，`?force=false`／`?force=0`
+    //   同樣為 true，等於一路關掉 cooldown 與熔斷／無戳防線（bypassGuards 見下）。
+    //   只認明示的 true／1。
+    const force = ['true', '1'].includes(c.req.query('force'))
     if (!isSinging && !force) {
       return c.json({ error: 'Not a singing stream. Add ?force=true to override.' }, 400)
     }
@@ -695,7 +823,9 @@ app.get('/trigger-setlist-parse', async (c) => {
 
     return c.json({ success: false, message: '未找到歌單留言' })
   } catch (error) {
-    return c.json({ error: error.message }, 500)
+    // 不回 error.message 原文——交給 app.onError（dev/test 才附真因）
+    console.error(`Trigger setlist parse failed (streamID=${streamID}):`, error)
+    throw error
   }
 })
 
@@ -803,7 +933,9 @@ app.get('/trigger-wiki-verify', async (c) => {
 
     return c.json({ success: true, ...result })
   } catch (error) {
-    return c.json({ error: error.message }, 500)
+    // 不回 error.message 原文——交給 app.onError（dev/test 才附真因）
+    console.error('Trigger wiki verify failed:', error)
+    throw error
   }
 })
 
@@ -848,6 +980,10 @@ export async function handleCronTrigger(event, env) {
       // UTC 14:00~19:00 = Taiwan 22:00~03:00 - polling check
       console.log('Cron: runPollingCheck')
       await runPollingCheck(env)
+    } else {
+      // 排程被觸發卻沒有對應工作＝EventBridge 規則與這裡的小時分派不一致
+      // （改過 template.yaml 的 cron 卻忘了改這裡）。靜默 return 會讓它看起來一切正常。
+      console.warn(`Cron: 無對應工作的觸發時段 utcHour=${utcHour}（EventBridge 規則與分派邏輯不一致？）`)
     }
   } catch (error) {
     console.error('Cron error:', error)

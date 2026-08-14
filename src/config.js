@@ -88,12 +88,17 @@ export const CONFIG = {
         'http://127.0.0.1:8788',
       ]
       if (allowed.includes(origin)) return origin
-      // Allow CF Pages preview deployments
-      if (origin?.endsWith('.maisakiberry.pages.dev')) return origin
+      // 註：這裡曾有 `origin.endsWith('.maisakiberry.pages.dev')` 的 CF Pages preview
+      // 放行分支——該部署形式已不存在（2026-03 起靜態檔案走 S3+CloudFront 與 Workers
+      // Static Assets），留著只是一條「任何人註冊得到的子網域名就能取得跨站憑證」的死路。
       return false
     },
-    allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Source', 'If-None-Match'],
+    // PATCH：/api/streamlist/bulk-categories 用的方法；漏列時瀏覽器 preflight 不放行
+    // ⇒ 跨源呼叫（v3 dev server 之外的情境）會被 CORS 擋掉
+    allowedMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    // X-Trigger-Token：/trigger-* 與 /api/parse-setlist 的憑證 header，同理需列入
+    // allowHeaders，否則從瀏覽器發的跨源請求連 preflight 都過不了
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Source', 'X-Trigger-Token', 'If-None-Match'],
     exposeHeaders: ['ETag']
   },
 

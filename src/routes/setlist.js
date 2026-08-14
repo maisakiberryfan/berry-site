@@ -8,6 +8,31 @@ import {
 import { createErrorResponse } from "../utils/database.js";
 import { checkETagMatch, CACHE_CONFIG, ETAG_VERSION, generateMetaETag } from "../utils/cache.js";
 
+// ─── Composite key 的值域（POST 驗證與 reorder 演算法共用）───
+// 一段最多幾列（reorder 的 order 陣列上限）
+const REORDER_MAX_ROWS = 200;
+// reorder 的暫存區起點：第一段把每一列搬到 100000+新順位（護欄保證新順位 ≤200），
+// 第二段再整段減回。負數暫存區不可用——trackNo 是 int(10) unsigned。
+// ⚠️ 這個常數同時是 **trackNo 的上界依據**：一旦有列的 trackNo ≥ 此值，
+//    reorder 的碰撞防護會讓整段永久無法重排（400），故 POST 就先擋在 1..99999。
+export const REORDER_TEMP_OFFSET = 100000;
+const TRACKNO_MAX = REORDER_TEMP_OFFSET - 1;
+// segmentNo 是 tinyint unsigned 級別的段落編號（1＝第一段歌枠，實務上個位數）
+const SEGMENTNO_MAX = 255;
+
+/**
+ * ROLLBACK 不可掩蓋原始錯誤，也不可把 4xx 變成 500：
+ * 連線已死時 rollback 一定拋錯（server 端其實已隱含 rollback），裸 await 會讓
+ * 「驗證失敗→回 400」的路徑改拋例外、變成 500，真因也一併被換掉。
+ */
+async function safeRollback(db) {
+  try {
+    await db.execute("ROLLBACK");
+  } catch (rollbackError) {
+    console.error(`Setlist ROLLBACK failed (原始錯誤／驗證結果不受影響): ${rollbackError.message}`);
+  }
+}
+
 // setlist VIEW = setlist_ori JOIN songlist JOIN streamlist：
 // 三表任一變更都會反映在各自的 updatedAt / COUNT（FK 為 ON DELETE RESTRICT，
 // 刪除必先動引用 row；UPDATE CASCADE 情境由來源表自身 updatedAt 捕捉）
@@ -205,7 +230,7 @@ export async function createSetlistEntry(c) {
       const fieldErrors = validateRequired(entry, requiredFields);
 
       if (fieldErrors) {
-        await db.execute("ROLLBACK");
+        await safeRollback(db);
         const errorMsg = isBatch
           ? "Required fields missing in batch item"
           : "Required fields missing";
@@ -215,10 +240,40 @@ export async function createSetlistEntry(c) {
         );
       }
 
+      // trackNo / segmentNo 是 PK 的一部分，先前完全沒驗型：非整數會被 MySQL 隱式轉型
+      // 靜默寫進錯誤的 key（'abc' → 0、'3x' → 3、3.7 → 4 四捨五入），之後前端以
+      // composite key 定位那一列就永遠對不上；trackNo 還必須低於 reorder 的暫存區起點，
+      // 否則整段曲序修正會被碰撞防護永久擋住（見 REORDER_TEMP_OFFSET）。
+      if (!Number.isInteger(entry.trackNo) || entry.trackNo < 1 || entry.trackNo > TRACKNO_MAX) {
+        await safeRollback(db);
+        return c.json(
+          createErrorResponse(
+            "VALIDATION_ERROR",
+            `trackNo must be an integer between 1 and ${TRACKNO_MAX}`,
+            { trackNo: "invalid" },
+          ),
+          400,
+        );
+      }
+      // 未帶 segmentNo＝沿用預設 1（見下方 destructure）；帶了就必須是合法整數
+      // （null 不算——它會讓 PK 欄位收到 NULL）
+      if (entry.segmentNo !== undefined &&
+        (!Number.isInteger(entry.segmentNo) || entry.segmentNo < 1 || entry.segmentNo > SEGMENTNO_MAX)) {
+        await safeRollback(db);
+        return c.json(
+          createErrorResponse(
+            "VALIDATION_ERROR",
+            `segmentNo must be an integer between 1 and ${SEGMENTNO_MAX}`,
+            { segmentNo: "invalid" },
+          ),
+          400,
+        );
+      }
+
       // note is a TEXT column and a batch carries up to 200 of them, so cap each one
       const noteError = validateLength(entry.note, "note", FIELD_LIMITS.setlistNote);
       if (noteError) {
-        await db.execute("ROLLBACK");
+        await safeRollback(db);
         return c.json(createErrorResponse("VALIDATION_ERROR", noteError), 400);
       }
 
@@ -243,7 +298,7 @@ export async function createSetlistEntry(c) {
 
       for (const streamID of uniqueStreamIDs) {
         if (!existingStreamSet.has(streamID)) {
-          await db.execute("ROLLBACK");
+          await safeRollback(db);
           return c.json(
             createErrorResponse("NOT_FOUND", `Stream not found: ${streamID}`),
             404,
@@ -266,7 +321,7 @@ export async function createSetlistEntry(c) {
 
       for (const songID of uniqueSongIDs) {
         if (!existingSongSet.has(songID)) {
-          await db.execute("ROLLBACK");
+          await safeRollback(db);
           return c.json(
             createErrorResponse("NOT_FOUND", `Song not found: ${songID}`),
             404,
@@ -287,7 +342,7 @@ export async function createSetlistEntry(c) {
         for (const f of ["startTime", "endTime"]) {
           const v = entry[f];
           if (v !== undefined && v !== null && (!Number.isInteger(v) || v < 0 || v > 360000)) {
-            await db.execute("ROLLBACK");
+            await safeRollback(db);
             return c.json(
               createErrorResponse("VALIDATION_ERROR", `${f} must be null or an integer between 0 and 360000 (seconds)`, { [f]: "invalid" }),
               400,
@@ -386,7 +441,7 @@ export async function createSetlistEntry(c) {
       return c.json(successResponse(results[0]), 201);
     }
   } catch (error) {
-    await db.execute("ROLLBACK");
+    await safeRollback(db);
     console.error(`Setlist creation failed: ${error.message} (batch=${isBatch}, count=${entries.length})`);
 
     // Handle duplicate entry error (though ON DUPLICATE KEY UPDATE should prevent this)
@@ -447,15 +502,21 @@ export async function updateSetlistEntry(c) {
   const params = [];
 
   if (songID !== undefined) {
-    if (songID !== null) {
-      // Validate songID exists if provided
-      const songExists = await db.first(
-        "SELECT 1 FROM songlist WHERE songID = ?",
-        [songID],
+    // songID 是 NOT NULL＋FK：`songID: null` 沒有「清空」這個語意，寫下去只會在
+    // DB 層炸成 1048（Column cannot be null）⇒ 500。明示回 400 才對得上真正的原因。
+    if (songID === null) {
+      return c.json(
+        createErrorResponse("VALIDATION_ERROR", "songID cannot be null", { songID: "invalid" }),
+        400,
       );
-      if (!songExists) {
-        return c.json(createErrorResponse("NOT_FOUND", "Song not found"), 404);
-      }
+    }
+    // Validate songID exists if provided
+    const songExists = await db.first(
+      "SELECT 1 FROM songlist WHERE songID = ?",
+      [songID],
+    );
+    if (!songExists) {
+      return c.json(createErrorResponse("NOT_FOUND", "Song not found"), 404);
     }
     updates.push("songID = ?");
     params.push(songID);
@@ -493,7 +554,7 @@ export async function updateSetlistEntry(c) {
 
     await db.execute("COMMIT");
   } catch (error) {
-    await db.execute("ROLLBACK");
+    await safeRollback(db);
     throw error;
   }
 
@@ -509,10 +570,7 @@ export async function updateSetlistEntry(c) {
 // ─── Reorder（曲序修正）───
 // trackNo 是 composite key 的一部分，「兩首對調」用單列 PUT 原理上做不到（必撞主鍵）。
 // 本端點在單一 transaction 內以「高位偏移暫存區」兩段式重寫整段的 trackNo。
-const REORDER_MAX_ROWS = 200;
-// 暫存區起點：第一段把每一列搬到 100000+新順位（護欄保證新順位 ≤200），
-// 第二段再整段減回。負數暫存區不可用——trackNo 是 int(10) unsigned。
-const REORDER_TEMP_OFFSET = 100000;
+// REORDER_MAX_ROWS / REORDER_TEMP_OFFSET 定義在檔頭（與 POST 的 trackNo 值域共用）。
 
 // PUT /setlist/:streamID/:segmentNo/reorder - 重排整個段落的曲序
 // Body: { order: [3, 1, 2, ...] }（該段落現有 trackNo 的完整排列，
@@ -579,7 +637,7 @@ export async function reorderSetlistSegment(c) {
     );
 
     if (existing.length === 0) {
-      await db.execute("ROLLBACK");
+      await safeRollback(db);
       return c.json(createErrorResponse("NOT_FOUND", "Setlist segment not found"), 404);
     }
 
@@ -587,7 +645,7 @@ export async function reorderSetlistSegment(c) {
 
     // 暫存區碰撞防護：正常資料 trackNo 遠小於 100000，真出現就拒絕而不是靜默覆寫
     if (current.some((t) => t >= REORDER_TEMP_OFFSET)) {
-      await db.execute("ROLLBACK");
+      await safeRollback(db);
       return c.json(
         createErrorResponse("VALIDATION_ERROR",
           `Segment contains trackNo >= ${REORDER_TEMP_OFFSET}, cannot reorder safely`,
@@ -602,7 +660,7 @@ export async function reorderSetlistSegment(c) {
     const missing = current.filter((t) => !orderSet.has(t));
     const unknown = order.filter((t) => !currentSet.has(t));
     if (missing.length > 0 || unknown.length > 0) {
-      await db.execute("ROLLBACK");
+      await safeRollback(db);
       return c.json(
         createErrorResponse("VALIDATION_ERROR",
           "order must be a permutation of the segment's existing trackNo values",
@@ -621,7 +679,7 @@ export async function reorderSetlistSegment(c) {
       );
       // FOR UPDATE 之後理應恆為 1；不是就代表狀態與剛才讀到的不一致，整批放棄
       if (result?.meta?.changes !== 1) {
-        await db.execute("ROLLBACK");
+        await safeRollback(db);
         return c.json(
           createErrorResponse("CONFLICT", "Segment changed during reorder, please reload"),
           409,
@@ -637,8 +695,9 @@ export async function reorderSetlistSegment(c) {
 
     await db.execute("COMMIT");
   } catch (error) {
-    // ROLLBACK 自身再拋錯不可掩蓋原始錯誤（原錯才是 onError 要分類的那個）
-    try { await db.execute("ROLLBACK"); } catch { /* 連線已死時 rollback 由 server 端隱含完成 */ }
+    // ROLLBACK 自身再拋錯不可掩蓋原始錯誤（原錯才是 onError 要分類的那個）——
+    // safeRollback 內部已 try/catch（連線已死時 rollback 由 server 端隱含完成）
+    await safeRollback(db);
     console.error(`Setlist reorder failed: ${error.message} (streamID=${streamID}, segmentNo=${segmentNo}, count=${order.length})`);
     throw error;
   }
@@ -688,7 +747,7 @@ export async function deleteSetlistEntry(c) {
 
     await db.execute("COMMIT");
   } catch (error) {
-    await db.execute("ROLLBACK");
+    await safeRollback(db);
     throw error;
   }
 
