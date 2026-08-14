@@ -25,8 +25,14 @@ export const SITE_NAME = '苺咲べりぃ非公式倉庫'
 /** 圖片一律絕對 URL 指向主站（備用站／demo 站沒有自己的圖庫時也能顯示） */
 const ORIGIN = 'https://m-b.win'
 
-/** 站台預設圖（index.html 的 og:image，1920x1080 實測值） */
-const SITE_IMAGE = { url: `${ORIGIN}/img/profile/mainlogo.webp`, width: 1920, height: 1080 }
+/**
+ * 站台卡：`fansite/img/og/site.jpg`（＝index.html 的 og:image 同一張）。
+ * 1200×630＝summary_large_image 的標準比例，各平台都不會再裁。
+ */
+const SITE_IMAGE = { url: `${ORIGIN}/img/og/site.jpg`, width: 1200, height: 630 }
+
+/** 頁級卡：`fansite/img/og/{page}.jpg`，皆 1200×630（無專屬卡的頁走 SITE_IMAGE） */
+const pageImage = (page) => ({ url: `${ORIGIN}/img/og/${page}.jpg`, width: 1200, height: 630 })
 
 /**
  * 專輯／單曲封面：`fansite/img/albums/{id}.webp`，實測皆 520x520（peace 為 520x513，
@@ -36,11 +42,11 @@ const SITE_IMAGE = { url: `${ORIGIN}/img/profile/mainlogo.webp`, width: 1920, he
 const albumImage = (id) => ({ url: `${ORIGIN}/img/albums/${id}.webp`, width: 520, height: 520, card: 'summary' })
 
 /**
- * 衣裝圖：**尚未定案**（立繪是 9:16 直式，直接當大圖卡會裁掉頭），先用站台預設圖佔位。
- * 圖備妥後只要改這裡回傳的 url／寬高（例如 `${ORIGIN}/img/clothes/${date}/og.webp`），
- * 產檔與兩站的接法都不用動。
+ * 衣裝卡：`fansite/img/og/clothes/{date}.jpg`，每套一張 1200×630。
+ * 立繪本身是 9:16 直式（直接當大圖卡會裁掉頭），故另做橫式卡——
+ * 草莓牛奶底＋去背立繪置右＋左側衣裝名／お披露目日期，16 套一次產齊。
  */
-const clothesImage = (_date) => SITE_IMAGE
+const clothesImage = (date) => ({ url: `${ORIGIN}/img/og/clothes/${date}.jpg`, width: 1200, height: 630 })
 
 /** 路徑 → 檔名 slug：`/discography/rebirthr` → `discography-rebirthr` */
 export function ogSlug(path) {
@@ -62,21 +68,21 @@ const PAGE_ENTRIES = [
     title: title('音楽作品'),
     description:
       '苺咲べりぃ(Maisaki Berry) のアルバム・シングル・参加楽曲の一覧。収録曲とスタッフ、歌枠での歌唱記録を作品ごとにまとめています。',
-    image: SITE_IMAGE,
+    image: pageImage('discography'),
   },
   {
     path: '/clothes',
     title: title('衣装'),
     description:
       '苺咲べりぃ(Maisaki Berry) の2D・3D衣装まとめ。立ち絵と表情差分、デザイン・モデリング担当、お披露目配信を衣装ごとに掲載。',
-    image: SITE_IMAGE,
+    image: pageImage('clothes'),
   },
   {
     path: '/profile',
     title: title('プロフィール'),
     description:
       '苺咲べりぃ(Maisaki Berry) のプロフィール。デビュー日・タグ・公式リンクなど、ファンサイト管理人がまとめた基本情報。',
-    image: SITE_IMAGE,
+    image: pageImage('profile'),
   },
   {
     path: '/setlist',

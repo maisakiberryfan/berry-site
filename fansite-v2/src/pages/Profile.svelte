@@ -122,7 +122,7 @@
   <!-- 頭像 + facts-grid -->
   <div class="grid gap-8 sm:grid-cols-[auto_1fr] sm:items-center">
     <img
-      src={assetUrl('/img/profile/profile.webp')}
+      src={assetUrl('/img/profile/avatar-10th.webp')}
       width="220"
       height="220"
       alt="苺咲べりぃ"

@@ -67,7 +67,13 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
   ＋`scripts/generate-og-html.mjs`（build 後把 `dist/index.html` 複製成
   `dist/og/<slug>.html`，只換 og:*／description／twitter:card）。目前 41 支＝頁級 4
   ＋專輯/單曲 21（封面 520x520，twitter:card 用 `summary` 免被裁）＋衣裝 16
-  （**圖尚未定案，先用站台 og 佔位**，換圖只要改 og-config 的 `clothesImage`）
+  （每套一張專屬卡）
+- **OG 卡圖**：`fansite/img/og/`（源在 v2 目錄、隨兩支 workflow 的 `fansite/img/` 整目錄
+  同步上線）——`site.jpg`（站台卡，index.html 與 `/setlist` 共用）／`discography.jpg`／
+  `clothes.jpg`／`profile.jpg`／`clothes/{YYYYMMDD}.jpg`（16 套各一張）。
+  全部 1200×630 jpg（＝summary_large_image 標準比例，各平台不再裁），
+  風格＝草莓牛奶底＋頂端主題色漸層線＋去背立繪。換圖只要覆蓋同名檔；
+  **新增衣裝時要補一張同名卡**，否則該套分享出去會是 404 圖
 - ⚠️ **`clothesData.js`／`discographyData.js` 必須維持裸 Node 可 import**
   （不得 import `assets.js` 這類吃 `import.meta.env` 的模組）——衣裝的
   `clothesGalleryImages` 因此搬進 Clothes.svelte
