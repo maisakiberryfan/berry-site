@@ -7,6 +7,8 @@
   // 本頁的核心價值＝把「作品曲目」與「歌枠實際演唱紀錄」接起來：
   // 曲目有 songID 時顯示 🎤N 鈕，就地展開該曲的演唱場次（連結直接跳 YTLink 的 ?t= 秒數）。
   // 資料源是既有的三層瀑布快取（setlist/songlist/streamlist），純客端過濾，不打新 API。
+  // ⚠️ setlist／streamlist 延到第一次開詳細面板才載（ensureRecords）——封面牆用不到它們，
+  //    進頁就拉 15k 列（冷快取 5MB＋）只為了面板裡的 🎤N 不划算。
   //
   // 曲名的單一事實來源是 songlist：有 songID 一律顯示 songIndex 的 songName，
   // 資料模組的 name 只在無 songID／songlist 尚未載入時作 fallback。
@@ -14,9 +16,10 @@
   // 手機：本頁全部是瀏覽功能（無編輯入口），天然符合「手機唯讀」鐵則。
   import Page from '../lib/Page.svelte'
   import { t, getLang } from '../i18n.svelte.js'
+  import { route, navigate } from '../router.svelte.js'
   import { assetUrl } from '../assets.js'
   import { albums, singles, guests, releases, formatReleaseDate, ordinalSuffix } from './discographyData.js'
-  import { songlist, streamlist, setlist, setlistJoined, songIndex, safeYTLink } from '../api/store.svelte.js'
+  import { songlist, streamlist, setlist, songIndex, streamTitleOf, safeYTLink } from '../api/store.svelte.js'
   import { formatDate } from '../lib/table/utils.js'
 
   const msgs = {
@@ -28,6 +31,8 @@
       guests: '客座演唱',
       guestsHint: '參與他人作品／商業合作的演唱曲目。',
       albumOrdinal: (n) => `第 ${n} 張專輯`,
+      // 卡片用的短版（與「單曲」對仗）——與面板同一套字典，別再走英文序數
+      albumOrdinalShort: (n) => `第 ${n} 張`,
       single: '單曲',
       release: '發行日',
       official: '特設頁',
@@ -42,6 +47,7 @@
       openInSetlist: '在歌單中查看 →',
       showingRecent: (shown, total) => `顯示最近 ${shown} 場，共 ${total} 場`,
       loadingRecords: '演唱紀錄載入中…',
+      noRecords: '無演唱紀錄',
       noStreamTitle: '（無場次標題）',
       noArchive: '無存檔',
       roleLabel: {
@@ -70,6 +76,7 @@
       guests: 'Guest Appearances',
       guestsHint: 'Songs recorded for other artists’ works and commercial tie-ups.',
       albumOrdinal: (n) => `${ordinalSuffix(n)} Album`,
+      albumOrdinalShort: (n) => `${ordinalSuffix(n)} Album`,
       single: 'Single',
       release: 'Released',
       official: 'Official Page',
@@ -84,6 +91,7 @@
       openInSetlist: 'View in Set List →',
       showingRecent: (shown, total) => `Showing the latest ${shown} of ${total}`,
       loadingRecords: 'Loading performances…',
+      noRecords: 'no performances',
       noStreamTitle: '(untitled stream)',
       noArchive: 'no archive',
       roleLabel: {
@@ -112,6 +120,7 @@
       guests: '参加楽曲',
       guestsHint: '他アーティストの作品・商業タイアップへの参加楽曲。',
       albumOrdinal: (n) => `${ordinalSuffix(n)}アルバム`,
+      albumOrdinalShort: (n) => `${ordinalSuffix(n)}アルバム`,
       single: 'シングル',
       release: '発売日',
       official: '特設サイト',
@@ -126,6 +135,7 @@
       openInSetlist: 'セットリストで見る →',
       showingRecent: (shown, total) => `最新 ${shown} 件を表示（全 ${total} 件）`,
       loadingRecords: '歌唱記録を読み込み中…',
+      noRecords: '歌唱記録なし',
       noStreamTitle: '（配信タイトルなし）',
       noArchive: 'アーカイブなし',
       roleLabel: {
@@ -152,10 +162,25 @@
   // 展開的歌唱紀錄一次最多列這麼多場，其餘引導到 setlist 頁（面板不該變成第二個表格）
   const MAX_RECORDS = 20
 
-  // 三張表都要：setlist（紀錄）＋streamlist（場次標題，setlistJoined 需要）＋songlist（曲名）
+  // 封面牆只要曲名（songlist，~1k 列）。setlist（5MB＋／73 個月度檔）與 streamlist
+  // 只有「面板內的歌唱紀錄」用得到，故延到第一次開面板才載——進頁不該為了 🎤N 拉全量。
   songlist.load()
-  streamlist.load()
-  setlist.load()
+
+  /** 歌唱紀錄資料的載入階段：'idle'（還沒人要）｜'loading'｜'ready'（load 已結束，成敗皆算） */
+  let recordsPhase = $state('idle')
+
+  /**
+   * 第一次需要歌唱紀錄時才啟動 setlist／streamlist 的載入瀑布。
+   * store.load() 本身冪等（重複呼叫回同一個 promise），這裡的 phase 只是用來收骨架：
+   * 用 promise 的完成時機（allSettled ⇒ 失敗也算完成），骨架不會因為載入失敗而永轉。
+   */
+  function ensureRecords() {
+    if (recordsPhase !== 'idle') return
+    recordsPhase = 'loading'
+    Promise.allSettled([setlist.load(), streamlist.load()]).then(() => {
+      recordsPhase = 'ready'
+    })
+  }
 
   /** 開啟中的作品 id（'' = 未開啟） */
   let openId = $state('')
@@ -166,10 +191,14 @@
 
   const openWork = $derived(openId ? (releases.find((w) => w.id === openId) ?? null) : null)
 
-  /** songID → 該曲的 setlist 列（新→舊）；15k 列只掃一次，展開時直接取 */
+  /**
+   * songID → 該曲的 setlist 列（新→舊）。
+   * 索引建在原始的 setlist.rows 而非 setlistJoined.rows：場次標題只有展開的 ≤20 列要，
+   * 為此讓 15k 列各展開成新物件不划算，標題改在渲染時逐列 streamTitleOf()。
+   */
   const recordsBySong = $derived.by(() => {
     const map = new Map()
-    for (const row of setlistJoined.rows) {
+    for (const row of setlist.rows) {
       if (row.songID == null) continue
       const arr = map.get(row.songID)
       if (arr) arr.push(row)
@@ -180,8 +209,11 @@
     return map
   })
 
-  /** setlist 尚未載入完成時先不顯示 🎤 鈕（避免閃出「0 場」的錯誤資訊） */
-  const recordsReady = $derived(setlist.rows.length > 0)
+  /**
+   * 可以顯示場次數了嗎——有列可用就先顯示（IDB／快照 prime 完就有），
+   * 或 load() 已結束（含失敗與真空）就不再等：兩者都不成立時才是骨架。
+   */
+  const recordsReady = $derived(recordsPhase === 'ready' || setlist.rows.length > 0)
 
   /** 曲名：有 songID 一律以 songlist 為準，其餘用資料模組的 name */
   function trackName(track) {
@@ -198,11 +230,19 @@
 
   /**
    * 「在歌單中查看」的站內連結。
-   * 快速搜尋語法原生支援引號值與「曲名」欄位別名（三語別名表都收），這裡只送曲名，
-   * 語法字串由 SetList 頁組裝（欄位名要跟著介面語言走）。
+   * 一律以 songID 傳（`?songID=`＝SetList 端對 songID 做精確等值過濾）——
+   * 用曲名走快速搜尋是子字串比對，同名／含子字串的異曲會一起被撈進來
+   * （かくれんぼ 167 會連優里 cover 168 一起出現，正是 alias 綁 songID 在防的互染）。
+   * 無 songID 時才退回曲名（目前 UI 不會走到：沒有 songID 的曲目本來就不給連結）。
    */
-  function setlistHref(name) {
-    return `/setlist?song=${encodeURIComponent(name)}`
+  function setlistHref(songID, name) {
+    if (songID != null) return `/setlist?songID=${encodeURIComponent(songID)}`
+    return `/setlist?song=${encodeURIComponent(name ?? '')}`
+  }
+
+  /** 展開區的 DOM id（🎤 鈕的 aria-controls 要指到它） */
+  function recordsDomId(workId, i) {
+    return `disco-records-${workId}-${i}`
   }
 
   /** 一人兼多職＝職稱以斜線並列（英文介面用半形標點，中日用全形） */
@@ -215,13 +255,19 @@
   function openDetail(id) {
     openId = id
     openTrack = -1
-    history.replaceState(null, '', `#${id}`)
+    ensureRecords()
+    // 走 router 而非裸 history.replaceState：route.hash 要跟著變，導覽列再點一次
+    // 「音樂作品」時（pushState 清掉 hash、不發 hashchange）面板才關得掉
+    navigate(`${location.pathname}${location.search}#${encodeURIComponent(id)}`, {
+      replace: true,
+      scroll: false,
+    })
   }
 
   function closeDetail() {
     openId = ''
     openTrack = -1
-    if (location.hash) history.replaceState(null, '', location.pathname)
+    if (location.hash) navigate(`${location.pathname}${location.search}`, { replace: true, scroll: false })
   }
 
   function toggleTrack(i) {
@@ -229,26 +275,44 @@
   }
 
   function scrollToSection(id) {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const el = document.getElementById(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 焦點也要跟著走（section 帶 tabindex="-1"），否則鍵盤／讀屏使用者按了錨點還停在原處
+    el.focus({ preventScroll: true })
   }
 
   // Hash 直達：#<id>（如 #rebirthr）直開該作品面板。認不得的 hash 不動作（可能是別人的錨點）
-  function handleHash() {
-    const hash = decodeURIComponent(window.location.hash.slice(1))
+  function applyHash(raw) {
+    let hash = String(raw ?? '').replace(/^#/, '')
+    try {
+      hash = decodeURIComponent(hash)
+    } catch {
+      // 壞的 % 序列：拿原字串去比對（比不到就當作別人的錨點，不動作）
+    }
     if (!hash) {
       openId = ''
+      openTrack = -1
       return
     }
     if (releases.some((w) => w.id === hash)) {
       openId = hash
       openTrack = -1
+      ensureRecords()
     }
   }
 
+  // 面板狀態跟著 router 的 hash 走：導覽列點同頁（pushState 清 hash）不發 hashchange，
+  // 只有 route.hash 會變，靠這個 effect 收斂
   $effect(() => {
-    handleHash()
-    window.addEventListener('hashchange', handleHash)
-    return () => window.removeEventListener('hashchange', handleHash)
+    applyHash(route.hash)
+  })
+
+  // 手動改網址列的 hash 不經 router（也不發 popstate），補一條 hashchange
+  $effect(() => {
+    const onHash = () => applyHash(location.hash)
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
   })
 
   // Esc 關閉詳細面板
@@ -290,7 +354,7 @@
     </div>
     <p class="mt-1.5 text-sm font-medium">{work.title}</p>
     <p class="text-sm text-berry-fg-3">
-      <span class="text-berry-text-emphasis">{work.ordinal ? ordinalSuffix(work.ordinal) : m.single}</span>
+      <span class="text-berry-text-emphasis">{work.ordinal ? m.albumOrdinalShort(work.ordinal) : m.single}</span>
       · {formatReleaseDate(work.releaseDate, getLang())}
     </p>
   </button>
@@ -307,13 +371,19 @@
   {/if}
 {/snippet}
 
-<!-- 歌唱紀錄：某 songID 的場次列表（就地展開用） -->
-{#snippet records(songID, name)}
+<!-- 歌唱紀錄：某 songID 的場次列表（就地展開用）；場次標題只有這 ≤20 列才查 -->
+{#snippet records(songID, name, domId)}
   {@const rows = recordsOf(songID)}
-  <div class="mt-2 rounded-lg border border-berry-border bg-berry-bg-3 p-2" role="group" aria-label={m.sungRecords}>
+  <div
+    id={domId}
+    class="mt-2 rounded-lg border border-berry-border bg-berry-bg-3 p-2"
+    role="group"
+    aria-label={m.sungRecords}
+  >
     <ul class="divide-y divide-berry-border">
       {#each rows.slice(0, MAX_RECORDS) as row (`${row.streamID}/${row.segmentNo}/${row.trackNo}`)}
         {@const link = row.time ? safeYTLink(row) : null}
+        {@const streamTitle = streamTitleOf(row.streamID)}
         <li>
           {#if link}
             <a
@@ -323,12 +393,12 @@
               class="flex gap-2 rounded px-1.5 py-1.5 text-sm no-underline transition-colors hover:bg-berry-bg-2"
             >
               <span class="shrink-0 tabular-nums text-berry-fg-3">{formatDate(row.time)}</span>
-              <span class="min-w-0 truncate">{row.streamTitle || m.noStreamTitle}</span>
+              <span class="min-w-0 truncate">{streamTitle || m.noStreamTitle}</span>
             </a>
           {:else}
             <div class="flex gap-2 px-1.5 py-1.5 text-sm text-berry-fg-3">
               <span class="shrink-0">{m.noArchive}</span>
-              <span class="min-w-0 truncate">{row.streamTitle || m.noStreamTitle}</span>
+              <span class="min-w-0 truncate">{streamTitle || m.noStreamTitle}</span>
             </div>
           {/if}
         </li>
@@ -340,7 +410,7 @@
       {:else}
         <span></span>
       {/if}
-      <a href={setlistHref(name)} class="no-underline hover:underline">{m.openInSetlist}</a>
+      <a href={setlistHref(songID, name)} class="no-underline hover:underline">{m.openInSetlist}</a>
     </div>
   </div>
 {/snippet}
@@ -361,7 +431,8 @@
     {/each}
   </nav>
 
-  <section id="albums" class="scroll-mt-16">
+  <!-- tabindex="-1"：分節錨點捲動後把焦點移進來（scrollToSection），僅程式化聚焦不進 Tab 序 -->
+  <section id="albums" tabindex="-1" class="scroll-mt-16 outline-none">
     <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.albums}</h2>
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
       {#each albums as work (work.id)}
@@ -370,7 +441,7 @@
     </div>
   </section>
 
-  <section id="singles" class="mt-8 scroll-mt-16">
+  <section id="singles" tabindex="-1" class="mt-8 scroll-mt-16 outline-none">
     <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.singles}</h2>
     <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
       {#each singles as work (work.id)}
@@ -379,7 +450,7 @@
     </div>
   </section>
 
-  <section id="guests" class="mt-8 scroll-mt-16">
+  <section id="guests" tabindex="-1" class="mt-8 scroll-mt-16 outline-none">
     <h2 class="mb-3 border-b border-berry-border pb-1.5 text-lg font-semibold">{m.guests}</h2>
     <p class="mb-3 text-sm text-berry-fg-3">{m.guestsHint}</p>
     <ul class="space-y-2">
@@ -423,25 +494,35 @@
           {@render creditLine(g.credits)}
 
           <div class="mt-1.5 flex flex-wrap items-center gap-3 text-sm">
-            {#if g.link}
-              <a href={g.link} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+            {#if g.links?.official}
+              <a href={g.links.official} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
                 {g.work} ↗
               </a>
             {/if}
-            {#if g.stream}
-              <a href={g.stream} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+            {#if g.links?.stream}
+              <a href={g.links.stream} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
                 {m.stream} ↗
               </a>
             {/if}
             {#if g.youtube}
-              <a href={`https://youtu.be/${g.youtube}`} target="_blank" rel="noopener noreferrer" class="no-underline hover:underline">
+              <a
+                href={`https://youtu.be/${g.youtube}${g.startAt ? `?t=${g.startAt}` : ''}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="no-underline hover:underline"
+              >
                 ▶ {m.mv}
               </a>
             {/if}
-            {#if g.songID != null && recordsReady && recordsOf(g.songID).length}
-              <a href={setlistHref(trackName({ songID: g.songID, name: g.title }))} class="no-underline hover:underline">
-                🎤 {recordsOf(g.songID).length} · {m.openInSetlist}
-              </a>
+            <!-- 連結本身只要 songID 就成立（精確過濾），不必等 setlist；
+                 載好之後才知道場次數，才把數字補上（載好且為 0＝真的沒唱過，整條不顯示） -->
+            {#if g.songID != null}
+              {@const guestCount = recordsReady ? recordsOf(g.songID).length : -1}
+              {#if guestCount !== 0}
+                <a href={setlistHref(g.songID, trackName({ songID: g.songID, name: g.title }))} class="no-underline hover:underline">
+                  🎤 {guestCount > 0 ? `${guestCount} · ` : ''}{m.openInSetlist}
+                </a>
+              {/if}
             {/if}
           </div>
         </li>
@@ -548,6 +629,7 @@
             {#each work.tracks as track, i (i)}
               {@const name = trackName(track)}
               {@const count = recordsReady ? recordsOf(track.songID).length : 0}
+              {@const recId = recordsDomId(work.id, i)}
               <li class="py-2">
                 <div class="flex items-baseline gap-2">
                   <span class="shrink-0 tabular-nums text-berry-fg-3">{String(i + 1).padStart(2, '0')}</span>
@@ -574,18 +656,27 @@
                           class:border-berry-border={openTrack !== i}
                           class:text-berry-fg-2={openTrack !== i}
                           title={m.sungTitle(count)}
+                          aria-label={m.sungTitle(count)}
                           aria-expanded={openTrack === i}
+                          aria-controls={recId}
                           onclick={() => toggleTrack(i)}
                         >
                           🎤 {count}
                         </button>
                       {:else if track.songID != null && !recordsReady}
-                        <span class="inline-block h-5 w-10 animate-pulse rounded-full bg-berry-bg-3" aria-label={m.loadingRecords}></span>
+                        <span
+                          class="inline-block h-5 w-10 animate-pulse rounded-full bg-berry-bg-3"
+                          role="status"
+                          aria-label={m.loadingRecords}
+                        ></span>
+                      {:else if track.songID != null}
+                        <!-- 載完了但這首沒有紀錄（含載入失敗的空資料）——骨架不留在那裡轉 -->
+                        <span class="text-sm text-berry-fg-3">{m.noRecords}</span>
                       {/if}
                     </div>
                     {@render creditLine(track.credits)}
                     {#if openTrack === i}
-                      {@render records(track.songID, name)}
+                      {@render records(track.songID, name, recId)}
                     {/if}
                   </div>
                 </div>

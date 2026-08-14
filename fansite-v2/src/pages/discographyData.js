@@ -13,15 +13,24 @@
 // 曲名一律留原文（不翻譯）；有 songID 時頁面改以 songlist 的 songName 顯示
 //   （songlist 是曲名的單一事實來源，此處 name 僅作 fallback 與人工對照用）。
 //
-// 欄位：
-//   id           slug，同時是封面檔名 img/albums/{id}.webp 與 hash 直達錨點（#rebirthr）
-//   type         'album' | 'single'
-//   ordinal      專輯序數（1st~10th）；單曲無
-//   title        作品名（原文）
-//   releaseDate  YYYY-MM-DD（專輯＝官方特設頁/M3 場次日；單曲＝iTunes 配信日）
-//   links        { official?, booth? } —— 有才顯示（1st 絕版、單曲無特設頁）
-//   staff        作品整體製作名單 [{ roles:[roleKey], name }]
-//   tracks       [{ songID, name, credits:[{ roles:[roleKey], name }] }]
+// 欄位（albums / singles 共用同一形狀，releases＝兩者相接）：
+//   id            slug，同時是封面檔名 img/albums/{id}.webp 與 hash 直達錨點（#rebirthr）
+//   type          'album' | 'single' —— ⚠️ 保留欄位，目前頁面完全未讀取（專輯／單曲之分
+//                 來自 albums / singles 兩個匯出，卡片標籤看的是有無 ordinal）。留著是為了
+//                 日後若改成單一清單再分類；有新增資料時請照樣填。
+//   ordinal       專輯序數（1st~10th）；單曲無
+//   title         作品名（原文）
+//   releaseDate   YYYY-MM-DD（專輯＝官方特設頁/M3 場次日；單曲＝iTunes 配信日）
+//   links         有才顯示（1st 絕版、單曲無特設頁）：
+//                   official  官方特設頁 URL
+//                   booth     BOOTH 商品頁 URL
+//                   stream    配信聚合頁 URL（linkco.re／Apple Music）
+//                   xfd       XFD（クロスフェード試聽）的 YouTube videoId ——不是 URL
+//   instrumental  true＝實體含各曲 instrumental 版；頁面以面板尾一行註記呈現、不逐軌列
+//   bonusTracks   instrumental 以外的追加軌名陣列（目前僅 1st 的 BGM），與上面那行註記併排
+//   staff         作品整體製作名單 [{ roles:[roleKey], name }]
+//   tracks        [{ songID, name, youtube?, credits:[{ roles:[roleKey], name }] }]
+//                   youtube  該曲 MV 的 YouTube videoId ——不是 URL
 //
 // credits 用「roles 陣列 ＋ 名字」而非 {lyrics, music, extra} 扁平欄位：
 // 原始資料常見一人兼多職（「詞/Movie:苺咲べりぃ」「design/logo:来宮りお」「詞曲:立秋」），
@@ -711,13 +720,19 @@ export const singles = [
  * 新→舊排列。日期源：官方年表（maisakiberry.com/wark「歌唱担当」節）；
  * 年表未載的（Isolation／新星と光跡）採 M3 発表日（用戶提供＋影片發布日佐證）。
  * 欄位：
+ *   id       hash／key 用 slug
  *   work     作品／廠牌／專輯名（原文）
  *   title    曲名（單曲時）；多曲時放 tracks
  *   roleKey  參與形式，三語標籤在頁面字典（ed／theme／feature；缺省＝僅演唱）
  *   noteKey  補充說明的字典 key（資訊不全時用）
  *   credits  同專輯 track 的結構
  *   date     YYYY-MM-DD（已知者）
- *   link     官方／配信連結
+ *   links    與 releases 同一種寫法（扁平 link／stream 已淘汰）：
+ *              official  作品／廠牌官方頁 URL（頁面用作品名當連結文字）
+ *              stream    配信頁／聚合頁 URL
+ *   youtube  MV／XFD 的 YouTube videoId ——不是 URL
+ *   startAt  搭配 youtube 的起始秒數（合輯 XFD 要跳到本曲時才有；頁面組成 ?t=）
+ *   tracks   多曲參與時的軌列表 [{ no, name, songID, youtube? }]
  *   songID   songlist 對照（有值＝歌枠唱過，頁面照樣給歌唱紀錄）
  */
 export const guests = [
@@ -742,7 +757,8 @@ export const guests = [
       { roles: ['vocal'], name: '苺咲べりぃ' },
       { roles: ['music'], name: '羽鳥風画' },
     ],
-    youtube: 'LivAoGsPQes?t=213',
+    youtube: 'LivAoGsPQes',
+    startAt: 213,
     songID: null,
   },
   {
@@ -751,7 +767,7 @@ export const guests = [
     title: 'キャンドルトーチ',
     date: '2025-02-05',
     credits: [{ roles: ['vocal'], name: '苺咲べりぃ' }],
-    stream: 'https://ultravybe.lnk.to/candletorch',
+    links: { stream: 'https://ultravybe.lnk.to/candletorch' },
     songID: null,
   },
   {
@@ -760,7 +776,7 @@ export const guests = [
     title: 'Silk',
     date: '2024-05-23',
     credits: [{ roles: ['vocal'], name: '苺咲べりぃ' }],
-    stream: 'https://music.apple.com/jp/album/silk-feat-maisaki-berry-single/1744555185',
+    links: { stream: 'https://music.apple.com/jp/album/silk-feat-maisaki-berry-single/1744555185' },
     songID: null,
   },
   {
@@ -770,7 +786,8 @@ export const guests = [
     roleKey: 'feature',
     // 專輯發売日；Left Behind 曲的歌唱発表為 2022-11-03（官方年表）
     date: '2023-09-09',
-    link: 'https://linkco.re/BSVU12dq',
+    // linkco.re 是專輯本身的入口（頁面以作品名當連結文字），故放 official 不放 stream
+    links: { official: 'https://linkco.re/BSVU12dq' },
     // 專輯內僅這三軌 feat. 苺咲べりぃ（軌號沿用專輯曲序）
     tracks: [
       { no: 1, name: 'parade', songID: null },
@@ -791,8 +808,10 @@ export const guests = [
       { roles: ['vocal'], name: '夢羽九' },
       { roles: ['music'], name: 'けーえぬP' },
     ],
-    stream:
-      'https://music.apple.com/jp/album/back-to-that-summer-feat-%E8%8B%BA%E5%92%B2%E3%81%B9%E3%82%8A%E3%81%83-%E5%A4%A2%E7%BE%BD%E4%B9%9D-%E3%81%91%E3%83%BC%E3%81%88%E3%81%ACp-single/1636701680',
+    links: {
+      stream:
+        'https://music.apple.com/jp/album/back-to-that-summer-feat-%E8%8B%BA%E5%92%B2%E3%81%B9%E3%82%8A%E3%81%83-%E5%A4%A2%E7%BE%BD%E4%B9%9D-%E3%81%91%E3%83%BC%E3%81%88%E3%81%ACp-single/1636701680',
+    },
     youtube: 'HqIGeq4Usgc',
     songID: null,
   },
@@ -813,7 +832,7 @@ export const guests = [
     title: '茉莉花が花開く',
     date: '2022-06-22',
     credits: [{ roles: ['vocal'], name: '苺咲べりぃ' }],
-    stream: 'https://music.apple.com/jp/album/matsurikaga-hana-hiraku-feat-maisaki-berry-single/1790855345',
+    links: { stream: 'https://music.apple.com/jp/album/matsurikaga-hana-hiraku-feat-maisaki-berry-single/1790855345' },
     youtube: 'ZzcN4VFYrvE',
     songID: 773,
   },
@@ -828,7 +847,7 @@ export const guests = [
       { roles: ['vocal'], name: '苺咲べりぃ' },
       { roles: ['lyrics', 'music', 'arrange'], name: '羽鳥風画' },
     ],
-    link: 'http://www.entergram.co.jp/fuyukiss/',
+    links: { official: 'http://www.entergram.co.jp/fuyukiss/' },
     songID: null,
   },
 ]
