@@ -6,15 +6,10 @@
 // 刻意不支援通用 markdown 語法（粗體/巢狀清單/圖片…）——格式受控，逐行/逐 token
 // 拆成結構化資料交給 Svelte 模板渲染（非 innerHTML 字串拼接），從源頭避免 XSS。
 
-const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g
+// 連結 scheme 白名單（含 protocol-relative `//evil.com` 的防護）與首頁共用同一支
+import { safeHref } from '../safeHref.js'
 
-/**
- * 連結 scheme 白名單 —— 只允許 http(s) 與站內絕對路徑，擋掉 javascript:/data: 等注入。
- * ⚠️ 與 src/lib/home/util.js 的 safeHref() 邏輯逐字相同，刻意未抽共用（該檔改動範圍外）。
- */
-function safeHref(url) {
-  return /^(https?:\/\/|\/)/i.test(url) ? url : null
-}
+const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g
 
 /** 把一段文字拆成 {type:'text'} / {type:'link'} 片段陣列（供模板逐段渲染） */
 function parseInline(text) {

@@ -468,13 +468,20 @@
     }
   })
 
+  /**
+   * 先排序、再篩選（四頁共用的作法）：排序結果只依賴「資料 ∧ 排序條件」，$derived 會替它
+   * 快取——篩選每變一次（欄位篩選列每敲一鍵）都重排 15k 列的成本因此消失。篩選保序、
+   * Array#sort 穩定，輸出序列與「先篩後排」逐列相同。sort 為 null 時 applySort 原樣回傳。
+   */
+  const sorted = $derived(applySort(setlistJoined.rows, sort, columns))
+
   // 曲目(songID) ∧ 全域搜尋 ∧ 月份 ∧ 欄位篩選（AND 疊加）；15k 列，便宜的條件排前面先淘汰
-  const filtered = $derived.by(() => {
+  const view = $derived.by(() => {
     const tokens = tokenize(query)
     const mo = month
     const sid = songFilter
     const active = compileColumnFilters(colFilters, columns)
-    const rows = setlistJoined.rows
+    const rows = sorted
     if (!tokens.length && !mo && !active && sid == null) return rows
     const out = []
     for (const row of rows) {
@@ -486,8 +493,6 @@
     }
     return out
   })
-
-  const view = $derived(applySort(filtered, sort, columns))
 
   /** 曲目 chip 上的曲名：songlist 為準，還沒載到（或已被刪）就顯示 #id */
   const songFilterName = $derived(
@@ -1316,6 +1321,7 @@
         ? `${editing.segmentNo ?? 1}-${editing.trackNo} · ${editing.songName ?? m.unmatched}`
         : ''}
   width={mode === 'batch' ? '620px' : mode === 'reorder' ? '520px' : '460px'}
+  focusSeq={drawerSeq}
   onclose={requestClose}
 >
   {#key drawerSeq}

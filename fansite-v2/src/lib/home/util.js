@@ -18,12 +18,10 @@ export function formatDbTime(value) {
   return value.replace('T', ' ').slice(0, 16)
 }
 
-const LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g
+// 只允許 http(s) 與站內絕對路徑（擋 javascript:／protocol-relative）——與 markdown.js 共用
+import { safeHref } from '../safeHref.js'
 
-/** 只允許 http(s) 與站內絕對路徑，擋掉 javascript: 之類 */
-function safeHref(url) {
-  return /^(https?:\/\/|\/)/i.test(url) ? url : null
-}
+const LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/g
 
 /**
  * 把 `[text](url)` 拆成 token 陣列供模板渲染（**不用 {@html}**，其餘一律當純文字）。

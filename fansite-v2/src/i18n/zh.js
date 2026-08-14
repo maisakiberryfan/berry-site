@@ -46,6 +46,7 @@ export default {
     resizeColumn: '調整欄寬',
     filterColumn: '篩選：{label}',
     clearColumnFilters: '清除欄位篩選',
+    columnFiltersActive: '{n} 項欄位篩選生效中',
   },
   page: {
     home: '首頁',

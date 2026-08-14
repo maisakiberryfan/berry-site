@@ -626,6 +626,26 @@ function createSetlistStore() {
     return null
   }
 
+  /** 快取裡有這場資料的月份（找不到回 null）——沒有 time 可用時的退路 */
+  function monthOfStreamID(streamID) {
+    if (streamID == null) return null
+    for (const [m, arr] of months) {
+      if (arr.some((r) => r.streamID === streamID)) return m
+    }
+    return null
+  }
+
+  /**
+   * 該月份的快取可不可信 —— 三個條件缺一不可：
+   *   synced       本輪 manifest 校驗已完成且沒有月份重抓失敗（快取不會是過時的）
+   *   months.has   該月 record 真的在手（缺月自癒尚未完成時為 false）
+   *   fingerprints 該月指紋已寫入（重抓失敗的月份會被刪掉指紋等下次自癒）
+   * 只看 rows.length 非零會同時吃到「過時」與「缺月＝假的沒資料」兩種假象。
+   */
+  function isMonthComplete(month) {
+    return synced && months.has(month) && Object.hasOwn(fingerprints, month)
+  }
+
   /** 新列的月份：優先用 time；沒有 time 時用同場既有列 / streamlist 的時間推 */
   function resolveMonth(row) {
     if (typeof row.time === 'string' && row.time.length >= 7) return row.time.slice(0, 7)
@@ -657,6 +677,21 @@ function createSetlistStore() {
       return monthKeys
     },
     keyOf: setlistKeyOf,
+    /** 月份（'YYYY-MM' 或 'none'）的快取是否完整且已校驗 */
+    isMonthComplete,
+    /**
+     * 某一場的歌單能否直接吃快取（拿快取當「這場的完整歌單」用之前必問）。
+     * @param {string} streamID
+     * @param {string|null} [time] 該場的 time（ISO UTC；不留檔場為 null → 'none' bucket）。
+     *   沒給就用快取裡找得到該場列的月份推，再退回 'none'。
+     */
+    hasCompleteDataFor(streamID, time) {
+      const month =
+        typeof time === 'string' && time.length >= 7
+          ? time.slice(0, 7)
+          : (monthOfStreamID(streamID) ?? NONE_BUCKET)
+      return isMonthComplete(month)
+    },
     load,
     async reload() {
       started = true

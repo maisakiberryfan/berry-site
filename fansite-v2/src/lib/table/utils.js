@@ -201,7 +201,9 @@ export function compileColumnFilters(columnFilters, columns, exclude = null) {
   for (const col of columns) {
     const mode = col.filter ?? 'text'
     if (mode === false || col.key === exclude) continue
-    const raw = columnFilters[col.key]
+    // Object.hasOwn 把關（同搜尋別名表的紀律）：欄 key 若叫 constructor／toString，
+    // 裸索引會撈到 Object.prototype 成員，變成「明明沒篩卻在篩」的幽靈條件
+    const raw = Object.hasOwn(columnFilters, col.key) ? columnFilters[col.key] : undefined
     const value = raw == null ? '' : String(raw).trim()
     if (!value) continue
     const get = col.filterValue ?? ((row) => row[col.key])

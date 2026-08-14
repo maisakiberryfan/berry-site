@@ -144,6 +144,7 @@
     row.songID != null ? (songIndex.map.get(row.songID)?.songName ?? `#${row.songID}`) : ''
 
   // 綁定曲目欄存的是 songID、顯示的是曲名，篩選要比使用者看得到的那個
+  // （儲存格是兩行：曲名 ＋ #songID，兩行都要篩得到——只比曲名的話「#167」會 0 筆）
   const columns = $derived([
     { key: 'aliasType', label: t('field.aliasType'), width: '96px', filter: 'select' },
     { key: 'canonicalName', label: t('field.canonicalName'), width: 'minmax(150px, 1.6fr)' },
@@ -152,7 +153,7 @@
       key: 'songID',
       label: m.boundSong,
       width: 'minmax(120px, 1.2fr)',
-      filterValue: boundSongName,
+      filterValue: (r) => (r.songID != null ? `${boundSongName(r)} #${r.songID}` : ''),
     },
     { key: 'note', label: t('field.note'), width: 'minmax(110px, 1fr)' },
   ])
@@ -204,12 +205,19 @@
   /** 欄位篩選列的值 { 欄key: 值 }（DataTable 只給值，過濾在這裡疊加） */
   let colFilters = $state({})
 
+  /**
+   * 先排序、再篩選（四頁共用的作法）：排序結果只依賴「資料 ∧ 排序條件」，$derived 會替它
+   * 快取——篩選每變一次（欄位篩選列每敲一鍵）都重排整表的成本因此消失。篩選保序、
+   * Array#sort 穩定，輸出序列與「先篩後排」逐列相同。sort 為 null 時 applySort 原樣回傳。
+   */
+  const sorted = $derived(applySort(aliases.rows, sort, columns))
+
   /** 上方 chips：計數 cascade（隨 chips 以外全部條件收斂），與表頭 select 同語意 */
   const beforeChips = $derived.by(() => {
     const tokens = tokenize(query)
     const active = compileColumnFilters(colFilters, columns)
-    if (!tokens.length && !active) return aliases.rows
-    return aliases.rows.filter(
+    if (!tokens.length && !active) return sorted
+    return sorted.filter(
       (r) =>
         (!tokens.length || matchesQuery(r, tokens, SEARCH_FIELDS, SEARCH_ALIASES)) &&
         (!active || matchesColumnFilters(r, active)),
@@ -230,8 +238,8 @@
     const tokens = tokenize(query)
     const types = typeFilter
     const active = compileColumnFilters(colFilters, columns, 'aliasType')
-    if (!tokens.length && !types.length && !active) return aliases.rows
-    return aliases.rows.filter((row) => {
+    if (!tokens.length && !types.length && !active) return sorted
+    return sorted.filter((row) => {
       if (types.length && !types.includes(row.aliasType)) return false
       if (active && !matchesColumnFilters(row, active)) return false
       return !tokens.length || matchesQuery(row, tokens, SEARCH_FIELDS, SEARCH_ALIASES)
@@ -243,12 +251,10 @@
     return typeOptions.map((o) => ({ ...o, count: counts.get(o.value) ?? 0 }))
   })
 
-  const filtered = $derived.by(() => {
+  const view = $derived.by(() => {
     const ty = String(colFilters.aliasType ?? '')
     return ty ? beforeType.filter((row) => row.aliasType === ty) : beforeType
   })
-
-  const view = $derived(applySort(filtered, sort, columns))
 
   /** 傳給 DataTable 的欄定義：select 的動態選項另外併上去（避免 columns 反向依賴篩選結果） */
   const tableColumns = $derived(
@@ -575,6 +581,7 @@
   open={drawerOpen}
   title={mode === 'test' ? m.testTitle : editing ? m.editTitle : m.addTitle}
   subtitle={mode === 'form' && editing ? `#${editing.aliasID}` : ''}
+  focusSeq={drawerSeq}
   onclose={requestClose}
 >
   {#key drawerSeq}

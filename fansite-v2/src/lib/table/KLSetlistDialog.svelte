@@ -3,8 +3,10 @@
   //
   // 只負責顯示與複製：文字由頁面端格式化後傳進來（載入中／空／錯誤三態也由頁面決定）。
   // 版面對齊 ConfirmDialog（同一層遮罩語意），內容區走等寬字體並可捲動。
+  // 焦點（移入／Tab 循環／關閉還原）與背景捲動鎖交給 focusTrap action
   import { fade, scale } from 'svelte/transition'
   import { t } from '../../i18n.svelte.js'
+  import { focusTrap } from '../focusTrap.svelte.js'
   import Button from './Button.svelte'
 
   let {
@@ -21,7 +23,6 @@
     onclose = undefined,
   } = $props()
 
-  let boxEl = $state(null)
   let copied = $state(false)
   let copyFailed = $state(false)
   let copyTimer
@@ -44,8 +45,6 @@
       onclose?.()
     }
     document.addEventListener('keydown', onKey)
-    const el = boxEl
-    queueMicrotask(() => el?.focus?.({ preventScroll: true }))
     return () => document.removeEventListener('keydown', onKey)
   })
 
@@ -93,7 +92,7 @@
     ></button>
 
     <div
-      bind:this={boxEl}
+      use:focusTrap={() => ({})}
       tabindex="-1"
       role="dialog"
       aria-modal="true"

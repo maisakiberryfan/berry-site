@@ -45,6 +45,7 @@ export default {
     resizeColumn: 'Resize column',
     filterColumn: 'Filter: {label}',
     clearColumnFilters: 'Clear column filters',
+    columnFiltersActive: '{n} column filter(s) active',
   },
   page: {
     home: 'Home',
