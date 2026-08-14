@@ -17,23 +17,64 @@ const CONFIG = {
   // 輸入護欄：matchSetlist() 逐行 fuzzy 比對無上限，超大輸入會讓比對階段隨行數線性放大。
   // 實測最長場次 raw 231 行（NNZErosM_zg，115 首），500 留足量體不誤傷正常歌單。
   maxLines: 500,
+  // 行數之外還要管字元數：leven 是 O(n·m)，單行長度對耗時是二次方成長 ——
+  // 500 行 × 每行 200 字（~100KB）就能把 29s 預算吃光，光算行數擋不住。
+  // 實測最長歌單留言約 10KB／最長行 120 字，1000 字／200KB 留足餘裕。
+  maxLineChars: 1000,
+  maxTotalChars: 200_000,
+  // 上游（本站 API）抓取：單次 8s timeout，失敗退避重試一次
+  fetchTimeoutMs: 8000,
+  fetchRetryDelayMs: 300,
+  // 內部軟時限：Lambda timeout 29s（API Gateway 上限）到點會讓 APIGW 吐 504、
+  // 呼叫端可能進重試迴圈。20s 先自己收手回 400，帶已處理行數供追查
+  softDeadlineMs: 20_000,
+}
+
+/** 超過內部軟時限：handler 轉 400（而非讓 APIGW 504） */
+class SoftTimeoutError extends Error {
+  constructor(processedLines, totalLines, elapsedMs) {
+    super(`Soft time limit exceeded after ${processedLines}/${totalLines} lines (${elapsedMs}ms)`)
+    this.name = 'SoftTimeoutError'
+    this.processedLines = processedLines
+    this.totalLines = totalLines
+    this.elapsedMs = elapsedMs
+  }
 }
 
 // ============================================================================
 // Data Fetching from Berry Site API
 // ============================================================================
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+/**
+ * 抓上游 JSON：8s timeout（無 timeout 時 Lambda 會被上游拖到 29s 才死），
+ * 失敗（含 timeout / 5xx / 網路）退避後重試一次
+ */
+async function fetchJsonWithRetry(url, label) {
+  let lastError
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(CONFIG.fetchTimeoutMs) })
+      if (!response.ok) {
+        throw new Error(`${label} API error: ${response.status}`)
+      }
+      return await response.json()
+    } catch (error) {
+      lastError = error
+      if (attempt === 2) break
+      console.warn(`[MATCHER] ${label} 抓取失敗（第 ${attempt} 次）: ${error.message}，${CONFIG.fetchRetryDelayMs}ms 後重試`)
+      await sleep(CONFIG.fetchRetryDelayMs)
+    }
+  }
+  throw lastError
+}
+
 /**
  * Fetch aliases data from Berry Site API
  */
 async function getAliasesData() {
-  const response = await fetch(`${BERRY_SITE_API_URL}/api/aliases/grouped`)
-
-  if (!response.ok) {
-    throw new Error(`Aliases API error: ${response.status}`)
-  }
-
-  const result = await response.json()
+  const result = await fetchJsonWithRetry(`${BERRY_SITE_API_URL}/api/aliases/grouped`, 'Aliases')
 
   if (!result.success) {
     throw new Error(result.error?.message || 'Aliases API returned error')
@@ -46,13 +87,7 @@ async function getAliasesData() {
  * Fetch songlist data from Berry Site API (optimized format)
  */
 async function getSonglistData() {
-  const response = await fetch(`${BERRY_SITE_API_URL}/api/songlist/optimized`)
-
-  if (!response.ok) {
-    throw new Error(`Songlist API error: ${response.status}`)
-  }
-
-  const result = await response.json()
+  const result = await fetchJsonWithRetry(`${BERRY_SITE_API_URL}/api/songlist/optimized`, 'Songlist')
 
   // Handle both formats: {data: ...} and {success: true, data: ...}
   if (!result.data) {
@@ -113,11 +148,31 @@ function splitSlashOutsideParens(s) {
   return [s]
 }
 
+// 時間戳值域上限＝100 小時（與主站 PUT /api/setlist 的 0~360000 驗證同值）
+const MAX_TIME_SECONDS = 360000
+
+/**
+ * 「h:mm:ss」「mm:ss」→ 秒。值域不合（分/秒 ≥60、超過 100 小時、非有限數）一律回 null，
+ * 讓下游視為「無時間戳」而不是把 3600*99 這種垃圾值寫進 DB
+ */
 function timeToSeconds(str) {
-  const parts = str.split(':').map(Number)
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
-  if (parts.length === 2) return parts[0] * 60 + parts[1]
-  return null
+  const parts = String(str).split(':')
+  if (parts.length !== 2 && parts.length !== 3) return null
+  if (!parts.every(p => /^\d{1,3}$/.test(p))) return null
+
+  const nums = parts.map(Number)
+  if (!nums.every(Number.isFinite)) return null
+
+  // 末段＝秒、h:mm:ss 的中段＝分，皆須 <60（mm:ss 的分段可 >59，如 90:00＝90 分）
+  if (nums[nums.length - 1] >= 60) return null
+  if (nums.length === 3 && nums[1] >= 60) return null
+
+  const seconds = nums.length === 3
+    ? nums[0] * 3600 + nums[1] * 60 + nums[2]
+    : nums[0] * 60 + nums[1]
+
+  if (!Number.isFinite(seconds) || seconds < 0 || seconds > MAX_TIME_SECONDS) return null
+  return seconds
 }
 
 function isNoiseLine(text) {
@@ -140,7 +195,10 @@ function parseSetlistLine(line) {
   if (!line || line.length < 3) return null
 
   // 全形括號/斜線正規化（「宇野ゆう子（Yuko Uno）」曾因全形（）沒被切分而整串建成新歌手）
+  // 豎線近似字一併轉半形 '|'：留言常出現 │ ￨ ǀ ∣ ┃ ¦ 等視覺上等同分隔線的字元，
+  // 不轉的話整行「曲名│歌手」不切分、被當成一整條新曲名
   let cleaned = line.replace(/（/g, '(').replace(/）/g, ')').replace(/／/g, '/')
+    .replace(/[│￨ǀ∣┃¦]/g, '|')
 
   if (cleaned.includes('♬セトリ') || cleaned.includes('Set List') ||
       cleaned.includes('setlist') || cleaned.match(/^♬/)) {
@@ -150,7 +208,9 @@ function parseSetlistLine(line) {
   // 提取時間戳（先提取再去除）
   let startSec = null, endSec = null
   const rangeRe = /(\d{1,2}:\d{2}(?::\d{2})?)\s*[~～–\-]\s*(\d{1,2}:\d{2}(?::\d{2})?)/
-  const singleRe = /(\d{1,2}:\d{2}(?::\d{2})?)/
+  // 前後補邊界：無邊界時「123:45」會被吃成「23:45」（多算 20 分鐘），
+  // 「12:345」也會被吃成「12:34」；兩者都不是合法時間戳，寧可判無戳
+  const singleRe = /(?<![\d:])(\d{1,2}:\d{2}(?::\d{2})?)(?![\d:])/
 
   const rangeMatch = cleaned.match(rangeRe)
   if (rangeMatch) {
@@ -164,6 +224,11 @@ function parseSetlistLine(line) {
       cleaned = cleaned.replace(singleRe, '')
     }
   }
+
+  // endSec 只有在「晚於 startSec」時才有意義：等於或早於＝解析錯（跨頁換行、打錯），
+  // 丟棄比寫進 DB 好（UPSERT 的 COALESCE 會把錯值當有效值保留）。
+  // startSec 無效時 endSec 也一併丟（單有結束時間無從對應）
+  if (startSec === null || (endSec !== null && endSec <= startSec)) endSec = null
 
   cleaned = cleaned.trim()
   cleaned = cleaned.replace(/^[\d①②③④⑤⑥⑦⑧⑨⑩]+[.|｜|\s]/g, '')
@@ -233,6 +298,37 @@ function parseSetlistLine(line) {
   }
 }
 
+// 子串命中（includes）的最小長度：1~2 字的別名（「炎」「ff」…）出現在任何長曲名裡
+// 都算命中，會把整組別名灌進變體、造成跨曲互染。完全相等不受此限
+const MIN_ALIAS_SUBSTRING_LEN = 3
+const aliasHit = (normalized, candidate) =>
+  normalized === candidate || (candidate.length >= MIN_ALIAS_SUBSTRING_LEN && normalized.includes(candidate))
+
+/**
+ * 裸斜線切分（fallback 專用）：把「曲名/歌手」型（斜線兩側無空格）拆成曲名＋歌手。
+ * titleJP/titleEN 是 extractJpEn 產物、括號已被移除，故可直接用第一個 '/' 切。
+ * 切不出兩段有內容的結果就回 null（呼叫端維持原判定）
+ */
+function splitOnBareSlash(parsed) {
+  const source = parsed.titleJP || parsed.titleEN || ''
+  const idx = source.indexOf('/')
+  if (idx <= 0 || idx >= source.length - 1) return null
+
+  const left = source.slice(0, idx).trim()
+  const right = source.slice(idx + 1).trim()
+  if (!left || !right) return null
+
+  const title = extractJpEn(left)
+  const artist = extractJpEn(right)
+  return {
+    ...parsed,
+    titleJP: title.jp,
+    titleEN: title.en,
+    artistJP: artist.jp,
+    artistEN: artist.en
+  }
+}
+
 function expandAliases(text, aliasMap) {
   if (!text) return []
 
@@ -242,13 +338,13 @@ function expandAliases(text, aliasMap) {
   for (const [key, aliases] of Object.entries(aliasMap)) {
     const normalizedKey = normalizeText(key)
 
-    if (normalized === normalizedKey || normalized.includes(normalizedKey)) {
+    if (aliasHit(normalized, normalizedKey)) {
       variations.push(normalizedKey)
       aliases.forEach(alias => variations.push(normalizeText(alias)))
     } else {
       for (const alias of aliases) {
         const normalizedAlias = normalizeText(alias)
-        if (normalized === normalizedAlias || normalized.includes(normalizedAlias)) {
+        if (aliasHit(normalized, normalizedAlias)) {
           variations.push(normalizedKey)
           variations.push(...aliases.map(a => normalizeText(a)))
           break
@@ -286,11 +382,27 @@ const SEQ_MAP = {
   '二': '2', '三': '3', '四': '4', '五': '5',
   '弐': '2', '参': '3',
 }
+const ROMAN_SEQ_RE = /^(?:iii|iv|ii)$/
 function extractTrailingSeq(normalized) {
-  const m = normalized.match(/^(.*?)[\s\-~・]*((?:ii|iii|iv)|[0-9]+|[二三四五弐参])$/)
+  // 分隔符量詞收斂為 {0,3} 並先 trimEnd：原本 `[\s\-~・]*` 搭配 lazy 前綴，
+  // 對長字串會在每個切點反覆回溯（無序號時尤甚）
+  const trimmed = normalized.trimEnd()
+  const m = trimmed.match(/^(.*?)([\s\-~・]{0,3})((?:iii|iv|ii)|[0-9]+|[二三四五弐参])$/)
   // 整個名稱就是數字（如曲名「39」）不視為序號
   if (!m || !m[1].trim()) return { base: normalized, seq: null }
-  return { base: m[1].trim(), seq: SEQ_MAP[m[2]] ?? m[2] }
+  // 「kawaii」「umai」型：羅馬數字緊貼拉丁字母＝單字尾巴，不是序號
+  // （kawaii 曾被拆成 base「kawa」+ seq 2）
+  if (ROMAN_SEQ_RE.test(m[3]) && !m[2] && /[a-z]$/i.test(m[1])) {
+    return { base: normalized, seq: null }
+  }
+  return { base: m[1].trim(), seq: SEQ_MAP[m[3]] ?? m[3] }
+}
+
+// 序號比較數值化：'2' 與 '02'（或 SEQ_MAP 轉出的 '2'）是同一個序號，字串比會判成不同
+function seqValue(seq) {
+  if (seq === null || seq === undefined) return null
+  const n = Number(seq)
+  return Number.isFinite(n) ? n : seq
 }
 
 /**
@@ -302,24 +414,27 @@ function extractTrailingSeq(normalized) {
 function titleSimilarity(str1, str2) {
   const a = extractTrailingSeq(normalizeText(str1))
   const b = extractTrailingSeq(normalizeText(str2))
+  const seqA = seqValue(a.seq)
+  const seqB = seqValue(b.seq)
 
-  if (a.seq !== b.seq) return calculateSimilarity(str1, str2) * 0.6
-  if (a.seq !== null) return calculateSimilarity(a.base, b.base)
+  if (seqA !== seqB) return calculateSimilarity(str1, str2) * 0.6
+  if (seqA !== null) return calculateSimilarity(a.base, b.base)
   return calculateSimilarity(str1, str2)
 }
 
 function calculateArtistScore(parsedSong, dbArtist, dbArtistEn, aliasesData) {
   if (!dbArtist && !dbArtistEn) return 0
 
-  const inputVariations = [
+  // 變體皆為 normalize 後字串，去重不改變 max 結果、省掉重複的 leven 計算
+  const inputVariations = [...new Set([
     ...expandAliases(parsedSong.artistJP, aliasesData.artistAliases || {}),
     ...expandAliases(parsedSong.artistEN, aliasesData.artistAliases || {})
-  ].filter(Boolean)
+  ].filter(Boolean))]
 
-  const dbVariations = [
+  const dbVariations = [...new Set([
     ...expandAliases(dbArtist, aliasesData.artistAliases || {}),
     ...(dbArtistEn ? [normalizeText(dbArtistEn)] : [])
-  ]
+  ])]
 
   if (inputVariations.length === 0) return 0
 
@@ -337,18 +452,18 @@ function calculateArtistScore(parsedSong, dbArtist, dbArtistEn, aliasesData) {
 function calculateTitleScore(parsedSong, dbTitle, dbTitleEn, aliasesData, songID) {
   if (!dbTitle && !dbTitleEn) return 0
 
-  const inputVariations = [
+  const inputVariations = [...new Set([
     ...expandAliases(parsedSong.titleJP, aliasesData.titleAliases || {}),
     ...expandAliases(parsedSong.titleEN, aliasesData.titleAliases || {})
-  ].filter(Boolean)
+  ].filter(Boolean))]
 
   // 綁定 songID 的 alias 只屬於這首歌（preprocessAliases 已將其自字串表移除）
   const idAliases = (songID != null && aliasesData.titleAliasesByID?.[songID]) || []
-  const dbVariations = [
+  const dbVariations = [...new Set([
     ...expandAliases(dbTitle, aliasesData.titleAliases || {}),
     ...(dbTitleEn ? [normalizeText(dbTitleEn)] : []),
     ...idAliases.map(a => normalizeText(a))
-  ]
+  ])]
 
   if (inputVariations.length === 0) return 0
 
@@ -405,15 +520,27 @@ function buildSearchIndex(songlistData, aliasesData) {
 
 /**
  * 使用預建索引快速找出最佳匹配
+ * @param {Map<string, Array>|null} searchCache 每請求共用的 searcher.search 記憶化
+ *   （同一份歌單裡「同一個變體字串」會被反覆搜尋——各行的 alias 展開高度重疊，
+ *   retry 路徑更是拿幾乎相同的變體再搜一輪）
  */
-function findBestMatchWithIndex(parsedSong, searcher, aliasesData) {
+function findBestMatchWithIndex(parsedSong, searcher, aliasesData, searchCache = null) {
   // 取得輸入的標題變體（包含 aliases）
-  const inputVariations = [
+  // 去重以 normalizeText 為 key，但**傳給 search 的是原字串**（保守做法：
+  // fast-fuzzy 自帶正規化，先自行 normalize 再送可能改變其內部評分）
+  const rawVariations = [
     parsedSong.titleJP,
     parsedSong.titleEN,
     ...expandAliases(parsedSong.titleJP, aliasesData.titleAliases || {}),
     ...expandAliases(parsedSong.titleEN, aliasesData.titleAliases || {})
   ].filter(Boolean)
+
+  const seenVariations = new Map()  // normalize 後字串 -> 首次出現的原字串
+  for (const raw of rawVariations) {
+    const key = normalizeText(raw)
+    if (!seenVariations.has(key)) seenVariations.set(key, raw)
+  }
+  const inputVariations = [...seenVariations.entries()]  // [normalizedKey, rawString]
 
   if (inputVariations.length === 0) {
     return { songID: "*", score: 0, confidence: "low" }
@@ -422,8 +549,14 @@ function findBestMatchWithIndex(parsedSong, searcher, aliasesData) {
   // 用所有變體搜索，合併候選
   const candidateMap = new Map()  // songID -> best candidate info
 
-  for (const inputTitle of inputVariations) {
-    const results = searcher.search(inputTitle)
+  for (const [cacheKey, inputTitle] of inputVariations) {
+    let results
+    if (searchCache && searchCache.has(cacheKey)) {
+      results = searchCache.get(cacheKey)
+    } else {
+      results = searcher.search(inputTitle)
+      if (searchCache) searchCache.set(cacheKey, results)
+    }
 
     for (const result of results) {
       const { songID, dbTitle, dbArtist, dbTitleEn, dbArtistEn } = result.item
@@ -442,6 +575,9 @@ function findBestMatchWithIndex(parsedSong, searcher, aliasesData) {
 
   // 對候選做精細計算
   let bestMatch = { songID: "*", score: 0, confidence: "low" }
+  // 排序（tie-break）用 adjustedScore，門檻與回傳分數用 combinedScore ——
+  // 兩者混用會讓 directExact 的候選實際門檻降成 0.87 並吐出 score=1.01
+  let bestAdjustedScore = 0
   const songsByTitle = {}
 
   for (const candidate of candidateMap.values()) {
@@ -464,7 +600,8 @@ function findBestMatchWithIndex(parsedSong, searcher, aliasesData) {
 
     // 輸入歌名與 DB 歌名（日/英）「直接完全一致」者加微小 bonus 作 tie-break：
     // alias 展開或包含關係可能讓相近曲名（おじゃま虫 vs おじゃま虫Ⅱ）同拿滿分，
-    // 此時應優先選字面一致的那首，而非先被迭代到的 songID
+    // 此時應優先選字面一致的那首，而非先被迭代到的 songID。
+    // ⚠️ bonus 只用於候選之間排序，不參與門檻比較、不進回傳 score
     const inJP = parsedSong.titleJP && normalizeText(parsedSong.titleJP)
     const inEN = parsedSong.titleEN && normalizeText(parsedSong.titleEN)
     const dbT = normalizeText(dbTitle)
@@ -488,10 +625,11 @@ function findBestMatchWithIndex(parsedSong, searcher, aliasesData) {
       dbArtist
     })
 
-    if (adjustedScore > bestMatch.score) {
+    if (adjustedScore > bestAdjustedScore) {
+      bestAdjustedScore = adjustedScore
       bestMatch = {
         songID,
-        score: adjustedScore,
+        score: combinedScore,
         titleScore,
         artistScore,
         confidence: combinedScore >= CONFIG.threshold ? "high" : "medium",
@@ -544,14 +682,32 @@ function preprocessAliases(aliasesData) {
   return { ...aliasesData, titleAliases }
 }
 
-async function matchSetlist(setlistComment) {
+const emptyAliases = () => ({ titleAliases: {}, artistAliases: {}, titleAliasesByID: {} })
+
+async function matchSetlist(setlistComment, { startedAt = Date.now() } = {}) {
   const startTime = Date.now()
 
   // Fetch data from Berry Site API
-  const [rawAliasesData, songlistData] = await Promise.all([
+  // aliases 只是加分項（別名展開），單獨掛掉時以空別名表降級續跑比整場失敗好；
+  // songlist 是比對的本體，掛掉就沒得比 —— 只有它算致命
+  const [aliasesResult, songlistResult] = await Promise.allSettled([
     getAliasesData(),
     getSonglistData()
   ])
+
+  if (songlistResult.status === 'rejected') {
+    throw songlistResult.reason
+  }
+  const songlistData = songlistResult.value
+
+  let aliasesDegraded = false
+  let rawAliasesData = emptyAliases()
+  if (aliasesResult.status === 'fulfilled' && aliasesResult.value) {
+    rawAliasesData = aliasesResult.value
+  } else {
+    aliasesDegraded = true
+    console.warn(`[MATCHER] aliases 抓取失敗，以空別名表降級續跑: ${aliasesResult.reason?.message || 'no data'}`)
+  }
   const aliasesData = preprocessAliases(rawAliasesData)
 
   const fetchTime = Date.now() - startTime
@@ -580,9 +736,19 @@ async function matchSetlist(setlistComment) {
 
   // 使用預建索引進行匹配
   const matchStartTime = Date.now()
+  // searcher.search 記憶化：整份留言（含 retry 路徑）共用一份，key＝normalize 後的變體字串
+  const searchCache = new Map()
+  let processedLines = 0
   for (const parsed of effectiveLines) {
+    // 內部軟時限：到點自己收手（回 400），不讓 API Gateway 吐 504 進重試迴圈
+    const elapsed = Date.now() - startedAt
+    if (elapsed > CONFIG.softDeadlineMs) {
+      throw new SoftTimeoutError(processedLines, effectiveLines.length, elapsed)
+    }
+    processedLines++
+
     // 使用新的索引匹配函數
-    let match = findBestMatchWithIndex(parsed, searcher, aliasesData)
+    let match = findBestMatchWithIndex(parsed, searcher, aliasesData, searchCache)
 
     // 「歌名 / Romaji」格式：斜線後其實是歌名的羅馬字/英譯而非歌手，
     // 會因 artist 比對失敗被打低分。低分時改以「無歌手＋該段當英文歌名」重試，
@@ -594,8 +760,21 @@ async function matchSetlist(setlistComment) {
         artistJP: '',
         artistEN: ''
       }
-      const retry = findBestMatchWithIndex(alt, searcher, aliasesData)
+      const retry = findBestMatchWithIndex(alt, searcher, aliasesData, searchCache)
       if (retry.score > match.score) match = retry
+    }
+
+    // 裸斜線 fallback：無歌手且第一輪落空的行，可能是「曲名/歌手」沒空格
+    // （主分隔的 ' / ' 要求兩側空格以保護「ハロ/ハワユ」等含斜線曲名）。
+    // 僅落空時才切一次——第一輪即命中的含斜線曲名完全不受影響
+    let bareSlashSplit = false
+    if (match.score < CONFIG.threshold && !parsed.artistJP && !parsed.artistEN) {
+      const alt = splitOnBareSlash(parsed)
+      if (alt) {
+        bareSlashSplit = true
+        const retry = findBestMatchWithIndex(alt, searcher, aliasesData, searchCache)
+        if (retry.score > match.score) match = retry
+      }
     }
 
     let finalSongID = "*"
@@ -608,7 +787,10 @@ async function matchSetlist(setlistComment) {
       raw: parsed.raw,
       parsed,
       match,
-      finalSongID
+      finalSongID,
+      // 曾以裸斜線切分過、切完仍未命中：曲名裡多半黏著歌手（「オレンジ/とらドラ！」），
+      // 直接建新曲會產出髒名字。data-processor 見此標記即拒建（index 與 songIDs 對齊）
+      ...(finalSongID === '*' && bareSlashSplit ? { fallbackSplit: true } : {})
     })
   }
   const matchTime = Date.now() - matchStartTime
@@ -619,6 +801,7 @@ async function matchSetlist(setlistComment) {
     matches,
     debug: {
       songCount,
+      ...(aliasesDegraded ? { aliasesDegraded: true } : {}),
       totalLines: lines.length,
       parsedCount: matches.length,
       matchedCount: songIDs.filter(id => id !== "*").length,
@@ -654,35 +837,64 @@ export async function handler(event) {
     }
   }
 
+  const startedAt = Date.now()
+
+  const badRequest = (message, code = 'VALIDATION_ERROR') => ({
+    statusCode: 400,
+    headers: CORS_HEADERS,
+    body: JSON.stringify({ success: false, error: { code, message } })
+  })
+
   try {
     // Parse request body
-    const body = typeof event.body === 'string'
-      ? JSON.parse(event.body)
-      : event.body
+    let body
+    if (typeof event.body === 'string') {
+      try {
+        body = JSON.parse(event.body)
+      } catch {
+        return badRequest('Invalid JSON body')
+      }
+    } else {
+      body = event.body
+    }
+
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return badRequest('Request body must be a JSON object')
+    }
 
     const { setlistComment } = body
 
+    if (typeof setlistComment !== 'string') {
+      return badRequest('Field setlistComment must be a string')
+    }
+
     if (!setlistComment) {
-      return {
-        statusCode: 400,
-        headers: CORS_HEADERS,
-        body: JSON.stringify({
-          success: false,
-          error: { code: 'VALIDATION_ERROR', message: 'Missing required field: setlistComment' }
-        })
-      }
+      return badRequest('Missing required field: setlistComment')
+    }
+
+    // 輸入護欄（字元數）：leven 對單行長度是二次方成長，光算行數擋不住 ——
+    // 超限直接拒絕（截斷會把一行砍成半句、比對結果反而更難追查）
+    if (setlistComment.length > CONFIG.maxTotalChars) {
+      console.warn(`[MATCHER] setlistComment 總長 ${setlistComment.length} 超過上限 ${CONFIG.maxTotalChars}，拒絕處理`)
+      return badRequest(`setlistComment exceeds ${CONFIG.maxTotalChars} characters`, 'INPUT_TOO_LARGE')
+    }
+
+    const allLines = setlistComment.split('\n')
+    const longLineIndex = allLines.findIndex(line => line.length > CONFIG.maxLineChars)
+    if (longLineIndex !== -1) {
+      console.warn(`[MATCHER] setlistComment 第 ${longLineIndex + 1} 行長度 ${allLines[longLineIndex].length} 超過上限 ${CONFIG.maxLineChars}，拒絕處理`)
+      return badRequest(`Line ${longLineIndex + 1} exceeds ${CONFIG.maxLineChars} characters`, 'INPUT_TOO_LARGE')
     }
 
     // 輸入護欄：行數超限則截斷（不靜默丟棄，留 log 供追查異常來源）
     let effectiveComment = setlistComment
-    const lineCount = setlistComment.split('\n').length
-    if (lineCount > CONFIG.maxLines) {
-      console.warn(`[MATCHER] setlistComment 行數 ${lineCount} 超過上限 ${CONFIG.maxLines}，截斷處理`)
-      effectiveComment = setlistComment.split('\n').slice(0, CONFIG.maxLines).join('\n')
+    if (allLines.length > CONFIG.maxLines) {
+      console.warn(`[MATCHER] setlistComment 行數 ${allLines.length} 超過上限 ${CONFIG.maxLines}，截斷處理`)
+      effectiveComment = allLines.slice(0, CONFIG.maxLines).join('\n')
     }
 
     // Execute matching
-    const result = await matchSetlist(effectiveComment)
+    const result = await matchSetlist(effectiveComment, { startedAt })
 
     return {
       statusCode: 200,
@@ -692,12 +904,22 @@ export async function handler(event) {
 
   } catch (error) {
     console.error('Lambda error:', error)
+
+    // 軟時限：回 400（而非讓 APIGW 到 29s 吐 504 觸發上游重試），帶已處理行數供追查
+    if (error instanceof SoftTimeoutError) {
+      return badRequest(
+        `Processing time limit reached after ${error.processedLines}/${error.totalLines} lines`,
+        'PROCESSING_TIMEOUT'
+      )
+    }
+
+    // 錯誤細節只進 console（error.message 可能夾帶上游 URL／回應內容）
     return {
       statusCode: 500,
       headers: CORS_HEADERS,
       body: JSON.stringify({
         success: false,
-        error: { code: 'INTERNAL_ERROR', message: error.message }
+        error: { code: 'INTERNAL_ERROR', message: 'Internal server error' }
       })
     }
   }

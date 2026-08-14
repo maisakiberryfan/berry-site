@@ -155,6 +155,14 @@ export class DataProcessor {
       const setlistItems = []
       const skippedLines = []
 
+      // 無戳防線的契約縫隙：matcher 端只在「帶戳行 ≥3」時才過濾無戳行，帶戳 1~2 行的
+      // 留言（層3 關鍵字只要 2 戳即可入選）會讓無戳行整批流進來。此處補上同一條線：
+      // 該場只要有任一帶戳行，無戳行就不入庫（不論是否匹配到既有曲）。
+      // ⚠️ 全場零帶戳的合法情境（純曲目清單留言、不留檔場手動補錄）不套用——
+      // 一律拒絕會把這類整場誤殺
+      const hasTimestamp = m => m?.parsed?.startSec !== null && m?.parsed?.startSec !== undefined
+      const anyTimestamped = result.matches?.some(hasTimestamp) ?? false
+
       for (let i = 0; i < result.songIDs.length; i++) {
         const songID = result.songIDs[i]
         const matchInfo = result.matches[i]
@@ -162,6 +170,14 @@ export class DataProcessor {
         let note = null
         let songName = null
         let artist = null
+
+        // 無戳行不入庫（見上方 anyTimestamped 說明）；「*」行另有下方更嚴的無條件檢查
+        if (!bypassGuards && anyTimestamped && !hasTimestamp(matchInfo)) {
+          const label = matchInfo?.parsed?.titleJP || matchInfo?.parsed?.titleEN || matchInfo?.raw || '(空)'
+          console.warn(`[SETLIST] 跳過無時間戳的行（該場其餘行皆帶戳，疑似雜訊）: ${label}`)
+          skippedLines.push(label)
+          continue
+        }
 
         // Handle "*" entries - create new songs
         if (songID === "*") {
@@ -176,10 +192,30 @@ export class DataProcessor {
               continue
             }
 
+            // matcher 曾用裸斜線把該行切成「曲名/歌手」再比、切完仍落空（fallbackSplit）：
+            // 曲名裡黏著歌手串（「オレンジ/とらドラ！」），建出來就是髒名字。
+            // 垃圾曲名入庫是本專案紅線（2026-06 事件），寧可少這幾行等人工補
+            if (!bypassGuards && matchInfo.fallbackSplit) {
+              const label = parsed.titleJP || parsed.titleEN || parsed.raw || '(空)'
+              console.warn(`[SONGLIST] 跳過裸斜線切分後仍未匹配的行（曲名疑似黏著歌手，拒建新曲）: ${label}`)
+              skippedLines.push(label)
+              continue
+            }
+
             songName = parsed.titleJP || parsed.titleEN || ''
             const songNameEn = parsed.titleEN || ''
             artist = parsed.artistJP || parsed.artistEN || ''
             const artistEn = parsed.artistEN || ''
+
+            // 建新曲前的健全性檢查：曲名裡還留著分隔符樣式（豎線近似字、或以小寫 l
+            // 假裝豎線的「曲名 l 歌手」）＝整行沒被切開，建出來就是「曲名 l 歌手」這種
+            // 垃圾曲；過長曲名同理（多半是整段留言被當成一行）。
+            // 拒建並記入 skippedLines —— 全滅時走既有 blocked 路徑發 Discord（同場只發一次）
+            if (!bypassGuards && songName && !this.isPlausibleNewSongName(songName)) {
+              console.warn(`[SONGLIST] 跳過疑似未切分/異常的曲名（拒建新曲）: ${songName.substring(0, 120)}`)
+              skippedLines.push(songName.substring(0, 120))
+              continue
+            }
 
             if (songName) {
               try {
@@ -226,6 +262,23 @@ export class DataProcessor {
       console.error(`[SETLIST] 解析歌單失敗: ${stream.title} - ${error.message}`)
       throw error
     }
+  }
+
+  /**
+   * 建新曲的曲名健全性檢查（matcher 切分失敗的最後一道）
+   * - 豎線近似字（| ｜ │ ￨ ǀ ∣ ┃ ¦）殘留 ＝ 該行沒被切成曲名/歌手
+   * - 「 l 」（空格＋小寫 L＋空格）＝ 留言者用 l 當分隔線（實際案例：
+   *   「Hey! カロリーQueen l 竹達彩奈」曾整行被建成新曲）
+   * - 超過 100 字 ＝ 多半是整段文字被當成一行曲名
+   * @param {string} songName
+   * @returns {boolean} true＝可以建
+   */
+  isPlausibleNewSongName(songName) {
+    if (!songName || typeof songName !== 'string') return false
+    if (songName.length > 100) return false
+    if (/[|｜│￨ǀ∣┃¦]/.test(songName)) return false
+    if (/\s[lｌ]\s/.test(songName)) return false
+    return true
   }
 
   /**

@@ -299,9 +299,14 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - 位置：`lambda/setlist-matcher/`
 - 配置：threshold=0.88, titleWeight=0.75, artistWeight=0.25
   - 無歌手行：純 titleScore、門檻 0.95（同名 dedup 兜底）
-  - 序號感知（II/Ⅱ/2/弐）、日英欄位並比取最高、多段括號/三段式行解析
-  - 無時間戳行過濾（≥3 行帶戳時視為雜訊）
-  - 輸入行數護欄（超限拒絕）；Lambda timeout 29s（配合 API Gateway 上限）
+  - 序號感知（II/Ⅱ/2/弐，數值化比較、ii 前為拉丁字母不視為序號）、日英欄位並比取最高、
+    多段括號/三段式行解析；豎線近似字（│￨ǀ∣┃¦）正規化為 `|`；裸斜線「曲/歌手」行於
+    第一輪落空時 fallback 切分重比（切過仍落空的行帶 fallbackSplit 標記，主站拒建新曲）
+  - 無時間戳行過濾（≥3 行帶戳時視為雜訊）；時間戳值域驗證（分/秒<60、0~360000、
+    end≤start 丟棄 end）
+  - 輸入護欄：行數＋單行 ≤1000 字＋總長 ≤200KB（超限 400）；內部軟時限 20s（超時回
+    400 帶已處理行數，不進 APIGW 504 重試迴圈）；Lambda timeout 29s、MemorySize 1769
+  - 效能：查詢變體去重＋每請求記憶化（2026-08-14，~1.9x）
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
 - 部署：push 自動（CI `deploy-matcher` job）；手動 `sam build && sam deploy` 亦可（獨立 SAM stack）
 - 測試：`node test-fix.mjs` / `test-regression.mjs` / `test-history.mjs [N]` / `verify-corrections.mjs`

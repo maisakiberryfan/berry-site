@@ -9,8 +9,11 @@ Parameters:
     Description: Lambda function timeout in seconds
   FunctionMemory:
     Type: Number
-    Default: 512
-    Description: Lambda function memory in MB
+    # 1769MB = 1 vCPU 全額（Lambda 的 CPU 依記憶體線性配給）。fuzzy 比對是純 CPU、
+    # 單執行緒，512→1769 讓 wall time 降約 3 倍而 GB-s 大致持平（跑得快抵掉單價高），
+    # 解掉 maxLines=500 的最壞情況撞破 29s 的問題
+    Default: 1769
+    Description: Lambda function memory in MB (1769 = 1 full vCPU)
   BerrySiteApiUrl:
     Type: String
     Default: 'https://d36w2d8blmdfr.cloudfront.net'
