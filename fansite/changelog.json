@@ -1,8 +1,8 @@
 {
-  "time": "2026-08-13T23:42:59+08:00",
+  "time": "2026-08-14T12:00:00+08:00",
   "msg": {
-    "zh": "新增「音樂作品」頁面：專輯・單曲・客座演唱總覽，曲目可展開歌枠演唱紀錄、直接跳到該曲開唱的時間點",
-    "en": "New \"Discography\" page: albums, singles, and guest appearances — expand any track to see karaoke stream performances and jump straight to where the song starts",
-    "ja": "「ディスコグラフィ」ページを新設：アルバム・シングル・参加楽曲の一覧に加え、各曲の歌枠での歌唱記録を展開して該当時間から直接再生できます"
+    "zh": "全站品質修正：音樂作品頁跳轉歌單改精準比對（同名不同曲不再混入）且頁面載入更快；表格手機版篩選提示、鍵盤操作與讀屏支援全面改善",
+    "en": "Site-wide quality fixes: Discography-to-setlist links now match the exact song (no more same-title mix-ups) and the page loads faster; better mobile filter hints, keyboard navigation, and screen-reader support across all tables",
+    "ja": "サイト全体の品質改善：ディスコグラフィからセットリストへのリンクが正確な曲単位の絞り込みになり（同名異曲の混入を解消）、ページの読み込みも高速化。テーブルのモバイル表示・キーボード操作・スクリーンリーダー対応も改善しました"
   }
 }
