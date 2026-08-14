@@ -300,14 +300,20 @@ export async function createSetlistEntry(c) {
         const { streamID, trackNo, segmentNo = 1, songID, note, startTime, endTime } = entry;
         return [streamID, trackNo, segmentNo, songID || null, note || null, startTime ?? null, endTime ?? null];
       });
-      // startTime/endTime 的語意分工（POST bulk vs PUT 單列）：
-      //   POST bulk：帶非 null 值＝更新；帶 null 或不帶＝**保留既有值**（COALESCE）。
-      //   PUT 單列：欄位有出現就照寫，null＝清空（timeEditor 的「清空」走這條）。
-      // 無條件 `VALUES(startTime)` 不可用——v3 批次新增的 payload 不帶這兩欄，
-      // 撞既有 trackNo 走 ON DUPLICATE 時會把 YouTube 留言回補的時間戳（3,389 筆
-      // 歷史成果）靜默清成 NULL。COALESCE 亦與 worker 分支的「只補空、不覆寫」同源。
-      // 代價：批次寫回無法藉「帶 null」把某列的戳清掉（舊 v2 批次編輯調序曾依賴此語意，
-      // 該前端已退場；v3 調序走 /reorder 端點，整列搬移、時間戳隨列走不需重寫）。
+      // 批次＝**所見即所得的整段狀態替換**（用戶裁示 2026-08-14）：
+      // songID／note／startTime／endTime 全部無條件覆寫，payload 帶什麼就寫什麼，
+      // 沒有「某些欄後端偷偷保留」的例外。note／startTime／endTime 帶 null＝真的清空；
+      // songID 是 NOT NULL＋FK，沒有「清空」這個狀態，缺值會讓整批 INSERT 失敗並 rollback
+      // （呼叫端應自行擋在送出前——v3 批次表單有每列必選曲的驗證）。
+      //
+      // 「批次撞既有列把 YouTube 留言回補的時間戳洗掉」這個風險**由前端承擔**：
+      // v3 批次表單撞到既有 trackNo 時，會把既有的曲目／備註／時間戳 prefill 進欄位，
+      // 使用者看得到、可改可留；要清空是明示的動作（把欄位清掉再送出）。
+      // 後端用 COALESCE 偷偷保留反而讓「清空」在批次裡做不到，且與表單所見不符。
+      //
+      // 其他兩條路徑不受影響：
+      //   PUT 單列——欄位有出現就照寫、null＝清空（timeEditor 的「清空」走這條），語意不變。
+      //   worker 分支（下方 else）——自動更新沒有人在看表單，維持「只補空、不覆寫」。
       await db.execute(
         `INSERT INTO setlist_ori (streamID, trackNo, segmentNo, songID, note, startTime, endTime)
          VALUES ${userPlaceholders}
@@ -315,8 +321,8 @@ export async function createSetlistEntry(c) {
            segmentNo = VALUES(segmentNo),
            songID = VALUES(songID),
            note = VALUES(note),
-           startTime = COALESCE(VALUES(startTime), startTime),
-           endTime = COALESCE(VALUES(endTime), endTime)`,
+           startTime = VALUES(startTime),
+           endTime = VALUES(endTime)`,
         userValues,
       );
     } else {
