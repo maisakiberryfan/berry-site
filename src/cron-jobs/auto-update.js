@@ -11,13 +11,46 @@ import { getLiveDetails } from '../utils/youtube-api.js'
 import { Database } from '../utils/database.js'
 import { getSecret } from '../platform.js'
 import { iso8601ToMySQL, mysqlToISO8601 } from '../utils/middleware.js'
-import { saveThumbnail } from '../utils/thumbnail.js'
+import { saveThumbnail, flushThumbnailInvalidations } from '../utils/thumbnail.js'
 import { CONFIG } from '../config.js'
 
 // 防線攔截通知去重：blocked 的歌枠保持 pending（等 KL 留言出現後仍要重試解析），
 // 但 polling 每 10 分鐘＋每日 cron 都會再攔一次——同一 instance 內只通知一次。
 // module scope 在 warm Lambda/Worker 跨 invocation 存活；冷啟後重發一次可接受。
 const notifiedBlockedStreams = new Set()
+
+// 整體時間預算（Lambda Timeout 180s，見 template.yaml）。150s 主動收手才來得及走完
+// Step 6 的 Discord 通知與 finally 的摘要 log；被 timeout 中砍＝連「做到哪裡」都沒人知道，
+// 而未處理的歌枠仍是 pending，下一輪 cron／polling 會接著處理，不會漏。
+const RUN_BUDGET_MS = 150_000
+
+/**
+ * 解析處理權：同一場歌枠可能同時被兩條路徑撿到（每 10 分鐘的 polling、每日 cron、
+ * 手動 /trigger-update），重複解析會重複建初回曲、重複打 YouTube／matcher 配額。
+ *
+ * ⚠️ **這是「窄化窗口」而非嚴格互斥**：streamlist 沒有可用來當 lease 的欄位
+ *（setlistComplete 是結果不是佔位旗標——解析前就標記，一旦中途失敗該場會從 pending
+ * 永久消失；note 是使用者可見資料不能挪用），無 schema 變更做不到條件寫入式的取得。
+ * 這裡的作法是「**每一場開始解析前重讀當下的 pending 狀態**」：pending 清單是整批
+ * 一次查出來的，本輪前面幾場的解析時間（每場數秒～數十秒）足以讓別的路徑完成同一場，
+ * 重讀能把最常見的重疊擋掉。
+ * 殘餘窗口＝「重讀」到「解析完成寫回 setlistComplete」之間（單場約 5~30s）：
+ * 兩條路徑若在這個窗口內同時起跑仍會雙寫。後果已被下游收斂——batchCreateSetlist 是
+ * UPSERT 且既有 songID/note 優先，createNewSong 會先查同名同歌手（見 data-processor），
+ * 故最壞情況是白做一次工，不會產生重複資料。
+ * @returns {Promise<boolean>} true＝仍待解析（可處理）
+ */
+async function isStillPending(db, streamID) {
+  try {
+    const row = await db.first('SELECT setlistComplete FROM streamlist WHERE streamID = ?', [streamID])
+    if (!row) return false                    // 影片被刪除／streamID 打錯
+    return !row.setlistComplete               // tinyint(1) 可能回 0/1 或 false/true
+  } catch (error) {
+    // 查不到狀態時放行：漏解析（永遠 pending）比重複解析嚴重
+    console.warn(`[SETLIST] pending 狀態重讀失敗，照常解析: ${streamID} - ${error.message}`)
+    return true
+  }
+}
 
 /**
  * Main auto-update function
@@ -31,7 +64,11 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
   const startTime = Date.now()
   console.log(`[CRON] 開始自動更新 (mode: ${mode}, trigger: ${triggerType})`)
 
-  // 在每日 Cron 時嘗試續訂 PubSubHubbub（每 4 天一次）
+  // 整體時間預算：超過就停止剩下的工作（已完成的照常回報），未處理的項目保持 pending
+  const overBudget = () => Date.now() - startTime > RUN_BUDGET_MS
+  let budgetStopped = false
+
+  // 在每日 Cron 時嘗試續訂 PubSubHubbub
   if (triggerType === 'CRON') {
     try {
       await renewPubSubSubscription(env)
@@ -159,10 +196,10 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
         result.errors.push(`Streamlist 寫入失敗: ${error.message}`)
       }
 
-      // Step 2.5: Download thumbnails to S3
+      // Step 2.5: Download thumbnails to S3（invalidation 與 Step 8 一起批次送出）
       for (const video of newVideos) {
         try {
-          await saveThumbnail(video.id, env)
+          await saveThumbnail(video.id, env, { defer: true })
         } catch (e) {
           console.warn(`[THUMBNAIL] 縮圖下載失敗: ${video.id} - ${e.message}`)
         }
@@ -178,8 +215,27 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       // Step 4: Parse setlists for singing streams using Lambda fuzzy matching
       const setlistResults = []
 
-      for (const stream of singingStreams) {
+      for (let i = 0; i < singingStreams.length; i++) {
+        const stream = singingStreams[i]
+
+        // 時間預算：每場解析可能數秒～數十秒（YouTube 留言 + Lambda matcher + 逐列寫入），
+        // 積壓多場時整輪會撞上 Lambda Timeout。未處理的歌枠仍是 pending，下輪接著做
+        if (overBudget()) {
+          budgetStopped = true
+          const msg = `時間預算 ${RUN_BUDGET_MS / 1000}s 用盡，剩餘 ${singingStreams.length - i} 個歌枠未解析（保持 pending，下輪續處理）`
+          console.warn(`[SETLIST] ${msg}`)
+          result.errors.push(msg)
+          break
+        }
+
         try {
+          // 處理權（窄化窗口，見 isStillPending 檔頭）：整批 pending 是一次查出來的，
+          // 前面幾場的解析時間裡別條路徑可能已經把這一場做完了
+          if (!await isStillPending(db, stream.id)) {
+            console.log(`[SETLIST] 已由其他路徑處理或已不存在，跳過: ${stream.title} (${stream.id})`)
+            continue
+          }
+
           console.log(`[SETLIST] 開始解析: ${stream.title} (${stream.id})`)
 
           const parseResult = await dataProcessor.parseSetlistForStream(stream, env)
@@ -251,11 +307,13 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     }
 
     // Step 6: Send Discord notification（防線攔截也要發——不入庫但不可靜默）
-    if (result.streamlistUpdated || result.setlistUpdated || result.blockedItems.length > 0) {
+    // budgetStopped 也要發：時間預算用盡代表這輪沒做完，而且沒有其他人在看 CloudWatch。
+    // success 改看 result.errors——過去一律寫死 true，整輪出過錯也顯示「✅ 自動更新完成」
+    if (result.streamlistUpdated || result.setlistUpdated || result.blockedItems.length > 0 || budgetStopped) {
       const sent = await sendDiscordNotification(env, {
         type: 'auto-update',
         result,
-        success: true
+        success: result.errors.length === 0
       })
       // 送達成功才標記攔截已通知；失敗（網路/Discord 4xx）下輪重試
       if (sent) {
@@ -263,17 +321,22 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
       }
     }
 
-    // Step 7: Wiki 歌單二次校正（驗證近期已解析的歌枠）
-    try {
-      const wikiResult = await verifyRecentSetlists(env)
-      if (wikiResult.mismatches > 0) {
-        await sendWikiDiffNotification(env, wikiResult.details)
+    // Step 7: Wiki 歌單二次校正（驗證近期已解析的歌枠）——**每日 CRON 限定**。
+    // 它抓的是第三方 wiki（+7 天延遲才驗證），與「剛剛有沒有新影片」無關；掛在
+    // PubSub/手動觸發上只會讓每次通知都多花一次外部往返與整段 DB 掃描（且 PubSub 一天
+    // 可能觸發十幾次，每次都重抓同一份 wiki 頁面）
+    if (triggerType === 'CRON') {
+      try {
+        const wikiResult = await verifyRecentSetlists(env)
+        if (wikiResult.mismatches > 0) {
+          await sendWikiDiffNotification(env, wikiResult.details)
+        }
+        if (wikiResult.verified > 0 || wikiResult.mismatches > 0) {
+          console.log(`[WIKI] verified=${wikiResult.verified}, mismatches=${wikiResult.mismatches}, skipped=${wikiResult.skipped}`)
+        }
+      } catch (wikiError) {
+        console.error(`[WIKI] 驗證失敗（非致命）: ${wikiError.message}`)
       }
-      if (wikiResult.verified > 0 || wikiResult.mismatches > 0) {
-        console.log(`[WIKI] verified=${wikiResult.verified}, mismatches=${wikiResult.mismatches}, skipped=${wikiResult.skipped}`)
-      }
-    } catch (wikiError) {
-      console.error(`[WIKI] 驗證失敗（非致命）: ${wikiError.message}`)
     }
 
     // Step 8: 近 14 天縮圖兜底重刷（每日 CRON 限定）——VT 換圖不一定伴隨
@@ -285,12 +348,26 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
           'SELECT streamID FROM streamlist WHERE time >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)'
         )
         let refreshed = 0
-        for (const row of recent) {
+        let stoppedAt = -1
+        for (let i = 0; i < recent.length; i++) {
+          // 每支都是一次 i.ytimg.com 下載＋HeadObject，十幾支就是好幾秒；
+          // 這是整輪最後一步，超預算就停（縮圖晚一天更新無感，被 timeout 中砍才是問題）
+          if (overBudget()) {
+            budgetStopped = true
+            stoppedAt = i
+            const msg = `時間預算 ${RUN_BUDGET_MS / 1000}s 用盡，剩餘 ${recent.length - i} 支縮圖未檢查`
+            console.warn(`[THUMBNAIL] ${msg}`)
+            result.errors.push(msg)
+            break
+          }
           try {
-            if (await saveThumbnail(row.streamID, env)) refreshed++
+            // defer：換圖的 invalidation 累積起來最後發一次 /tb/*（見 thumbnail.js）
+            if (await saveThumbnail(recent[i].streamID, env, { defer: true })) refreshed++
           } catch { /* 單支失敗不擋其餘 */ }
         }
-        if (refreshed > 0) console.log(`[THUMBNAIL] 近 14 天兜底重刷: ${refreshed}/${recent.length} 支有更新`)
+        if (refreshed > 0) {
+          console.log(`[THUMBNAIL] 近 14 天兜底重刷: ${refreshed}/${stoppedAt === -1 ? recent.length : stoppedAt} 支有更新`)
+        }
       } catch (thumbError) {
         console.warn(`[THUMBNAIL] 縮圖兜底失敗（非致命）: ${thumbError.message}`)
       }
@@ -302,6 +379,14 @@ export async function runAutoUpdate(env, mode = 'recent', options = {}, triggerT
     throw error
 
   } finally {
+    // 累積的換圖清一次 edge（放 finally：Step 2.5／Step 8 之後任何一步拋錯都不該讓
+    // 已上傳的新縮圖被舊快取蓋住 7 天）。失敗不影響 cron 結果，留著下輪再送
+    try {
+      await flushThumbnailInvalidations(env)
+    } catch (flushError) {
+      console.warn(`[THUMBNAIL] 批次 invalidation 失敗（非致命）: ${flushError.message}`)
+    }
+
     result.executionTime = Date.now() - startTime
     const status = result.errors?.length > 0 ? 'WARN' : 'OK'
     console.log(`[CRON] 自動更新完成 (${status}) ${result.executionTime}ms | streams: ${result.newStreams} | setlists: ${result.newSetlists} | errors: ${result.errors?.length || 0}`)
@@ -407,6 +492,13 @@ export async function runPollingCheck(env) {
         }
 
         // 直播已結束，執行歌單解析
+        // 處理權（窄化窗口，見 isStillPending 檔頭）：pending 清單是本輪開頭一次查出來的，
+        // 上面的時間修正與 live-details 查詢跑完後，每日 cron／手動觸發可能已經做掉這一場
+        if (!await isStillPending(db, stream.id)) {
+          console.log(`[POLLING] 已由其他路徑處理，跳過: ${stream.title} (${stream.id})`)
+          continue
+        }
+
         console.log(`[POLLING] 直播已結束，開始解析: ${stream.title} (${stream.id})`)
 
         result.endedStreams++
@@ -542,19 +634,18 @@ function getSimplifiedErrorReason(errorMessage) {
 
 /**
  * Renew PubSubHubbub subscription
- * YouTube PubSubHubbub 訂閱有效期為 5 天，每 4 天自動續訂
+ * YouTube PubSubHubbub 訂閱有效期為 5 天 ⇒ **每天**續訂一次。
+ *
+ * 舊版以 `dayOfYear % 4` 節流成「每 4 天一次」，但那讓續訂變成單點：
+ * 該天的 cron 失敗（DB 掛掉讓 runAutoUpdate 提早拋錯、Lambda 冷啟超時、hub 5xx）
+ * 就要等下一個 %4===0 的日子，中間 lease 到期＝PubSub 通知靜默斷掉（要人工發現）。
+ * 而且 12/31→1/1 的 dayOfYear 重置會讓間隔在跨年時被打亂。
+ * hub 對重複 subscribe 是冪等的（同 callback/topic 只是刷新 lease），
+ * 每天 3 次 POST 的成本可忽略，換來「連續失敗 4 天才會斷訂」的餘裕。
  * @param {Object} env - Environment variables
  * @returns {Promise<boolean>} Success status
  */
 export async function renewPubSubSubscription(env) {
-  // 檢查是否需要續訂（每 4 天一次）
-  const today = new Date()
-  const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24))
-
-  if (dayOfYear % 4 !== 0) {
-    return true
-  }
-
   console.log('[PUBSUB] 開始 PubSubHubbub 訂閱續訂')
 
   const CALLBACK_URL = getSecret(env, 'PUBSUB_CALLBACK_URL') || 'https://m-b.win/webhook/youtube'
@@ -581,7 +672,9 @@ export async function renewPubSubSubscription(env) {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: formData.toString()
+        body: formData.toString(),
+        // 逾時走下方 catch（記為該頻道續訂失敗）：hub 掛住不該吊死整輪 cron
+        signal: AbortSignal.timeout(10_000)
       })
 
       if (response.status === 202 || response.status === 204) {

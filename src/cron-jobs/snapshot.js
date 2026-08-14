@@ -8,6 +8,11 @@
  *   ——**檔名／信封解包／清理邏輯兩處必須同步**。
  *   ※ CI 版任一檔失敗即 exit 1，deploy.yml 據此整批跳過同步（S3 保留上一份完整快照），
  *     所以下面「manifest 不 commit」的機制是 cron 這條路徑特有的。
+ *   ※ **月度檔的取得方式與 CI 版刻意不同**：CI 版逐月打 API（跨網路、月份數 70+ 也還好），
+ *     cron 版改成「**全量 `/api/setlist` 一次取回、在 Node 端分桶**」（bucketSetlistByMonth）。
+ *     內部調用一次＝一次全表查詢，比 77 次月度查詢（每次都要掃 VIEW＋排序）省得多，也讓
+ *     整批月度檔來自**同一個資料庫快照**（逐月抓時前後月之間可能被人編輯，產出彼此不一致）。
+ *     分桶規則與月度端點逐位元組等價，見 bucketSetlistByMonth 的註解。
  *
  * 產物（S3 key 一律 `data/<file>`，內容是解包後的 data）：
  *   songlist.json / streamlist.json / yt-latest.json
@@ -36,9 +41,10 @@
  * ⚠️ **manifest 是 commit point，「不完整就不 commit」**：manifest 是前端 fingerprints
  *   的種子，「新 manifest ＋ 舊月度檔」會讓前端指紋對得上卻讀到舊資料且不會自癒。
  *   故三種不完整都必須把 manifest 從上傳清單中拿掉——時間預算用盡（budgetExceeded）、
- *   單月 API 抓失敗／月份格式非法（monthIncomplete，全域）、某站台的月度檔 PUT 失敗
- *   （putAll 內 per-target 判斷，其他站台不受牽連）。月度檔本身照傳，「舊 manifest ＋
- *   新月度檔」只是多一輪前端 API 校正。
+ *   全量抓失敗／manifest 列的 bucket 在全量結果中不存在／月份格式非法（monthIncomplete，
+ *   全域）、某站台的月度檔或 manifest 本身 PUT 失敗（putAll 內 per-target 判斷，
+ *   其他站台不受牽連）。月度檔本身照傳，「舊 manifest ＋新月度檔」只是多一輪前端 API 校正。
+ *   manifest 形狀不對（缺 months）則直接從清單移除，與 CI 版對齊。
  */
 
 import app from '../app.js'
@@ -54,15 +60,13 @@ const INTERNAL_ORIGIN = 'http://localhost'
 //    SNAPSHOT_STATIC_BASE 改來源）
 const STATIC_BASE_DEFAULT = 'https://m-b.win'
 const STATIC_TIMEOUT_MS = 20_000
-// 逐月查詢之間的節流：DB 在記憶體吃緊的 VPS 上，避免 70+ 連發塞滿
-const THROTTLE_MS = 50
 // S3 併發寫入數（內部 API 調用序列化——Lambda 共用單一 DB 連線，併發無益）
 const PUT_CONCURRENCY = 6
 // 與現站 CI 的 `aws s3 sync fansite/data/ --cache-control` 逐字一致
 const CACHE_CONTROL = 'public, max-age=300'
-// 逐月抓取的時間預算：月份只增不減，總量會單調成長，總有一天撞上 Lambda Timeout（180s）。
-// 被 timeout 中砍＝連 S3 都沒寫、也沒有任何摘要或通知；主動在 120s 收手則能寫完
-// 手上的檔、發出 ok=false 通知（剩下的月份下一輪 cron 或前端 API 校正會補上）
+// **抓取階段**的整體時間預算（Lambda Timeout 180s，留 60s 給 S3 寫入＋清理＋invalidation）。
+// 被 timeout 中砍＝連 S3 都沒寫、也沒有任何摘要或通知；主動在 120s 收手則能寫完手上的檔、
+// 發出 ok=false 通知。超時一律連帶讓 manifest 不 commit（缺什麼都算這批不完整）
 const FETCH_BUDGET_MS = 120_000
 // manifest 是 commit point，必須最後寫入（見 putAll）
 const MANIFEST_FILE = 'manifest.json'
@@ -71,8 +75,6 @@ const CONTENT_TYPE = {
   json: 'application/json',
   md: 'text/markdown; charset=utf-8',
 }
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 let s3Client = null
 let cfClient = null
@@ -131,6 +133,45 @@ function monthFile(month) {
   // regex 同後端 monthStart()；現況不可利用（month 由 DATE_FORMAT 生成，字元集僅數字與 -）
   if (typeof month === 'string' && /^\d{4}-\d{2}$/.test(month)) return `setlist-${month}.json`
   return null
+}
+
+/**
+ * 把 `/api/setlist` 全量結果分桶成月度快照（取代逐月 API 調用）。
+ * 回傳 Map<month, rows>，month 與 manifest 的 bucket key 同語意（'YYYY-MM' ／ 'none'）。
+ *
+ * **為什麼可以逐位元組等價於月度端點**（src/routes/setlist.js）：
+ *   1. 月份 key：月度端點以 `time >= 'YYYY-MM-01' AND time < 次月首日` 切，manifest 以
+ *      `DATE_FORMAT(s.time,'%Y-%m')` 分組——兩者都是「DB 內 UTC DATETIME 的年月」。
+ *      全量端點的 time 已過 mysqlToISO8601（UTC ISO 字串，恆為 `...Z`），前 7 碼即該年月。
+ *   2. 月內排序：全量端點的 `ORDER BY time DESC, segmentNo ASC, trackNo ASC` 與月度端點
+ *      **完全相同**，故照全量順序穩定分桶即可（Array#push + V8 stable sort）。
+ *   3. none bucket（不留檔場，VIEW 的 time 為 NULL）：該端點另有
+ *      `ORDER BY segmentNo, trackNo, streamID`，故此處重排。streamID 用 localeCompare
+ *      （近似 MySQL 的 utf8mb4 ci collation，大小寫不敏感）；現有佔位 ID 只有
+ *      `xxxxxxxxxx1/2`（純小寫＋數字）兩種，這個 tie-break 目前不影響任何實際順序。
+ *   4. 欄位與信封：全量端點已 `{...entry, time: mysqlToISO8601(...)}`（覆寫既有 key，
+ *      不改欄位順序），與月度端點同一形狀；none 端點不做 time 轉換，但 NULL 轉換後仍是 null。
+ * 2026-08-14 以 production 全量 vs 月度端點 vs 線上 CDN 快照三方逐位元組比對通過。
+ */
+export function bucketSetlistByMonth(rows) {
+  const buckets = new Map()
+  for (const row of rows) {
+    const t = row?.time
+    // 非字串／非 ISO 前綴（含 null＝不留檔場）一律歸 none，與 manifest 的 COALESCE(...,'none') 對齊
+    const month = typeof t === 'string' && /^\d{4}-\d{2}/.test(t) ? t.slice(0, 7) : 'none'
+    const bucket = buckets.get(month)
+    if (bucket) bucket.push(row)
+    else buckets.set(month, [row])
+  }
+
+  const none = buckets.get('none')
+  if (none) {
+    none.sort((a, b) =>
+      (Number(a?.segmentNo) - Number(b?.segmentNo)) ||
+      (Number(a?.trackNo) - Number(b?.trackNo)) ||
+      String(a?.streamID).localeCompare(String(b?.streamID), 'en'))
+  }
+  return buckets
 }
 
 /** 內部調用自家 API 並解包信封（{data} / {success,data} / ad-hoc），與 fetch-snapshot.mjs 同構 */
@@ -218,7 +259,7 @@ async function putBatch(bucket, files, failures) {
  * 時間預算用盡）則在 runSnapshot 那層就把 manifest 從清單濾掉。
  *
  * @param {Set<string>} monthFiles - 這輪的月度檔名（判斷哪些失敗檔會讓 manifest 失真）
- * @returns {Promise<{uploaded:number, manifestSkipped:boolean}>}
+ * @returns {Promise<{uploaded:number, manifestSkipped:boolean, manifestSkipReason:string|null}>}
  */
 async function putAll(bucket, files, failures, monthFiles) {
   const manifestItems = files.filter((f) => f.file === MANIFEST_FILE)
@@ -233,11 +274,21 @@ async function putAll(bucket, files, failures, monthFiles) {
     const msg = `${bucket} 有 ${failedMonths.length} 個月度檔未寫入，manifest 不 commit：${failedMonths.join(', ')}`
     failures.push(msg)
     console.warn(`[SNAPSHOT] ${msg}`)
-    return { uploaded, manifestSkipped: true }
+    return { uploaded, manifestSkipped: true, manifestSkipReason: `${failedMonths.length} 個月度檔未寫入` }
   }
 
-  uploaded += (await putBatch(bucket, manifestItems, failures)).uploaded
-  return { uploaded, manifestSkipped: false }
+  const manifestRes = await putBatch(bucket, manifestItems, failures)
+  uploaded += manifestRes.uploaded
+
+  // manifest 自身 PUT 失敗＝這站台這輪等於沒 commit（前端仍讀到舊 manifest）。
+  // 過去只記在 failures、ok 仍為 true ⇒ 靜默；現在與「月度檔失敗」同等對待
+  if (manifestRes.failed.length) {
+    const msg = `${bucket} manifest.json 上傳失敗，該站台這輪未 commit`
+    console.warn(`[SNAPSHOT] ${msg}`)
+    return { uploaded, manifestSkipped: true, manifestSkipReason: 'manifest 上傳失敗' }
+  }
+
+  return { uploaded, manifestSkipped: false, manifestSkipReason: null }
 }
 
 /**
@@ -328,8 +379,29 @@ export async function runSnapshot(env = {}) {
   // 差別只在原因（單月 API 失敗／月份格式非法 vs 時間預算用盡），處置也相同：manifest 不 commit
   let monthIncomplete = false
 
+  /**
+   * 整體時間預算檢查（每次抓取前）：超過就不再發新請求，手上抓到的照樣寫進 S3。
+   * 抓取階段現在只有 6 次（songlist／streamlist／yt-latest／兩支靜態檔／manifest＋全量 setlist），
+   * 撞到 120s 代表 DB 或網路已經出事 ⇒ 一律視為「這批不完整」，連帶讓 manifest 不 commit。
+   */
+  const overBudget = (label) => {
+    if (Date.now() - startedAt <= FETCH_BUDGET_MS) return false
+    budgetExceeded = true
+    const msg = `時間預算 ${FETCH_BUDGET_MS / 1000}s 用盡，跳過 ${label}`
+    failures.push(msg)
+    console.warn(`[SNAPSHOT] ${msg}`)
+    return true
+  }
+
+  /** 從待寫清單移除某檔（形狀不可信時用；已收進 files 才需要） */
+  const dropFile = (name) => {
+    const i = files.findIndex((f) => f.file === name)
+    if (i !== -1) files.splice(i, 1)
+  }
+
   /** 內部 API → JSON 字串，收進待寫清單 */
   const collectApi = async (file, pathname, transform) => {
+    if (overBudget(file)) return null
     try {
       const data = await internalJson(pathname, apiEnv)
       const value = transform ? transform(data) : data
@@ -343,6 +415,7 @@ export async function runSnapshot(env = {}) {
 
   /** 現站靜態檔 → 原樣字串，收進待寫清單 */
   const collectStatic = async (file, pathname, contentType) => {
+    if (overBudget(file)) return
     try {
       files.push({ file, body: await fetchStatic(staticBase + pathname), contentType })
     } catch (err) {
@@ -360,6 +433,10 @@ export async function runSnapshot(env = {}) {
   await collectStatic('changelog.json', '/changelog.json', CONTENT_TYPE.json)
 
   // manifest：月份清單 + 指紋（前端首訪拿它當初始 fingerprints）
+  // ⚠️ 已知限制（meta ETag）：manifest／全量端點的指紋是「三表 COUNT + MAX(updatedAt)」，
+  //    DB 時鐘若被回撥（NTP 校正），回撥後的寫入會產生比舊值更小的 MAX ⇒ 指紋可能倒退回
+  //    某個曾經出現過的值，帶該 ETag 的客戶端會拿到 stale 304。無程式解（需 DB 端保證單調時鐘），
+  //    此處僅記錄；影響面是「時鐘回撥窗口內的編輯短暫不可見」，下一次任何寫入即自癒。
   const manifest = await collectApi('manifest.json', '/api/setlist/manifest', (data) => ({
     ...data,
     fetchedAt: new Date().toISOString(),
@@ -367,43 +444,71 @@ export async function runSnapshot(env = {}) {
 
   if (manifest && Array.isArray(manifest.months)) {
     manifestOk = true
-    console.log(`[SNAPSHOT] 逐月抓 setlist（${manifest.months.length} 個 bucket）…`)
     const months = manifest.months
-    for (let i = 0; i < months.length; i++) {
-      const month = months[i]?.month
-      const file = monthFile(month)
+
+    // 先把 manifest 列的月份全部登記進 wanted：全量抓失敗時這些月保留 S3 舊檔，
+    // 不被下方清理當成「manifest 已不存在」誤刪
+    const monthEntries = new Map()   // file → manifest entry
+    for (const entry of months) {
+      const file = monthFile(entry?.month)
       if (!file) {
         // manifest 有這個月、快照卻沒有對應檔 ⇒ 前端會 seed 一個永遠對不到檔的指紋
         monthIncomplete = true
-        failures.push(`manifest month 格式非法，已跳過: ${month}`)
+        failures.push(`manifest month 格式非法，已跳過: ${entry?.month}`)
         continue
       }
-
-      // 時間預算：月份只增不減，遲早撞上 Lambda Timeout。主動收手才有機會寫出手上的檔
-      // 並發通知；被 timeout 中砍則是什麼都沒有。剩餘月份仍登記進 wanted 清單——
-      // 否則下方清理會把它們在 S3 上的舊檔當成「manifest 已不存在」誤刪
-      if (Date.now() - startedAt > FETCH_BUDGET_MS) {
-        budgetExceeded = true
-        for (const rest of months.slice(i)) {
-          const f = monthFile(rest?.month)
-          if (f) wantedMonthFiles.add(f)
-        }
-        const msg = `時間預算 ${FETCH_BUDGET_MS / 1000}s 用盡，剩餘 ${months.length - i} 個月份未更新`
-        failures.push(msg)
-        console.warn(`[SNAPSHOT] ${msg}`)
-        break
-      }
-
-      const query = month === 'none'
-        ? '/api/setlist?from=none&to=none'
-        : `/api/setlist?from=${month}&to=${month}`
-      // 先登記再抓：抓失敗的月份保留 S3 舊檔，不被下方清理誤刪
       wantedMonthFiles.add(file)
-      // collectApi 失敗回 null（成功一定是陣列，`/api/setlist` 沒有回 null 的情形）：
-      // 這一個月會缺檔／保留 S3 舊檔，但 manifest 的指紋是新的 ⇒ 整批不 commit manifest
-      if (await collectApi(file, query) === null) monthIncomplete = true
-      if (THROTTLE_MS) await sleep(THROTTLE_MS)
+      monthEntries.set(file, entry)
     }
+
+    // **一次全量取回 → Node 端分桶**（原本逐月 77 次內部調用，現在含 manifest 共 2 次）
+    if (!overBudget('setlist 全量')) {
+      try {
+        const rows = await internalJson('/api/setlist', apiEnv)
+        // 形狀防呆：前端一律以 Array.isArray 驗收（同 CI 版的 expectArray）
+        if (!Array.isArray(rows)) {
+          throw new Error(`回應不是陣列（${rows === null ? 'null' : typeof rows}）`)
+        }
+
+        const buckets = bucketSetlistByMonth(rows)
+        console.log(`[SNAPSHOT] setlist 全量 ${rows.length} 列 → ${buckets.size} 個 bucket（manifest ${months.length} 個）`)
+
+        for (const [file, entry] of monthEntries) {
+          const monthRows = buckets.get(entry.month)
+          if (!monthRows) {
+            // manifest 有、全量沒有：兩次調用之間該月被清空（極罕見）。寧可缺檔（保留 S3 舊檔）
+            // 也不要寫一個空陣列——前端會以為該月真的沒歌，且指紋對得上不會自癒
+            monthIncomplete = true
+            failures.push(`${file}: 全量結果中沒有這個 bucket（manifest count=${entry.count}）`)
+            continue
+          }
+          if (Number(entry.count) !== monthRows.length) {
+            // 兩次內部調用之間有人編輯：不致命——manifest 與月度檔不一致時前端指紋比對會重抓該月
+            console.warn(`[SNAPSHOT] ${file} 筆數與 manifest 不符（manifest=${entry.count}、全量=${monthRows.length}），已用全量結果`)
+          }
+          files.push({ file, body: JSON.stringify(monthRows), contentType: CONTENT_TYPE.json })
+        }
+
+        // 全量有、manifest 沒有的 bucket＝manifest 已過時。不產出（產了前端也不會讀，
+        // 且不在 wanted 清單裡、下方清理會立刻刪掉），僅記錄
+        const known = new Set(months.map((e) => e?.month))
+        const extra = [...buckets.keys()].filter((m) => !known.has(m))
+        if (extra.length) {
+          console.warn(`[SNAPSHOT] 全量含 manifest 未列的 bucket（manifest 已過時，本輪不產出）: ${extra.join(', ')}`)
+        }
+      } catch (err) {
+        // 全量抓失敗＝所有月度檔都沒更新，但 manifest 指紋是新的 ⇒ 整批不 commit manifest
+        monthIncomplete = true
+        failures.push(`setlist 全量: ${err.message}`)
+      }
+    }
+  } else if (manifest) {
+    // 抓得到但形狀不對（缺 months 陣列）＝這批快照不可信：manifest 不上傳（與 CI 版對齊，
+    // 該版把它計入 failures 讓整支 exit 1）。留在清單裡的話會把一份沒有月份資訊的
+    // manifest 蓋到 S3，前端 seed 不到任何指紋
+    dropFile(MANIFEST_FILE)
+    failures.push(`${MANIFEST_FILE}: 缺少 months 陣列，已從上傳清單移除`)
+    console.warn(`[SNAPSHOT] manifest 形狀不對（缺 months 陣列），不上傳`)
   }
 
   const fetchedMs = Date.now() - startedAt
@@ -420,11 +525,15 @@ export async function runSnapshot(env = {}) {
   const results = []
   for (const target of targets) {
     const { bucket, distributionId } = target
-    const result = { bucket, uploaded: 0, deleted: 0, invalidated: false, manifestSkipped: false }
+    const result = {
+      bucket, uploaded: 0, deleted: 0, invalidated: false,
+      manifestSkipped: false, manifestSkipReason: null,
+    }
     try {
       const put = await putAll(bucket, uploadFiles, failures, wantedMonthFiles)
       result.uploaded = put.uploaded
       result.manifestSkipped = put.manifestSkipped
+      result.manifestSkipReason = put.manifestSkipReason
 
       // 清理的兩個前提：manifest 成功（wanted 清單可信）＋這輪至少寫成功一個檔
       // （一個都沒寫成＝bucket 名錯／權限缺／S3 出事，此時只刪不寫是最糟的組合）
@@ -464,6 +573,8 @@ export async function runSnapshot(env = {}) {
   const summary = {
     ok,
     skipped: false,
+    // 三個 manifest 相關旗標＝Discord embed 判斷「這批為什麼沒 commit」的依據
+    manifestOk,
     budgetExceeded,
     monthIncomplete,
     files: uploadFiles.length,

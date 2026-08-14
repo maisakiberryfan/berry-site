@@ -375,9 +375,33 @@ export class DataProcessor {
   async createNewSong(songName, songNameEn, artist, artistEn, env) {
     try {
       const db = new Database(env)
+
+      // 欄位是 varchar(512)，這條路徑不經過 HTTP 層的 validateLength（見 middleware.js 檔頭
+      // 的 scope note）。留言內容有可能異常長 ⇒ 先截斷，否則整批寫入會在 DB 層炸掉
+      // （strict mode 是 1406 Data too long），一行雜訊拖垮整場解析
+      const trim = (v) => (typeof v === 'string' ? v.slice(0, 500) : v)
+      const name = trim(songName)
+      const nameEn = trim(songNameEn) || null
+      const art = trim(artist)
+      const artEn = trim(artistEn) || null
+
+      // 同名同歌手已存在就沿用（不重複建）：兩條解析路徑（每日 cron／10 分鐘 polling）
+      // 在窄化窗口內同時處理同一場、或同一場重解析時，過去會各建一筆一模一樣的
+      // 「資訊待確認」新曲，songlist 累積重複列且 setlist 各指一邊。
+      // 比對走 DB collation（utf8mb4 ci：大小寫／全半形不敏感），比 JS 逐字比對更貼近
+      // 使用者眼中的「同一首」。artist 可能是空字串或 NULL，用 COALESCE 統一
+      const existing = await db.first(
+        'SELECT songID FROM songlist WHERE songName = ? AND COALESCE(artist, \'\') = ? LIMIT 1',
+        [name, art || '']
+      )
+      if (existing?.songID) {
+        console.log(`[SONGLIST] 同名同歌手已存在，沿用既有 songID: ${name} / ${art} (songID=${existing.songID})`)
+        return existing.songID
+      }
+
       const result = await db.execute(
         'INSERT INTO songlist (songName, songNameEn, artist, artistEn, songNote) VALUES (?, ?, ?, ?, ?)',
-        [songName, songNameEn || null, artist, artistEn || null, '資訊待確認']
+        [name, nameEn, art, artEn, '資訊待確認']
       )
 
       return result.meta.last_row_id

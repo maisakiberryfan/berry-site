@@ -9,6 +9,10 @@ import { mysqlToISO8601 } from './middleware.js'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3'
 
+// 外部呼叫逾時：Lambda（180s）／Worker 上沒有 timeout 的 fetch 會一路吊到執行環境被砍，
+// 那一輪 cron 連摘要與通知都發不出來。YouTube API 正常 <1s，10s 已極寬鬆
+const YOUTUBE_TIMEOUT_MS = 10_000
+
 // Get configured channels from env or use defaults
 function getTargetChannels(env) {
   const channelsStr = getSecret(env, 'TARGET_CHANNELS')
@@ -70,6 +74,8 @@ export async function makeYouTubeAPIRequest(url, env) {
       headers: {
         'Accept': 'application/json',
       },
+      // 逾時走既有的 catch → console.error + 往上拋（與 HTTP 錯誤同一條路徑）
+      signal: AbortSignal.timeout(YOUTUBE_TIMEOUT_MS),
     })
 
     if (!response.ok) {
