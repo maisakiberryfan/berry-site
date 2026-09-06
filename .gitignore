@@ -42,3 +42,4 @@ fansite/data/
 *token*.txt
 *credential*
 aws?env*.txt
+.claude/skills/traffic-report/internal-ips.txt

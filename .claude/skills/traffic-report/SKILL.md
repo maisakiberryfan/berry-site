@@ -112,6 +112,21 @@ awk -F'\t' '{print $5}' /tmp/cf_filtered.tsv | sort -u | \
 # 國家代碼 ?? 表示查不到（私有 IP / 格式異常 / 未列入 DB）
 ```
 
+### Step 3.6: Run the Analyzer（分類規則的單一真相）
+
+```bash
+# 產出 markdown 報告主體（4.1～4.10 全部節＋附錄 A～F）
+node "$SKILL_DIR/analyze.mjs" /tmp/cf_filtered.tsv /tmp/ip_country.tsv > /tmp/report.md
+```
+
+- `analyze.mjs` 純 Node、零相依；**Step 4 的分類規則以它的程式碼為準**，SKILL.md 的文字是說明。
+  改規則改腳本，不要在對話中手刻 awk 重做一遍
+- 自家（開發者）IP／前綴讀同目錄 `internal-ips.txt`（**gitignored**，repo 為 public，
+  個人 IP 不得寫進任何進版檔）；缺檔時腳本會 warn，開發者流量會混進 Real User／Unknown。
+  也可用第三參數臨時追加（逗號分隔）
+- 報告頭（摘要、方法說明、建議）由對話撰寫後與 `/tmp/report.md` 串接，最終檔存
+  `C:\Users\katy\.claude\projects\E--website-berry-site\cf-report-YYYY-MM-DD.md`
+
 ### Step 4: Generate Report
 
 Output the following sections in order. Use clear headers and tables.
@@ -144,46 +159,79 @@ Output the following sections in order. Use clear headers and tables.
 | HTTP | N | X% | Bot-dominant (redirect before function) |
 | HTTPS | N | X% | Real traffic |
 
-#### 4.4 Traffic Classification (5 類分類)
+#### 4.4 Traffic Classification (7 類分類；2026-09-06 改版，規則真相＝`analyze.mjs`)
 
 **分類順序（從上往下，命中即為該類）**：
 
-1. **Search Engine Bot**（合法搜尋引擎） — UA 含以下任一：
-   `Googlebot`, `Bingbot`, `BingPreview`, `Applebot`, `DuckDuckBot`, `YandexBot`, `Baiduspider`
+1. **Internal**（自家：開發者＋自家自動化）— 任一：
+   - IP 命中 `internal-ips.txt`（gitignored）的前綴／IP
+   - UA 為 `node`（CI `npm run snapshot`、Lambda 打自家 API）
+   - referer 含 `localhost:<port>`（vite dev 打正式 API）
+   - UA 含 `Claude/1.x … Electron`（Claude 桌面 app 的內建瀏覽器預覽）
+   - `FeedFetcher-Google` 打 `/webhook/youtube`（PubSubHubbub 驗證／通知）
+   ※ 2026-08 這類佔 9%，卻是最大流量源（開發者抓全量 setlist）；不分出來會全數落到 Unknown
 
-2. **AI Bot**（AI 訓練 / 即時檢索）— UA 含以下任一：
-   `GPTBot`, `ChatGPT-User`, `OAI-SearchBot`, `ClaudeBot`, `anthropic-ai`, `PerplexityBot`, `CCBot`
+2. **Malicious Bot：惡意路徑**（**優先於所有 UA 白名單**）— Path 命中：
+   `.php`, `/wp-*`, `/wordpress`, `/blog`, `wp-json`, `/.env*`, `/.git`, `/.aws|ssh|docker|…`,
+   `xmlrpc`, `/cgi-bin`, `/admin`, `wlwmanifest`, `/ALFA_DATA`, `/vendor/`, `HNAP1`, `boaform`,
+   `/media/system/`, `/cdn.js`, `aws-config`, `..`（traversal）, `/@fs/`, `/static//`,
+   `secrets|credentials|service-account|firebase-config|rclone|config|settings|env` 檔名,
+   `/phpinfo`, `/graphql|gql`, `/actuator`, `/laravel/`, `/server-status|console|jenkins|phpmyadmin|…`,
+   `/login|signin|signup|register|account|dashboard|fetch|auth/callback`（皆非站內路由）,
+   `/api/(.env|config|settings|openapi.json|v1|v2|health)`, `/.well-known/` 非 `acme-challenge`
+   ※ **UA 掛 Googlebot／ClaudeBot／MistralAI 但打 `/.env` 的一律算這類**。2026-09-06 以三家
+   官方 IP JSON 驗證：官方 IP 惡意路徑 0 筆、打惡意路徑的全不在清單且為同一批 GCP 機器輪換
+   8 種 bot UA ⇒ 假冒 UA 是常態，UA 白名單不能當信任依據
 
-3. **Social Preview Bot**（分享預覽用）— UA 含以下任一：
-   `facebookexternalhit`, `FacebookBot`, `TwitterBot`, `Discordbot`, `WhatsApp`, `Slackbot`, `LinkedInBot`
+3. **Search Engine Bot** — UA 含：`Googlebot`, `bingbot`, `BingPreview`, `Applebot`, `DuckDuckBot`,
+   `YandexBot`, `Baiduspider`, `Amazonbot`, `Amzn-SearchBot`, `PetalBot`
 
-4. **Malicious Bot**（惡意 / 攻擊）— 命中以下任一：
-   - UA 含 `Bytespider`, `AhrefsBot`, `SemrushBot`, `MJ12bot`, `DotBot`（aggressive scraper）
-   - UA 含 `Palo Alto Networks`, `l9scan`, `leakix`, `expanse`, `censys`, `shodan`（網路安全掃描）
-   - UA 為 `-` 或空字串
-   - Path 命中：`.php`, `/wp-*`, `/.env`, `/.git`, `/xmlrpc`, `/cgi-bin`, `/admin`, `wlwmanifest`, `/ALFA_DATA`, `/vendor/`, `HNAP1`, `boaform`, `/media/system/`, `/cdn.js`, `/aws-config`, `/aws.config`, directory traversal (`..`)
-   - Path 為 `/.well-known/` 但不是 `/.well-known/acme-challenge/`（ACME 給 cert 用）
+4. **AI Bot** — UA 含：`GPTBot`, `ChatGPT-User`, `OAI-SearchBot`, `ClaudeBot`, `Claude-User`,
+   `Claude-SearchBot`, `anthropic-ai`, `PerplexityBot`, `CCBot`, `MistralAI-User`, `meta-externalagent`
+   ※ 用戶裁示（2026-09-06）：AI 讀站不反對，robots.txt 維持 `Allow: /`
 
-5. **Real User**（真實使用者）— IP 滿足以下任一：
-   - 載入 `/assets/dist/tool.js` 或 `/assets/dist/tool.css`（SPA bundle）
-   - 載入 `/api/songlist.json`、`/api/yt/latest`、`/api/stats/last-updated` 等 SPA 入口 API
-   - 載入 `/favicon.ico` 且同 IP 也訪問過 SPA 路徑（`/`, `/songlist`, `/setlist`, `/streamlist`, `/aliases`, `/analytics`）
-   ※ 這個定義會把「首次訪問且 tool.js 從 CDN cache 命中沒回 origin」的真人也算進去
+5. **Social Preview Bot** — UA 含：`facebookexternalhit`, `FacebookBot`, `Twitterbot`, `Discordbot`,
+   `WhatsApp`, `Slackbot`, `LinkedInBot`, `TelegramBot`, `line-poker`
 
-6. **Unknown**（其他）— 都未命中。可能是預覽 bot、未識別的 crawler、或載入頁面但沒下載 JS bundle 的訪客。
+6. **Malicious Bot：UA** — 任一：
+   - `Bytespider`, `AhrefsBot`, `SemrushBot`, `MJ12bot`, `DotBot`（aggressive scraper）
+   - `Palo Alto Networks`, `l9scan`, `leakix`, `expanse`, `censys`, `shodan`, `zgrab`, `masscan`,
+     `nuclei`, `sqlmap`, `nikto`, `wpscan`, `InternetMeasurement`, `CriminalIP`（網路掃描）
+   - 固定假 UA：`iPhone OS 13_2_3`（騰訊雲上百 IP 只打 `/`）、`Android 5.0; SM-G900P`、
+     `quic-go`、`WordPress/x.y`（pingback 偽裝）
+   - 截斷／畸形瀏覽器 UA：以 `AppleWebKit/537.36` 結尾（無 Chrome／Safari token）、
+     `Mozilla/5.0 (…) Chrome/NNN.0.0.0` 缺 AppleWebKit、以引號開頭
+   - UA 為 `-` 或空字串（2026-08 佔 47%，109 個 IP 全掃 `.php`）
+   - **IP 多數決**：同 IP 惡意佔比 ≥80% 且 ≥10 筆者，其餘打 `/` 的探路請求一併算惡意
+
+7. **Real User**（真實使用者）— **IP 級**判定，四條件**全部**成立：
+   - 以瀏覽器型 UA（`Mozilla/` 開頭且不含 bot／headless／Go-http／curl 等字樣）載入過任一：
+     v3 bundle `/assets/index-<hash>.js`（或其他 Vite hash chunk）、v2 期的 `/assets/dist/tool.js|css`、
+     `/data/manifest.json`、`/assets/data/nav.json`、`/api/setlist/manifest`、`/api/yt/latest`、
+     `/api/stats/last-updated`、`/api/songlist.json`
+   - 同 IP **零**惡意請求
+   - 同 IP **無** bot UA 請求
+   - 有站內脈絡：referer 含 `m-b.win`，或 SPA 路由（`/`, `/setlist`, `/clothes/*` …）拿過 200／304
+   ※ 寬鬆版（只看 bundle）會把混用瀏覽器 UA 的掃描器算成真人（2026-08 有 28 個 IP 因此被剔除）。
+   資料中心 IP 的 headless 渲染（各 3～5 筆、UA 像真人）仍會漏進來，看附錄 F 人工扣
+
+8. **Unknown** — 都未命中。多為打 `/`／`robots.txt`／`favicon.ico` 一兩下就走的探路者、
+   重放舊 index.html 抓舊 hash JS 的爬蟲、以及 headless 渲染
 
 **輸出表：**
 
-| Type | Requests | % | Unique IPs | Note |
-|------|----------|---|------------|------|
+| Type | Requests | % | Unique IPs | 流量 MB |
+|------|----------|---|------------|---------|
 | Real User | N | X% | N | 真實受眾 |
 | Search Engine | N | X% | N | SEO 來源 |
 | AI Bot | N | X% | N | LLM 訓練 / 引用 |
 | Social Preview | N | X% | N | 分享連結時的預覽 |
 | Malicious Bot | N | X% | N | 攻擊 / 掃描 |
+| Internal | N | X% | N | 開發者／CI／Lambda／PubSub |
 | Unknown | N | X% | N | 無法分類 |
 
-**重點觀察**：「Real User 請求數 vs Unknown 請求數」的比例可看出多少訪客真的在用網站、多少只是路過。
+**重點觀察**：真人 IP 數才是「這個月有多少人來」的指標（2026-08 約 40 IP／月，TW／JP／TH 為主）；
+請求數會被少數重度使用者拉高。
 
 #### 4.5 Top IPs (Top 20)
 
@@ -201,7 +249,8 @@ DFW=Dallas  IST=Istanbul  DEL=Delhi
 
 #### 4.6 Country Distribution
 
-對所有 IP 用 DB-IP Lite 查 country，列出兩張表（總流量含 bot；真實使用者只看載過 tool.js 的 IP）。
+對所有 IP 用 DB-IP Lite 查 country，列出兩張表（總流量含 bot；真實使用者＝4.4 第 7 類的 IP）。
+US 在真人表裡通常是資料中心的 headless 渲染（各 3～5 筆），真受眾看 TW／JP／HK／TH／KR。
 
 **4.6a 全流量國家分布 (Top 15)：**
 
@@ -234,7 +283,9 @@ DFW=Dallas  IST=Istanbul  DEL=Delhi
 
 | Asset | Hits |
 |-------|------|
-| /assets/dist/tool.js | N |
+| /assets/index-HASH.js | N |
+| /assets/index-HASH.css | N |
+| /data/manifest.json | N |
 
 **Edge Location Distribution (Real Traffic Only):**
 
@@ -257,8 +308,12 @@ DFW=Dallas  IST=Istanbul  DEL=Delhi
 |----------|-------|------|
 | Bot paths → 404 (blocked by function) | N | Function working |
 | Bot paths → 301 (HTTP redirect先擋) | N | Bot used HTTP, redirected before function |
-| Bot paths → 403 (S3 origin reject) | N | Path 不在 bucket |
-| Bot paths → 200 (leaked) | N | Needs attention（理想為 0） |
+| Bot paths → 403 (S3 origin reject) | N | Path 不在 bucket（OAC 無 ListBucket ⇒ AccessDenied XML）／POST・OPTIONS 打 S3 ⇒ InvalidRequestMethod／Function UA blocklist（`x-edge-result-type` 可區分） |
+| Bot paths → 200 (leaked) | N | Needs attention（理想為 0）。掃 `/` 的（Palo Alto Xpanse 等）拿 200 屬正常，首頁本來公開 |
+
+※ 403→404 對齊方案（CloudFront Custom Error Response）2026-09-06 評估後**裁示不做**：
+真人一個月只有 20 筆碰到 S3 403 且全是瀏覽器自動抓的缺圖／`.map`，收益趨近零，
+卻會連帶改寫 API Gateway 與 `/tb/*` 的 403。不要再提。
 
 #### 4.10 Hourly Traffic Pattern (台灣時間)
 
@@ -273,8 +328,17 @@ Based on the analysis, recommend actions prioritizing free solutions:
 - Block specific high-frequency IPs/CIDRs in BotBlockerFunction
 - Change HTTP redirect behavior if most bots use HTTP
 
+**不要建議的（2026-09-06 已驗證無效或裁示不做）：**
+- **UA blocklist／whitelist 對付假冒 AI 爬蟲**：偽裝者換個 UA 就過，真 Mistral／OpenAI／Anthropic
+  的官方 IP 從未打過惡意路徑。防線只能是路徑規則（現況已 100% 擋下）。要驗真用官方 IP JSON：
+  `openai.com/chatgpt-user.json`／`gptbot.json`／`searchbot.json`、`claude.com/crawling/bots.json`、
+  `mistral.ai/mistralai-user-ips.json`
+- 403→404 Custom Error Response（見 4.9）
+- 把 `/graphql`、`/@fs/` 等從 S3 403 改成 Function 404：省的只是微量 S3 origin 請求費，優先度極低
+
 **Paid options (mention only if necessary, with cost):**
-- AWS WAF rate limiting (~$5/month + $0.60/M reqs)
+- AWS WAF rate limiting (~$5/month + $0.60/M reqs)——流量全在免費額度內，掃描器已被免費層擋掉，
+  目前沒有理由
 
 ### Step 5: Update Last Report Timestamp
 
@@ -298,3 +362,6 @@ Format: `YYYY-MM-DD HH:MM:SS UTC`（使用 `date -u`）
 - Report language: Traditional Chinese (繁體中文)
 - GeoIP DB: DB-IP Lite mmdb，自動更新（35 天 cache），attribution: "IP geolocation by DB-IP"
 - GeoIP lookup script 路徑：`{skill_dir}/lookup-country.mjs`，第一次執行需 `npm install`（已配置 `package.json`）
+- 分析腳本：`{skill_dir}/analyze.mjs`（零相依）；自家 IP 清單 `{skill_dir}/internal-ips.txt`（**gitignored，勿進版，勿在報告或 memory 以外的地方寫出具體 IP**）
+- Step 5 的結束時間寫**日誌最後一筆的時間**而非「現在」：CloudFront 標準日誌投遞延遲可達數十分鐘，寫現在時刻會漏掉延遲到達的尾巴
+- 已知的自家系統流量（別當成 Unknown）：AWS 東京排程函式每 10 分鐘 `GET /api/streamlist?limit=3`（UTC 14:00～19:50，UA `node`，每次不同 AWS JP IP；**來源尚未在 repo 內找到**，待確認）、snapshot cron 07:30／20:00 UTC 抓 `history.md`＋`changelog.json`、CI 每次部署 `npm run snapshot` 逐月抓 setlist（UA `node`，GitHub runner IP）
