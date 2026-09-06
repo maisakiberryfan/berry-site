@@ -193,8 +193,12 @@ IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
 
 漏 3／4 的症狀相同且都只在部署後才看得出來：站內點得到，直接輸入網址或 F5 就 404。
 兩處比對前都會 `toLowerCase()`（URL 路徑大小寫敏感），清單一律小寫。
-非白名單路徑回 `index.html` 的 body ＋ **404 狀態碼**（讓前端渲染站內 NotFound 頁，
-同時不製造 soft 404）。
+非白名單路徑兩站行為**不同**：CF 備用站（worker）回 `index.html` 的 body ＋ **404 狀態碼**
+（前端渲染站內 NotFound 頁、不製造 soft 404）；AWS 主站的 Function 對「非白名單、非惡意、
+非動態前綴」的路徑不處理、直接交給 S3 ⇒ 不存在的 key 回 **403 AccessDenied XML**
+（OAC 無 ListBucket）。2026-09-06 評估過用 CloudFront Custom Error Response 把 403 映射成
+404＋`index.html` 對齊兩站，因真人一個月只有 20 筆碰到（全是瀏覽器自動抓的缺圖／`.map`），
+且會連帶改寫 API Gateway 與 `/tb/*` 的 403，**裁示不做**。
 
 **動態段路由**（`/clothes/:id`、`/discography/:id`，2026-08-14 詳細頁 path 化）：
 前綴命中就一定 rewrite 成站內 HTML —— **認不得的 id 也必須拿到 SPA 殼**，否則直接落到
@@ -406,7 +410,9 @@ AWS EventBridge 為主要排程。CF cron 已停用。
   有 OG 快照的路徑改 rewrite `/og/<slug>.html`（同一份 SPA 殼，只有 meta 不同）
 - 動態段前綴（`/clothes/*`、`/discography/*`）→ id 在內嵌清單內就送該項目的
   `/og/<prefix>-<id>.html`，否則 `/index.html`（未知 id 絕不可落到 S3）
-- 其他 → 交給 S3（存在=200，不存在=真 404）
+- 其他 → 交給 S3（存在=200，不存在=**403 AccessDenied XML**，因 OAC 無 ListBucket；
+  POST／OPTIONS 亦為 403 InvalidRequestMethod）。真人打錯網址會看到這頁 XML，
+  但站內入口全是白名單路由，實測一個月無人手打到（見上方 SPA 路由白名單節的裁示）
 
 CF 備用站的 `entry-worker.js` 有對應的一份（惡意路徑 404／SPA 白名單），改一側請同步另一側。
 
