@@ -9,6 +9,13 @@ import { getSecret } from '../platform.js'
 //（送不出去只是少一則通知，內部 catch 已回 false 讓呼叫端知道未送達）
 const DISCORD_TIMEOUT_MS = 5_000
 
+// 有初回歌曲時的醒目化：embed 外的訊息本文（content）一行粗體＋每首一列、embed 改橘色、
+// 標題後綴首數、🆕 欄位提到最前。原本只是 embed 中段一個普通 field，跟歌曲數量混在一起
+// 一眼掃不出來（用戶 2026-09-13 指正）。初回＝新建 songlist 列、需要人工確認曲名/歌手，
+// 是這些通知裡唯一需要人動手的事
+const DEBUT_COLOR = 0xFF8C00
+const DISCORD_CONTENT_MAX = 1900   // Discord content 上限 2000
+
 /**
  * 發送 Discord 通知
  * @param {Object} env - 環境變數（包含 DISCORD_WEBHOOK_URL）
@@ -27,13 +34,15 @@ export async function sendDiscordNotification(env, payload) {
 
   try {
     const embed = buildEmbed(payload)
+    const body = { embeds: [embed] }
+
+    const debuts = collectDebutSongs(payload)
+    if (debuts.length > 0) highlightDebuts(body, embed, debuts)
 
     const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [embed]
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS)
     })
     if (!res.ok) {
@@ -48,6 +57,41 @@ export async function sendDiscordNotification(env, payload) {
     // 不拋出錯誤，避免影響主流程；回傳 false 讓呼叫端知道未送達（攔截去重依賴此值）
     return false
   }
+}
+
+/**
+ * 從三種通知型別抽出初回歌曲（統一形狀），無則空陣列
+ *   manual-parse / polling-parse：payload.debutSongs = [{trackNo, songName, artist}]
+ *   auto-update：payload.result.debutSongs = [{date, videoId, songs: [{trackNo, songName, artist}]}]
+ * @returns {{songName: string, artist: string, videoId?: string}[]}
+ */
+function collectDebutSongs(payload) {
+  if (Array.isArray(payload.debutSongs)) {
+    return payload.debutSongs.map(s => ({ songName: s.songName, artist: s.artist }))
+  }
+  if (Array.isArray(payload.result?.debutSongs)) {
+    return payload.result.debutSongs.flatMap(v =>
+      (v.songs || []).map(s => ({ songName: s.songName, artist: s.artist, videoId: v.videoId }))
+    )
+  }
+  return []
+}
+
+/**
+ * 有初回歌曲時把通知改成一眼可辨：content 本文（embed 之外、最上方）、橘色、標題首數、🆕 欄位置頂
+ */
+function highlightDebuts(body, embed, debuts) {
+  const lines = debuts.map(s =>
+    `• **${s.songName || '未知歌曲'}**（${s.artist || '未知歌手'}）${s.videoId ? ` \`${s.videoId}\`` : ''}`
+  )
+  body.content = [`🆕 **初回歌曲 ×${debuts.length}**（新建 songlist 列，請確認曲名／歌手）`, ...lines]
+    .join('\n').substring(0, DISCORD_CONTENT_MAX)
+
+  embed.color = DEBUT_COLOR
+  embed.title = `${embed.title}　🆕 ${debuts.length} 首初回`.substring(0, 256)
+
+  const i = embed.fields.findIndex(f => typeof f.name === 'string' && f.name.startsWith('🆕'))
+  if (i > 0) embed.fields.unshift(...embed.fields.splice(i, 1))
 }
 
 /**
