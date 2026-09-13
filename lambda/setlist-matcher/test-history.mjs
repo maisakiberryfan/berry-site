@@ -20,6 +20,7 @@ async function getComments(videoId) {
   return (d.items || []).map(i => ({
     text: i.snippet.topLevelComment.snippet.textDisplay,
     authorDisplayName: i.snippet.topLevelComment.snippet.authorDisplayName,
+    authorChannelId: i.snippet.topLevelComment.snippet.authorChannelId?.value ?? null,
     likeCount: i.snippet.topLevelComment.snippet.likeCount,
   }))
 }

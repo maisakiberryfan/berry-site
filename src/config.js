@@ -48,8 +48,13 @@ export const CONFIG = {
     likeWeight: 2,         // Weight for like count in scoring
     lengthWeight: 0.1,     // Weight for text length in scoring
     // 挑留言防護（2026-06 Gh6AsG8DmCI 事故後加入，邏輯與 yt-setlist-discord 對齊）
-    preferredAuthor: '@KL-gr1my',
-    cooldownHours: 6,        // 直播結束後 N 小時內只認 preferredAuthor
+    // 層 1 主判準＝頻道 ID（YouTube API 的 authorDisplayName 回的是 handle，KL 於 2026-09
+    // 由 @KL-gr1my 改名 @KLバカ 後整個 polling 窗口都在等舊 handle，MH0tVEZPxVk 延誤一天）；
+    // preferredAuthor 只在留言物件沒帶 authorChannelId 時 fallback ＋ log 顯示用。
+    // 換人時用 `node scripts/resolve-channel-id.mjs @handle` 查 ID（KL 再改名不必動這裡）
+    preferredAuthorChannelId: 'UCKcGhLko2mzHMRI5IUcfMiA',
+    preferredAuthor: '@KLバカ',
+    cooldownHours: 6,        // 直播結束後 N 小時內只認 preferredAuthor（channelId）
     tsLineRatio: 0.5,        // 層2：帶時間戳行數佔比門檻（排除逐曲感想留言）
     keywordMinTimestamps: 2, // 層3：關鍵字匹配仍需的最低時間戳數
   },
