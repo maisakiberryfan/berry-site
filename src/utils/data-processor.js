@@ -284,7 +284,7 @@ export class DataProcessor {
   /**
    * Find setlist comment from comments array（邏輯與 yt-setlist-discord 對齊）
    * 優先順序：
-   *   1. preferredAuthor（@KL-gr1my）≥3 時間戳，多篇按時間戳合併（上下半場分篇）
+   *   1. preferredAuthor（KL，比 channelId、handle 只作 fallback）≥3 時間戳，多篇按時間戳合併（上下半場分篇）
    *   2. ≥5 時間戳 且 帶戳行佔比 ≥ tsLineRatio（排除「一行戳＋多行感想」的逐曲感想留言）
    *   3. 關鍵字 + ≥keywordMinTimestamps 時間戳（整份無戳一定不是歌單）
    * @param {Array} comments - Comments array
@@ -292,7 +292,11 @@ export class DataProcessor {
    * @returns {{text: string, author: string, layer: number}|null}
    */
   findSetlistComment(comments, { onlyPreferred = false } = {}) {
-    const { preferredAuthor, tsLineRatio, keywordMinTimestamps } = CONFIG.commentFilter
+    const { preferredAuthorChannelId, preferredAuthor, tsLineRatio, keywordMinTimestamps } = CONFIG.commentFilter
+    // channelId 優先（handle 會改名）；沒帶 channelId 的留言物件（舊腳本）才退回比 handle
+    const isPreferredAuthor = c => c.authorChannelId
+      ? c.authorChannelId === preferredAuthorChannelId
+      : c.authorDisplayName === preferredAuthor
     const timestampRe = /\d{1,2}:\d{2}(?::\d{2})?/g
 
     const withMeta = comments.map(c => {
@@ -306,9 +310,7 @@ export class DataProcessor {
     })
 
     // 層1：preferredAuthor ≥3 時間戳（多篇合併）
-    const klComments = withMeta.filter(c =>
-      c.authorDisplayName === preferredAuthor && c._ts.length >= 3
-    )
+    const klComments = withMeta.filter(c => isPreferredAuthor(c) && c._ts.length >= 3)
     if (klComments.length > 0) {
       return { ...this.mergeByTimestamp(klComments), layer: 1 }
     }

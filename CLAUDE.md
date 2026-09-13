@@ -373,7 +373,11 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 
 ### 歌單解析防護（src/utils/data-processor.js）
 
-- **解析時機**：直播未結束不解析；結束後 6h 內只認 `@KL-gr1my`（cooldown，留言索引延遲 20~30 分）；
+- **解析時機**：直播未結束不解析；結束後 6h 內只認 KL（cooldown，留言索引延遲 20~30 分）——
+  **以 `preferredAuthorChannelId` 比對頻道 ID**，handle 字串只作 fallback（YouTube API 的
+  `authorDisplayName` 回的是 handle，2026-09-12 KL 由 `@KL-gr1my` 改名 `@KLバカ` 後整個 polling
+  窗口都在等舊 handle、MH0tVEZPxVk 延誤一天）。換人時 `node scripts/resolve-channel-id.mjs @handle`
+  查 ID 填進 config；
   上傳影片直接開放。手動 `/trigger-setlist-parse?force=true` 可 bypass cooldown＋全部防線
 - **挑留言三層**：KL ≥3 戳（多篇按時間戳合併）→ ≥5 戳且帶戳行佔比 ≥0.5（擋逐曲感想）→ 關鍵字＋≥2 戳
 - **熔斷**：fuzzy 結果 >50% 無法匹配（≥3 行）整場放棄，防垃圾入庫（2026-07-10 由 ≥5 收緊）

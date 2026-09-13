@@ -29,6 +29,8 @@ export async function getVideoComments(videoId, apiKey) {
     return data.items?.map(item => ({
       text: item.snippet.topLevelComment.snippet.textDisplay,
       authorDisplayName: item.snippet.topLevelComment.snippet.authorDisplayName,
+      // 頻道 ID 不隨 handle 改名變動（authorDisplayName 回的是 handle，2026-09 KL 改名事件）
+      authorChannelId: item.snippet.topLevelComment.snippet.authorChannelId?.value ?? null,
       likeCount: item.snippet.topLevelComment.snippet.likeCount
     })) || []
   } catch (error) {
