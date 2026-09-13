@@ -802,13 +802,24 @@ app.get('/trigger-setlist-parse', async (c) => {
       }
       */
 
+      // 初回歌曲清單（與 polling-parse 同一份算法；notifier 的 manual-parse embed 本就吃這欄，
+      // 只是這裡從沒帶——手動補收錄的場一直看不到「新增初回歌曲」）
+      const debutSongs = parseResult.items
+        .filter(item => item.note && item.note.includes('初回'))
+        .map(item => ({
+          trackNo: item.trackNo,
+          songName: item.songName || '未知歌曲',
+          artist: item.artist || '未知歌手'
+        }))
+
       await sendDiscordNotification(c.env, {
         type: 'manual-parse',
         success: true,
         streamID,
         title: stream.title,
         songCount: parseResult.items.length,
-        skippedLines: parseResult.skippedLines?.length ? parseResult.skippedLines : undefined
+        skippedLines: parseResult.skippedLines?.length ? parseResult.skippedLines : undefined,
+        debutSongs: debutSongs.length > 0 ? debutSongs : undefined
       })
 
       return c.json({ success: true, streamID, songCount: parseResult.items.length, items: parseResult.items })
