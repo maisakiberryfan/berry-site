@@ -1,4 +1,5 @@
 ## 2026
+* 2026/10/11　[苺咲べりぃ 生誕＆6周年記念グッズ 受注締切（受注期間：～10/11まで）](https://x.com/MaisakiBerry/status/2107052599195431047)
 * 2026/09/05　[デビュー6周年🎉](https://x.com/MaisakiBerry/status/2095995324452278357)
 * 2026/08/09　[BGかなるフェス　昼の部出演決定❤](https://x.com/MaisakiBerry/status/2055305529233424648)
 * 2026/07/11　[XRライブイベント CROSS REALITY LIVE Vol.1 出演](https://x.com/1stStage_info/status/2065026266940506150)
