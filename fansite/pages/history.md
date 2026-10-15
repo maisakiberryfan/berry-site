@@ -1,4 +1,6 @@
 ## 2026
+* 2026/12/12　[むあんちゃん主催ライブ『Vivid One』出演決定](https://x.com/MaisakiBerry/status/2110597312255050233)
+* 2026/10/25　[苺咲べりぃ 11th Album『Dear xxx』発売（M3秋2026）](https://x.com/MaisakiBerry/status/2110706001288823058)
 * 2026/10/11　[苺咲べりぃ 生誕＆6周年記念グッズ 受注締切（受注期間：～10/11まで）](https://x.com/MaisakiBerry/status/2107052599195431047)
 * 2026/09/05　[デビュー6周年🎉](https://x.com/MaisakiBerry/status/2095995324452278357)
 * 2026/08/09　[BGかなるフェス　昼の部出演決定❤](https://x.com/MaisakiBerry/status/2055305529233424648)
