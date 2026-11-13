@@ -33,6 +33,7 @@ import {
   reorderSetlistSegment
 } from './routes/setlist.js'
 import aliasesApp from './routes/aliases.js'
+import { pubsubCallbackKey } from './utils/pubsub.js'
 
 const app = new Hono()
 
@@ -570,8 +571,8 @@ api.post('/get-comments', async (c) => {
 // PubSub topic 的唯一合法形狀（renewPubSubSubscription 與手動 curl 註冊的都是這個字串）
 const PUBSUB_TOPIC_PREFIX = 'https://www.youtube.com/xml/feeds/videos.xml?channel_id='
 
-// PubSubHubbub webhook
-app.get('/webhook/youtube', (c) => {
+// PubSubHubbub webhook —— 路由註冊在兩個 handler 之後（見 handlePubSubNotify 下方）
+function handlePubSubVerify(c) {
   // Subscription verification：驗證 hub.mode 與 hub.topic，
   // 否則任何人可向 hub 發起 unsubscribe，本端點無條件 echo challenge 等於替對方確認注銷
   const challenge = c.req.query('hub.challenge')
@@ -592,7 +593,7 @@ app.get('/webhook/youtube', (c) => {
     return c.text('Forbidden', 404)
   }
   return c.text('OK')
-})
+}
 
 // HMAC-SHA1 hex（PubSub X-Hub-Signature 驗證用，CF/Lambda 皆有 Web Crypto）
 async function hmacSha1Hex(secret, data) {
@@ -604,7 +605,7 @@ async function hmacSha1Hex(secret, data) {
   return [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-app.post('/webhook/youtube', async (c) => {
+async function handlePubSubNotify(c) {
   // 簽名驗證（hub.secret = TRIGGER_TOKEN）：2026-06-13 起所有訂閱已帶 secret
   //（手動重訂閱完成＋renewPubSubSubscription 自動續訂亦帶），無簽名＝偽造來源，一律拒絕。
   // ⚠️ header 的存在與形狀先驗、**確認後才讀 body**：這個端點對外開放（CloudFront
@@ -684,7 +685,33 @@ app.post('/webhook/youtube', async (c) => {
   }
 
   return c.text('OK', 200)
-})
+}
+
+// ── PubSub 回呼路由 ──
+// 正路是帶路徑段的 `/webhook/youtube/<key>`（key 由 TRIGGER_TOKEN 算出，見 src/utils/pubsub.js）：
+// 外人不知道 key 就無法替我們的回呼網址發訂閱、換掉訂閱密鑰。key 不符一律 404。
+// ⚠️ 請求記錄會印出完整路徑（含 key）。存取日誌是私有的所以可以接受，但不要把含這條路徑的
+//    log 貼到公開的地方。
+//
+// 舊路徑 `/webhook/youtube`（沒有 key）在過渡期照舊：2026-11 之前建立的訂閱還指向它，
+// lease 5 天，要等它們自然過期。續訂已經只訂新路徑，所以**確認新路徑收得到通知之後**
+// 就把這個開關改成 false——舊路徑一關，「任何人都能替回呼網址發訂閱」的洞才算補上。
+const LEGACY_PUBSUB_PATH_ENABLED = true
+
+async function hasValidPubSubKey(c) {
+  const secret = getSecret(c.env, 'TRIGGER_TOKEN')
+  if (!secret) return false
+  return timingSafeEqualStr(c.req.param('key') || '', await pubsubCallbackKey(secret))
+}
+
+app.get('/webhook/youtube/:key', async (c) =>
+  (await hasValidPubSubKey(c)) ? handlePubSubVerify(c) : c.text('Not Found', 404))
+app.post('/webhook/youtube/:key', async (c) =>
+  (await hasValidPubSubKey(c)) ? handlePubSubNotify(c) : c.text('Not Found', 404))
+app.get('/webhook/youtube', (c) =>
+  LEGACY_PUBSUB_PATH_ENABLED ? handlePubSubVerify(c) : c.text('Not Found', 404))
+app.post('/webhook/youtube', (c) =>
+  LEGACY_PUBSUB_PATH_ENABLED ? handlePubSubNotify(c) : c.text('Not Found', 404))
 
 // Songlist JSON proxy (for frontend)
 api.get('/songlist.json', async (c) => {

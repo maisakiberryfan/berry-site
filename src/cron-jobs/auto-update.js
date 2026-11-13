@@ -5,6 +5,7 @@
 import { DataFetcher } from './data-fetcher.js'
 import { DataProcessor } from '../utils/data-processor.js'
 import { sendDiscordNotification } from '../utils/discord-notifier.js'
+import { pubsubCallbackUrl } from '../utils/pubsub.js'
 // MIGRATED to yt-setlist-discord (2026-05-02): sendSetlistComment removed
 import { verifyRecentSetlists, sendWikiDiffNotification } from '../utils/wiki-verifier.js'
 import { getLiveDetails } from '../utils/youtube-api.js'
@@ -652,11 +653,21 @@ export async function renewPubSubSubscription(env) {
   // PUBSUB_CALLBACK_URL 的部署（測試環境、別人 clone 去跑的站）每天都會拿自己的 TRIGGER_TOKEN
   // 去「續訂」原站的訂閱——hub 照單全收，原站的訂閱密鑰就被換掉，之後的通知全部簽章不符被拒收，
   // 直到原站自己下一次續訂（2026-11-13 測試時實際發生過）。沒設就不訂閱，寧可沒有即時通知
-  const CALLBACK_URL = getSecret(env, 'PUBSUB_CALLBACK_URL')
-  if (!CALLBACK_URL) {
+  const callbackBase = getSecret(env, 'PUBSUB_CALLBACK_URL')
+  if (!callbackBase) {
     console.warn('[PUBSUB] 未設定 PUBSUB_CALLBACK_URL，跳過訂閱續訂（新影片改由每日排程補抓）')
     return false
   }
+  // hub.secret 與回呼網址的路徑段都出自 TRIGGER_TOKEN：沒有它既驗不了通知的簽章、
+  // 也算不出路徑段，訂了也收不到東西
+  const hubSecret = getSecret(env, 'TRIGGER_TOKEN')
+  if (!hubSecret) {
+    console.warn('[PUBSUB] 未設定 TRIGGER_TOKEN，跳過訂閱續訂')
+    return false
+  }
+  // 實際送給 hub 的是「設定的回呼網址＋路徑段」（見 src/utils/pubsub.js）。
+  // 刻意不印出來：路徑段等同密鑰
+  const CALLBACK_URL = await pubsubCallbackUrl(callbackBase, hubSecret)
   const HUB_URL = 'https://pubsubhubbub.appspot.com/subscribe'
 
   let allSuccess = true
@@ -672,8 +683,7 @@ export async function renewPubSubSubscription(env) {
       formData.append('hub.mode', 'subscribe')
       formData.append('hub.lease_seconds', '432000') // 5 天
       // hub.secret：之後的通知會帶 X-Hub-Signature（HMAC-SHA1），webhook 端驗證防偽造
-      const hubSecret = getSecret(env, 'TRIGGER_TOKEN')
-      if (hubSecret) formData.append('hub.secret', hubSecret)
+      formData.append('hub.secret', hubSecret)
 
       const response = await fetch(HUB_URL, {
         method: 'POST',

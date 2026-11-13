@@ -292,7 +292,7 @@ npm run snapshot                       # repo 根：＝ node fansite-v2/scripts/
 | 路由 | 說明 |
 |------|------|
 | `/health` | 健康檢查 + DB 連線測試 |
-| `/webhook/youtube` | PubSubHubbub webhook（GET 驗證 / POST 通知） |
+| `/webhook/youtube/<key>` | PubSubHubbub webhook（GET 驗證 / POST 通知）。`<key>` 由 TRIGGER_TOKEN 算出、不符即 404；沒有 key 的舊路徑在過渡期仍通，見下方「PubSubHubbub 訂閱」 |
 | `/trigger-update` | 手動觸發更新（POST, body: `{mode: "recent"\|"all"}`）需 token |
 | `/trigger-setlist-parse?streamID=xx` | 手動解析歌單（GET, 可加 `&force=true`）需 token |
 
@@ -580,22 +580,42 @@ cd fansite && npm run build:js
 - 新增 row 用 `_isNew` flag 區分 POST/PUT
 
 ### PubSubHubbub 訂閱
-- Lease 5 天，由每日排程的 `runAutoUpdate` **每天**自動續訂（自動帶 `hub.secret`=TRIGGER_TOKEN）；
-  回呼網址取自 `PUBSUB_CALLBACK_URL`，**沒有預設值**——未設就跳過續訂（見「第三條路」末段的事故）。
-  ⚠️ hub 不驗證「誰」發出訂閱：任何人拿這個回呼網址去訂閱，都能換掉訂閱密鑰、讓通知被拒收，
-  要等下一次每日續訂才復原（已知弱點，未處理）
+- Lease 5 天，由每日排程的 `runAutoUpdate` **每天**自動續訂（`hub.secret`=TRIGGER_TOKEN）。
+  `PUBSUB_CALLBACK_URL` **沒有預設值**，未設就跳過續訂；`TRIGGER_TOKEN` 未設同樣跳過
+- **回呼網址帶路徑段**（2026-11-14）：實際送給 hub 的是 `<PUBSUB_CALLBACK_URL>/<key>`，key＝
+  HMAC-SHA256(TRIGGER_TOKEN, 固定標籤) 的前 32 hex（`src/utils/pubsub.js`）。設定值仍只填
+  `https://<網域>/webhook/youtube`，key 由程式接上、不寫進任何設定或文件。
+  為什麼：hub 不驗證「誰」發出訂閱，只會回頭問回呼網址要不要。網址若猜得到，任何人都能替它發訂閱、
+  指定自己的密鑰，之後真的通知全部簽章不符被拒收，要等下一次每日續訂才復原
+  （2026-11-13 測試環境實際造成過，見「第三條路」末段）。key 不符的請求一律 404
+- ⚠️ **過渡期還沒結束**：舊路徑 `/webhook/youtube`（沒有 key）仍然照舊收驗證與通知
+  （`src/app.js` 的 `LEGACY_PUBSUB_PATH_ENABLED = true`），因為這之前建立的訂閱還指向它。
+  續訂已經只訂新路徑，舊訂閱會在 5 天內自然過期。**確認新路徑收得到通知之後把開關改成 false**——
+  舊路徑一關，上面那個洞才算補上。過渡期內同一則通知可能從新舊兩個訂閱各來一次，
+  入庫是 upsert、只有實際新增的那一方會被算成新影片，不會重複通知
+- ⚠️ 請求記錄會印出完整路徑（含 key）。CloudWatch／Workers 的 log 是私有的所以可接受，
+  但不要把含這條路徑的 log 貼到公開的地方；**改 TRIGGER_TOKEN 等於換一個 key**，舊訂閱全部失效，
+  要等下一次每日續訂（或手動重訂）才恢復
 - webhook 安全：GET 驗 `hub.mode=subscribe`＋topic 頻道白名單（拒外人注銷）；
   POST 驗 `X-Hub-Signature` HMAC-SHA1（**無簽名一律拒絕**；2026-06-13 全訂閱已帶 secret）
 - Lambda 上 POST 通知改 async self-invoke（立即回 200，防 hub timeout 重試重複處理）
-- **DNS 切換、長時間中斷後必須手動重新訂閱**（lease 過期 + callback 不可達 = 訂閱失效）
-- 手動訂閱指令（記得補 `hub.secret`，值同 TRIGGER_TOKEN）：
+- **DNS 切換、長時間中斷後必須手動重新訂閱**（lease 過期 + callback 不可達 = 訂閱失效）。
+  最省事的做法是讓每日工作提前跑一次（它會用正確的回呼網址續訂；`/trigger-update` 不會續訂，
+  只有排程路徑會）：
   ```bash
+  aws lambda invoke --function-name berry-api --cli-binary-format raw-in-base64-out \
+    --payload '{"source":"cron","job":"daily"}' /dev/stdout
+  ```
+  要手動對 hub 發訂閱的話，回呼網址得自己接上 key：
+  ```bash
+  KEY=$(node -e "console.log(require('crypto').createHmac('sha256',process.env.TRIGGER_TOKEN).update('pubsub-callback-v1').digest('hex').slice(0,32))")
   for CH in UC7A7bGRVdIwo93nqnA3x-OQ UCBOGwPeBtaPRU59j8jshdjQ UC2cgr_UtYukapRUt404In-A; do
     curl -X POST https://pubsubhubbub.appspot.com/subscribe \
-      -d "hub.callback=https://m-b.win/webhook/youtube&hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$CH&hub.verify=async&hub.mode=subscribe&hub.lease_seconds=432000&hub.secret=$TRIGGER_TOKEN"
+      -d "hub.callback=https://m-b.win/webhook/youtube/$KEY&hub.topic=https://www.youtube.com/xml/feeds/videos.xml?channel_id=$CH&hub.verify=async&hub.mode=subscribe&hub.lease_seconds=432000&hub.secret=$TRIGGER_TOKEN"
   done
   ```
-- 驗證：log 應出現 `GET /webhook/youtube?hub.challenge=...` 回應 200
+- 驗證：log 應出現 `GET /webhook/youtube/<key>?hub.challenge=...` 回應 200
+- 測試：`node scripts/test-pubsub.mjs`（不連網；路徑段、訂閱驗證、通知簽章、續訂送出的內容）
 
 ### 部署
 - **AWS / CF**：push 到 GitHub 自動部署
@@ -623,6 +643,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.15 | 2026-11-14 | YouTube 通知回呼防護（第一階段）：回呼網址改為 `<設定值>/<key>`（key 由 TRIGGER_TOKEN 算出，`src/utils/pubsub.js`），key 不符 404；續訂只訂新路徑、未設 `TRIGGER_TOKEN` 也跳過；沒有 key 的舊路徑以 `LEGACY_PUBSUB_PATH_ENABLED` 暫時保留，待舊訂閱過期並確認新路徑收得到通知後關閉 |
 | v3.14 | 2026-11-13 | 單機部署路線：新增 `entry-node.js`（重用 `entry-worker.js` 的 fetch，以本機檔案取代 ASSETS；內建排程、歌單比對與資料快照；訪客 IP 取自連線對端或受信任代理附加的 XFF 末段）＋`Dockerfile`／`docker-compose.yml`（網站＋MariaDB＋Caddy）、`DB_SSL=false`、`TRUSTED_PROXIES`；PubSub 回呼網址移除預設值（未設＝不續訂，避免別的部署蓋掉原站的訂閱）；接手指南改為兩條路線（單機 Docker／AWS＋Cloudflare） |
 | v3.13 | 2026-11-13 | 以「能被別人 clone 接手」為前提的整理：新增接手指南 `docs/HANDOVER.md`；matcher 加選配共享密鑰（`MATCHER_SHARED_SECRET`／`X-Matcher-Secret`，未設＝不驗證）＋API Gateway 節流；CloudFront 憑證 ARN 改為必填參數（`ACM_CERTIFICATE_ARN`）、matcher 的主站網址改取自 stack 輸出；文件與腳本中的個人環境識別（主機名、本機路徑、帳號編號、舊 repo 連結）換成佔位字；Claude Code skills 移出版控（`.claude/skills/` 改為忽略） |
 | v3.12 | 2026-11-13 | 音樂作品收錄 11th Album『Dear xxx』（專輯 11 張）＋客座新增 SOUND VOLTEX 收錄曲「CAKE,Cake'n Cake!」（新類型 `game`）；個人資料頭像改 11th 無字主插畫圓裁、`og/profile.jpg`／`og/discography.jpg` 換 11th |
@@ -642,4 +663,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-11-13
+**最後更新**：2026-11-14
