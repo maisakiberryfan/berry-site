@@ -65,8 +65,8 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
   ＋`OG_PAGES`）／`scripts/og-config.mjs`。**改完一律跑 `npm run check:routes`**
 - **OG 快照**：`scripts/og-config.mjs`（清單，資料源＝`discographyData.js`／`clothesData.js`）
   ＋`scripts/generate-og-html.mjs`（build 後把 `dist/index.html` 複製成
-  `dist/og/<slug>.html`，只換 og:*／description／twitter:card）。目前 41 支＝頁級 4
-  ＋專輯/單曲 21（封面 520x520，twitter:card 用 `summary` 免被裁）＋衣裝 16
+  `dist/og/<slug>.html`，只換 og:*／description／twitter:card）。目前 42 支＝頁級 4
+  ＋專輯/單曲 22（封面 520x520，twitter:card 用 `summary` 免被裁）＋衣裝 16
   （每套一張專屬卡）
 - **OG 卡圖**：`fansite/img/og/`（源在 v2 目錄、隨兩支 workflow 的 `fansite/img/` 整目錄
   同步上線）——`site.jpg`（站台卡，index.html 與 `/setlist` 共用）／`discography.jpg`／
@@ -77,6 +77,24 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
 - ⚠️ **`clothesData.js`／`discographyData.js` 必須維持裸 Node 可 import**
   （不得 import `assets.js` 這類吃 `import.meta.env` 的模組）——衣裝的
   `clothesGalleryImages` 因此搬進 Clothes.svelte
+
+### 新專輯發售時的更新清單（11th『Dear xxx』2026-11-13 實作為範本）
+素材：官方特設頁（Wix，**曲目是白字透明底的圖片**、機器讀不到，要合成到深色底才看得見）＋
+BOOTH 商品頁（`https://booth.pm/ja/items/<id>.json` 有純文字曲目／credits／staff＝權威，curl 可取）。
+1. 封面 → `fansite/img/albums/<id>.webp`（ジャケット原圖等比縮到寬 520）
+2. `discographyData.js` 的 `albums` 開頭加條目：songID 對 `/api/songlist`（曲名精確相符且
+   artist＝苺咲べりぃ；還沒唱過的留 `null`，唱過後回填）、`links.xfd` 對 `/api/streamlist` 搜【XFD】。
+   出現新職稱（如 bass／drums）要補 `Discography.svelte` 三語 `roleLabel`
+3. `template.yaml` 的 `ogDisco` 加 id（AWS 側內嵌清單）→ `npm run check:routes`
+4. 個人資料頭像：**無字主插畫**（封面會帶到標題字）圓裁 540×540 →
+   `fansite/img/profile/avatar-<n>th.webp`，改 `Profile.svelte` 的 src
+5. 兩張寫死「最新作」的 OG 卡要重製（皆 1200×630）：`fansite/img/og/profile.jpg`
+   （NEW RELEASE 卡：封面＋標題＋「Nth Album ・ 日期」）與 `discography.jpg`（最新 8 張拼貼＋LATEST 徽章）
+6. `fansite/pages/history.md`：條目照慣例寫成 `[Nth Album 『Title』 発売](<官方特設頁>)`
+7. 上方「OG 快照」的支數加一
+
+單曲只做 1～3（條目加在 `singles`）；客座／遊戲收錄曲只在 `guests` 加條目
+（`roleKey` 有新類型時補 `guestRole` 三語）。建檔成果一律人確認後才 commit。
 
 ### API 契約
 `SPEC-api.md` 是唯一依據（三套回應信封、ETag 範圍、rate limit 30 寫入/分）。要點：POST /api/setlist 必帶 `X-Source: user`（client.js 已自動）；編輯 UI 一律「一次儲存」不做逐鍵送出；批次操作用單一陣列 POST（算 1 次限流）。

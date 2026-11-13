@@ -211,7 +211,8 @@ S3 body），統一回 200。
 HTML。`fansite-v2/scripts/generate-og-html.mjs`（`npm run build` 已串上）在 build 後把
 `dist/index.html` 複製成 `dist/og/<slug>.html`，只換 `og:*`／`description`／`twitter:card`：
 - 清單＝`scripts/og-config.mjs`（頁級 4 支 ＋ 每張專輯／單曲 ＋ 每套衣裝，**資料來自頁面
-  自己的資料模組** ⇒ 新增專輯只要改 `discographyData.js`）
+  自己的資料模組** ⇒ OG 檔隨 `discographyData.js` 自動產生；但新專輯另有 `ogDisco` 清單、
+  頭像、兩張寫死最新作的卡要連動——清單見 `fansite-v2/CLAUDE.md`「新專輯發售時的更新清單」）
 - **AWS**：`BotBlockerFunction` 把 `/discography/<id>` rewrite 成 `/og/discography-<id>.html`，
   且**內嵌一份 id 清單**（function 問不到 S3 有沒有物件，機械式 rewrite 會讓未知 id 吃 403）。
   清單漏更新的代價只是該項目退回站台級預覽，不會壞站
@@ -582,6 +583,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.12 | 2026-11-13 | 音樂作品收錄 11th Album『Dear xxx』（專輯 11 張）＋客座新增 SOUND VOLTEX 收錄曲「CAKE,Cake'n Cake!」（新類型 `game`）；個人資料頭像改 11th 無字主插畫圓裁、`og/profile.jpg`／`og/discography.jpg` 換 11th |
 | v3.11 | 2026-08-14 | 詳細頁 path 化＋per-page OG：`/clothes#20260611`→`/clothes/20260611`、`/discography#rebirthr`→`/discography/rebirthr`（router 加動態段 `/:id`＋`route.pattern/page/id`，舊 hash 連結 mount 時自動 replace 轉址）；build 後產 `dist/og/<slug>.html` 41 支（頁級 4＋專輯/單曲 21＋衣裝 16，資料源＝各頁資料模組），AWS 由 BotBlockerFunction rewrite、CF 由 worker 向 ASSETS 取同一支檔；白名單一致性檢查 `npm run check:routes`（五份清單全比） |
 | v3.10 | 2026-08-13 | 新增「音樂作品」（Discography）頁（v3/fansite-v2）：專輯 10・單曲 11・客座 9 的封面牆＋詳細面板（曲目/staff/特設・BOOTH・配信・XFD 連結/instrumental 註記），曲目 🎤N 鈕就地展開歌枠演唱場次（帶 ?t= 秒數）、`/setlist?song=` 跳轉；封面圖 `fansite/img/albums/`（隨 CI 上線）；dev 圖片改 vite middleware 直讀本地 `fansite/img`；資料權威序＝官方 discography 頁＞BOOTH＞特設頁＞iTunes＞wiki（wiki 累計漏曲 5 處不採信） |
 | v3.9 | 2026-08-09 | 表格快速搜尋語法（由 fansite-v2 移植）：四張表頁的進階搜尋卡片首列新增快速搜尋框，支援 `欄位:值`（三語別名表）、引號值、全形冒號／空白／彎引號、`欄位:*`＝非空、空白分隔 AND；認不得的欄位名整串退回全文比對（`12:34` 不誤拆）；「?」語法說明面板（三語＋可點擊套用的範例）；與既有多欄運算子搜尋並存（統一 `applyTableFilters()` 出口合併送 `setFilter`），刪空搜尋框不再誤清 headerFilter |
@@ -598,4 +600,4 @@ cd fansite && npm run build:js
 | v2.8 | 2026-01-20 | Analytics SQL 小幫手 |
 | v2.7 | 2025-12-29 | 多語言優化、GitHub commit 代理 |
 
-**最後更新**：2026-08-14
+**最後更新**：2026-11-13

@@ -21,7 +21,7 @@
 //   type          'album' | 'single' —— ⚠️ 保留欄位，目前頁面完全未讀取（專輯／單曲之分
 //                 來自 albums / singles 兩個匯出，卡片標籤看的是有無 ordinal）。留著是為了
 //                 日後若改成單一清單再分類；有新增資料時請照樣填。
-//   ordinal       專輯序數（1st~10th）；單曲無
+//   ordinal       專輯序數（1st~11th）；單曲無
 //   title         作品名（原文）
 //   releaseDate   YYYY-MM-DD（專輯＝官方特設頁/M3 場次日；單曲＝iTunes 配信日）
 //   links         有才顯示（1st 絕版、單曲無特設頁）：
@@ -42,6 +42,65 @@
 
 /** 專輯（新→舊，同衣裝頁慣例；ordinal 保留原始序數） */
 export const albums = [
+  {
+    id: 'dear-xxx',
+    type: 'album',
+    ordinal: 11,
+    title: 'Dear xxx',
+    releaseDate: '2026-10-25',
+    links: {
+      official: 'https://www.maisakiberry.com/11th-dearxxx',
+      booth: 'https://booth.pm/ja/items/8992308',
+      xfd: 'mAmfQ1dUMo4',
+    },
+    instrumental: true,
+    staff: [
+      { roles: ['illust'], name: 'BORUMETE' },
+      { roles: ['sdIllust'], name: '小吉よこ' },
+      { roles: ['design', 'logo'], name: '来宮りお' },
+      { roles: ['emblem'], name: 'ますだめぐみ' },
+      { roles: ['mastering'], name: 'スタジオセブン' },
+    ],
+    tracks: [
+      {
+        songID: 1058,
+        name: 'どうか今だけは',
+        credits: [
+          { roles: ['lyrics'], name: '葉月リョウヘイ(U-RASIA)' },
+          { roles: ['music'], name: 'ひかげ' },
+        ],
+      },
+      {
+        songID: 1064,
+        name: 'Faraway',
+        credits: [
+          { roles: ['lyrics'], name: '結崎有理' },
+          { roles: ['music'], name: 'ねぎとろ。' },
+        ],
+      },
+      {
+        songID: 1060,
+        name: 'エコー',
+        credits: [
+          { roles: ['lyrics'], name: '七乃二条（創作集団「カタリスト」）' },
+          { roles: ['music'], name: 'Yuy（Secret Messenger）' },
+          { roles: ['bass'], name: 'あばら' },
+          { roles: ['drums'], name: 'hiroto kanzaki' },
+          { roles: ['mix'], name: '羽鳥風画' },
+        ],
+      },
+      // 2026-11-13 時 songlist 尚無此曲（未在歌枠唱過）；唱過後回填 songID
+      {
+        songID: null,
+        name: 'Unbecoming',
+        credits: [
+          { roles: ['lyrics'], name: 'Kyrie' },
+          { roles: ['music'], name: '羽鳥風画' },
+        ],
+      },
+      { songID: 1063, name: 'ひとつのカタチ', credits: [{ roles: ['lyrics', 'music'], name: 'ねぎとろ。' }] },
+    ],
+  },
   {
     id: 'rebirthr',
     type: 'album',
@@ -726,7 +785,7 @@ export const singles = [
  *   id       hash／key 用 slug
  *   work     作品／廠牌／專輯名（原文）
  *   title    曲名（單曲時）；多曲時放 tracks
- *   roleKey  參與形式，三語標籤在頁面字典（ed／theme／feature；缺省＝僅演唱）
+ *   roleKey  參與形式，三語標籤在頁面字典（ed／theme／feature／game；缺省＝僅演唱）
  *   noteKey  補充說明的字典 key（資訊不全時用）
  *   credits  同專輯 track 的結構
  *   date     YYYY-MM-DD（已知者）
@@ -748,6 +807,23 @@ export const guests = [
     date: '2026-04-26',
     credits: [{ roles: ['vocal'], name: '苺咲べりぃ' }],
     youtube: '8FOX4tC2rdA',
+    songID: null,
+  },
+  {
+    id: 'cake-cake-n-cake',
+    // KONAMI 音樂遊戲收錄曲（BEMANI PRO LEAGUE -SEASON 5- オリジナル楽曲コンテスト Prize 賞）；
+    // 遊戲內 artist 表記就是「苺咲べりぃ」。來源：RemyWiki 曲目頁＋本人告知推文（history.md 2026/01/07）
+    work: 'SOUND VOLTEX ∇',
+    title: "CAKE,Cake'n Cake!",
+    roleKey: 'game',
+    // 遊戲內解禁日（告知推文為前一日 2026-01-07）
+    date: '2026-01-08',
+    credits: [
+      { roles: ['vocal'], name: '苺咲べりぃ' },
+      { roles: ['lyrics', 'music'], name: 'ねぎとろ。' },
+    ],
+    // 無官方 MV（history.md 連的是玩家的譜面確認影片，不當 MV 放）；連結給本人告知推文
+    links: { official: 'https://x.com/MaisakiBerry/status/2009086847532855343' },
     songID: null,
   },
   {

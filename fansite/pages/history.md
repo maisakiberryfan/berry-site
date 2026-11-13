@@ -1,6 +1,6 @@
 ## 2026
 * 2026/12/12　[むあんちゃん主催ライブ『Vivid One』出演決定](https://x.com/MaisakiBerry/status/2110597312255050233)
-* 2026/10/25　[苺咲べりぃ 11th Album『Dear xxx』発売（M3秋2026）](https://x.com/MaisakiBerry/status/2110706001288823058)
+* 2026/10/25　[11th Album 『Dear xxx』 発売](https://www.maisakiberry.com/11th-dearxxx)
 * 2026/10/11　[苺咲べりぃ 生誕＆6周年記念グッズ 受注締切（受注期間：～10/11まで）](https://x.com/MaisakiBerry/status/2107052599195431047)
 * 2026/09/05　[デビュー6周年🎉](https://x.com/MaisakiBerry/status/2095995324452278357)
 * 2026/08/09　[BGかなるフェス　昼の部出演決定❤](https://x.com/MaisakiBerry/status/2055305529233424648)
@@ -12,7 +12,7 @@
 * 2026/02/14　[ライブイベント「#ぶいかふぇ♪」vol.208 出演キャスト](https://x.com/MaisakiBerry/status/2022655123101811036)
 * 2026/02/12　[新しいお洋服をみて♥](https://www.youtube.com/live/OraWP0bLPfY)
 * 2026/02/11　[V COLLECTION【#CHETCollection #11】](https://x.com/C_H_E_T_art/status/2021561521365823874)
-* 2026/01/07　SOUND VORTEX新曲「CAKE,Cake'n Cake!」[twitter](https://x.com/MaisakiBerry/status/2009086847532855343) / [youtube](https://www.youtube.com/watch?v=JxIktLT2VqY)
+* 2026/01/07　SOUND VOLTEX新曲「CAKE,Cake'n Cake!」[twitter](https://x.com/MaisakiBerry/status/2009086847532855343) / [youtube](https://www.youtube.com/watch?v=JxIktLT2VqY)
 
 ## 2025
 * 2025/12/20　Single 『いつも通りのI love you』[youtube](https://www.youtube.com/watch?v=4kQH6ELDJ8Q) / [booth](https://maisakiberry.booth.pm/items/7776451)

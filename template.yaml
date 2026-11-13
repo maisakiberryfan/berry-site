@@ -415,7 +415,7 @@ Resources:
           //    cd fansite-v2 && npm run check:routes（清單真相＝各頁的資料模組）
           var ogPages = ['/discography', '/clothes', '/profile', '/setlist'];
           var ogClothes = '|20260611|20260212|20250526|20250120|20241205|20240617|20240116|20230905|20230515|20220905|20220815|20220515|20210910|20210724|20210213|20200815|';
-          var ogDisco = '|rebirthr|lucisphere|reverser|animania|eee|peace|bbb|serve|bouquet|strawberry-garden|itsumo-doori|kisetsu-no-hohaba|happy-likey|towalove|genjitsu|drop-note|happy-story|love-letter|niji-no-mukougawa|tasting-my-love|kakurenbo|';
+          var ogDisco = '|dear-xxx|rebirthr|lucisphere|reverser|animania|eee|peace|bbb|serve|bouquet|strawberry-garden|itsumo-doori|kisetsu-no-hohaba|happy-likey|towalove|genjitsu|drop-note|happy-story|love-letter|niji-no-mukougawa|tasting-my-love|kakurenbo|';
           var clean = (uri.replace(/\/$/, '') || '/').toLowerCase();
           if (spaRoutes.indexOf(clean) >= 0) {
             event.request.uri = ogPages.indexOf(clean) >= 0 ? '/og' + clean + '.html' : '/index.html';
