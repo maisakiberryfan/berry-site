@@ -40,3 +40,6 @@ fansite/data/
 *token*.txt
 *credential*
 aws?env*.txt
+
+# 單機部署：資料庫初始化用的備份檔（自己下載，不進版）
+db-init/*.sql

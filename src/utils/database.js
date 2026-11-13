@@ -75,7 +75,8 @@ export class Database {
       //   不支援（拋錯）、啟用驗證又過不了自簽憑證（internal error），只能省略 ssl。
       //   現用 root 帳號 REQUIRE SSL 會拒連；本地要連 DB 需建立允許非 TLS 的
       //   mbdb_test 專用帳號（dev 帳號 + .dev.vars 改用之）
-      ...(!this.dbConfig._viaHyperdrive && typeof globalThis.caches === 'undefined' &&
+      // - 單機部署（entry-node.js）且資料庫在本機沒開 TLS：DB_SSL=false → _noTls，省略 ssl
+      ...(!this.dbConfig._viaHyperdrive && !this.dbConfig._noTls && typeof globalThis.caches === 'undefined' &&
         { ssl: { rejectUnauthorized: false } }),
     });
   }

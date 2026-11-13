@@ -28,6 +28,8 @@ berry-site/
 │                              # data-processor.js、thumbnail.js…
 ├── entry-worker.js            # CF Workers 入口
 ├── entry-lambda.js            # AWS Lambda 入口
+├── entry-node.js              # 單機（VPS）正式入口：重用 entry-worker 的 fetch＋內建排程／比對
+├── entry-dev.js               # 本機開發入口（不可當正式環境）
 ├── template.yaml              # AWS SAM 模板
 ├── wrangler.toml              # CF Workers 設定
 └── lambda/setlist-matcher/    # Lambda 歌單模糊比對（獨立部署）
@@ -47,6 +49,34 @@ berry-site/
 | DB 連線 | mysql2 直連 | Hyperdrive 連線池（query cache 已關閉） |
 | Cron | EventBridge（主要） | 已停用 |
 | CDN | CloudFront TPE edge | CF（免費方案台灣繞 SIN） |
+
+### 第三條路：單機（`entry-node.js`＋Docker，2026-11-13）
+
+給沒有雲端帳號的接手者用，原站沒有跑這條路線（步驟在 `docs/HANDOVER.md` 路線 A）。
+`docker-compose.yml`＝網站（`Dockerfile`）＋MariaDB＋Caddy，資料庫與網站都不發布埠。要點：
+
+- **不是第三份入口邏輯**：`entry-node.js` import `entry-worker.js` 的 `fetch`，只把 `env.ASSETS` 換成
+  `@hono/node-server` 的 serveStatic（讀 `fansite-v2/dist`、`fansite/img`）。
+  ⇒ 改 `entry-worker.js` 的路由、OG、惡意路徑、安全標頭，單機路線會跟著變，**動它之前要想到兩邊**
+- **訪客 IP**：入口照 Lambda 的形狀填 `env.requestContext.http.sourceIp`，後端因此走 Lambda 那條判準、
+  不採信訪客自己送的 header。對端是 loopback 或在 `TRUSTED_PROXIES`（IPv4／CIDR）內才取 XFF 最後一段
+  ——compose 把內部網段 172.28.0.0/24 設進去；沒設而代理在別的容器，全站訪客會共用一個限流桶
+- **排程**：程序內每 20 秒對時一次，時間表在 `src/node-runtime.js`、抄自 `template.yaml`——
+  **改 EventBridge 的排程要同步改那裡**。`CRON_DISABLED=1` 可關
+- **歌單比對**：`LAMBDA_MATCHER_URL` 留空時把 matcher 的 handler 掛在 `/internal/match-setlist`，
+  只收本程序自己發的請求（對端 loopback 且沒有 XFF）＋密鑰（沒設就啟動時自動產生）。
+  ⚠️ handler 每次回傳同一個 headers 物件，包成 Response 時**必須複製**，否則伺服器層寫回去的
+  Content-Length 會留到下一個回應、把它截斷（實測踩到）
+- **快照**：排程以子程序跑 `fetch-snapshot.mjs`（`BERRY_API` 指向自己）寫進
+  `fansite-v2/public/data/`（compose 掛 volume），入口優先讀那裡；`/data/history.md` 與
+  `/data/changelog.json` 直接對應 repo 內的原始檔（compose 以 bind mount 掛進去）
+- **`DB_SSL=false`**（`platform.js` → `_noTls`）：資料庫在同一組容器、沒開 TLS 時用；未設＝行為不變
+- 純函式測試：`node scripts/test-node-runtime.mjs`（排程表、訪客 IP 判定）
+- 實測範圍（2026-11-13，開發機 Docker＋公開備份）：見 HANDOVER 路線 A 末段。**沒測過**：真實網域與憑證、
+  YouTube 即時通知、有金鑰時排程的實際抓取
+- ⚠️ **測試這條路線時不要讓每日工作真的跑起來，除非 `PUBSUB_CALLBACK_URL` 指向測試環境自己**：
+  每日工作會向 YouTube 通知中心續訂。2026-11-13 之前回呼網址有預設值（原站），測試容器因此把
+  正式站三個頻道的訂閱密鑰換掉了約 4 分鐘；預設值已移除（未設＝跳過續訂）
 
 ### 平台抽象 (`src/platform.js`)
 
@@ -550,7 +580,10 @@ cd fansite && npm run build:js
 - 新增 row 用 `_isNew` flag 區分 POST/PUT
 
 ### PubSubHubbub 訂閱
-- Lease 5 天，由 `runAutoUpdate` 每 4 天自動續訂（自動帶 `hub.secret`=TRIGGER_TOKEN）
+- Lease 5 天，由每日排程的 `runAutoUpdate` **每天**自動續訂（自動帶 `hub.secret`=TRIGGER_TOKEN）；
+  回呼網址取自 `PUBSUB_CALLBACK_URL`，**沒有預設值**——未設就跳過續訂（見「第三條路」末段的事故）。
+  ⚠️ hub 不驗證「誰」發出訂閱：任何人拿這個回呼網址去訂閱，都能換掉訂閱密鑰、讓通知被拒收，
+  要等下一次每日續訂才復原（已知弱點，未處理）
 - webhook 安全：GET 驗 `hub.mode=subscribe`＋topic 頻道白名單（拒外人注銷）；
   POST 驗 `X-Hub-Signature` HMAC-SHA1（**無簽名一律拒絕**；2026-06-13 全訂閱已帶 secret）
 - Lambda 上 POST 通知改 async self-invoke（立即回 200，防 hub timeout 重試重複處理）
@@ -590,6 +623,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.14 | 2026-11-13 | 單機部署路線：新增 `entry-node.js`（重用 `entry-worker.js` 的 fetch，以本機檔案取代 ASSETS；內建排程、歌單比對與資料快照；訪客 IP 取自連線對端或受信任代理附加的 XFF 末段）＋`Dockerfile`／`docker-compose.yml`（網站＋MariaDB＋Caddy）、`DB_SSL=false`、`TRUSTED_PROXIES`；PubSub 回呼網址移除預設值（未設＝不續訂，避免別的部署蓋掉原站的訂閱）；接手指南改為兩條路線（單機 Docker／AWS＋Cloudflare） |
 | v3.13 | 2026-11-13 | 以「能被別人 clone 接手」為前提的整理：新增接手指南 `docs/HANDOVER.md`；matcher 加選配共享密鑰（`MATCHER_SHARED_SECRET`／`X-Matcher-Secret`，未設＝不驗證）＋API Gateway 節流；CloudFront 憑證 ARN 改為必填參數（`ACM_CERTIFICATE_ARN`）、matcher 的主站網址改取自 stack 輸出；文件與腳本中的個人環境識別（主機名、本機路徑、帳號編號、舊 repo 連結）換成佔位字；Claude Code skills 移出版控（`.claude/skills/` 改為忽略） |
 | v3.12 | 2026-11-13 | 音樂作品收錄 11th Album『Dear xxx』（專輯 11 張）＋客座新增 SOUND VOLTEX 收錄曲「CAKE,Cake'n Cake!」（新類型 `game`）；個人資料頭像改 11th 無字主插畫圓裁、`og/profile.jpg`／`og/discography.jpg` 換 11th |
 | v3.11 | 2026-08-14 | 詳細頁 path 化＋per-page OG：`/clothes#20260611`→`/clothes/20260611`、`/discography#rebirthr`→`/discography/rebirthr`（router 加動態段 `/:id`＋`route.pattern/page/id`，舊 hash 連結 mount 時自動 replace 轉址）；build 後產 `dist/og/<slug>.html` 41 支（頁級 4＋專輯/單曲 21＋衣裝 16，資料源＝各頁資料模組），AWS 由 BotBlockerFunction rewrite、CF 由 worker 向 ASSETS 取同一支檔；白名單一致性檢查 `npm run check:routes`（五份清單全比） |

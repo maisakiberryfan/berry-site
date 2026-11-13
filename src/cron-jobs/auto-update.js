@@ -648,7 +648,15 @@ function getSimplifiedErrorReason(errorMessage) {
 export async function renewPubSubSubscription(env) {
   console.log('[PUBSUB] 開始 PubSubHubbub 訂閱續訂')
 
-  const CALLBACK_URL = getSecret(env, 'PUBSUB_CALLBACK_URL') || 'https://m-b.win/webhook/youtube'
+  // ⚠️ 回呼網址**沒有預設值**。這裡曾經在未設定時退回原站的網址，後果是：任何一份沒設
+  // PUBSUB_CALLBACK_URL 的部署（測試環境、別人 clone 去跑的站）每天都會拿自己的 TRIGGER_TOKEN
+  // 去「續訂」原站的訂閱——hub 照單全收，原站的訂閱密鑰就被換掉，之後的通知全部簽章不符被拒收，
+  // 直到原站自己下一次續訂（2026-11-13 測試時實際發生過）。沒設就不訂閱，寧可沒有即時通知
+  const CALLBACK_URL = getSecret(env, 'PUBSUB_CALLBACK_URL')
+  if (!CALLBACK_URL) {
+    console.warn('[PUBSUB] 未設定 PUBSUB_CALLBACK_URL，跳過訂閱續訂（新影片改由每日排程補抓）')
+    return false
+  }
   const HUB_URL = 'https://pubsubhubbub.appspot.com/subscribe'
 
   let allSuccess = true

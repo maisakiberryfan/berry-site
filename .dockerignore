@@ -1,0 +1,17 @@
+# 映像只用得到 Dockerfile 裡明列的路徑；這裡排除的是會拖慢建置或不該進映像的東西
+.git
+.github
+.claude
+.aws-sam
+.wrangler
+**/node_modules
+fansite-v2/dist
+fansite-v2/public/data
+fansite/assets
+scripts
+docs
+db-init
+.env
+.env.*
+!.env.example
+*.md

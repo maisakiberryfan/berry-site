@@ -1,0 +1,83 @@
+# 單機部署：網站＋資料庫＋反向代理，三個容器。步驟見 docs/HANDOVER.md 的路線 A。
+#
+#   1. cp .env.example .env，填入「單機部署」那一段的值
+#   2. 把公開備份下載到 db-init/（見 db-init/README.txt）
+#   3. docker compose up -d --build
+#
+# 對外只有反向代理的 80／443；資料庫和網站程式都不發布埠，只在內部網路互通。
+
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?請在 .env 設定 DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME:-mbdb}
+      # 網站用的帳號：只對上面那個資料庫有權限，不是 root
+      MARIADB_USER: ${DB_USER:-berry}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?請在 .env 設定 DB_PASSWORD}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - db-data:/var/lib/mysql
+      # 資料庫是空的時候，這個資料夾裡的 .sql 會被自動匯入一次
+      - ${DB_INIT_DIR:-./db-init}:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 120s   # 第一次啟動要匯入備份
+    networks: [internal]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: ${ENV_FILE:-.env}
+    # 下面這幾項由這份 compose 決定，會蓋過 .env 裡的同名設定
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-mbdb}
+      DB_USER: ${DB_USER:-berry}
+      DB_SSL: "false"                  # 資料庫在同一組容器裡，不走 TLS
+      LAMBDA_MATCHER_URL: ""           # 留空＝使用內建的歌單比對
+      TRUSTED_PROXIES: 172.28.0.0/24   # 下方 internal 網路的網段：反向代理從這裡連進來
+      HOST: 0.0.0.0
+      PORT: "8080"
+    volumes:
+      - snapshot-data:/app/fansite-v2/public/data
+      # 年表與首頁「最近更新」直接讀主機上的檔：改完存檔就生效，不必重建映像
+      - ./fansite/pages:/app/fansite/pages:ro
+      - ./fansite/changelog.json:/app/fansite/changelog.json:ro
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?請在 .env 設定 SITE_ADDRESS（例：example.com, www.example.com）}
+    volumes:
+      # 掛整個資料夾而不是單一檔案：單檔掛載在編輯器換檔後容器會讀不到新內容
+      - ./docker:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [internal]
+
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24   # 改這裡的話，上面的 TRUSTED_PROXIES 要一起改
+
+volumes:
+  db-data:
+  snapshot-data:
+  caddy-data:
+  caddy-config:

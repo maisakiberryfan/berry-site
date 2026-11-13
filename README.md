@@ -39,6 +39,14 @@ VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端
 | Workers Static Assets | 靜態檔案 hosting |
 | Hyperdrive | DB 連線池（query cache 已關閉） |
 
+### 單機（一般主機）
+
+不用雲端平台的話，`docker compose up -d --build` 就能在一台 VPS 上把整個站跑起來（網站、MariaDB、
+反向代理三個容器）。網站容器跑的是 `entry-node.js`：靜態檔、API、排程、歌單比對都在同一個
+Node 程序裡，資料庫不必對外開放。它直接重用
+`entry-worker.js` 的請求處理，沒有另一份路由清單。原站沒有用這條路線，
+步驟與實測範圍見 [`docs/HANDOVER.md`](docs/HANDOVER.md)。
+
 ### 共用
 
 | 服務 | 用途 |

@@ -1,0 +1,6 @@
+# 反向代理：自動申請憑證、把訪客位址附在 X-Forwarded-For 給後面的網站程式。
+# SITE_ADDRESS 來自 .env，例：example.com, www.example.com
+{$SITE_ADDRESS} {
+	encode gzip zstd
+	reverse_proxy app:8080
+}
