@@ -13,7 +13,6 @@ clone 這個 repo、拿公開的資料備份，把站接續下去——站台採
 - 程式與部署範本：這個 repo。
 - 資料：[`maisakiberryfan/sqlBackUp`](https://github.com/maisakiberryfan/sqlBackUp) 的
   `latest_mbdb.sql`，整庫備份，資料表結構也在裡面（repo 內沒有另外的 schema 檔）。
-- 站內圖片與音檔：`fansite/img/`。
 
 **要自備**
 
@@ -126,8 +125,3 @@ mariadb -u root -p mbdb < latest_mbdb.sql
 | 年表 | 手動編輯 `fansite/pages/history.md` |
 | 首頁的「最近更新」 | `fansite/changelog.json`，三語各一句 |
 | 新增或改名頁面路徑 | 路由白名單有好幾份要一起改，見 CLAUDE.md 的「SPA 路由白名單」 |
-
-## 8. 關於素材
-
-站內的專輯封面、立繪、BGM 等取自官方網站與 YouTube 影片，權利屬於原權利人。
-接手前請自行確認使用範圍。

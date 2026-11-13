@@ -363,7 +363,8 @@ AWS EventBridge 為主要排程。CF cron 已停用。
   - 無時間戳行過濾（≥3 行帶戳時視為雜訊）；時間戳值域驗證（分/秒<60、0~360000、
     end≤start 丟棄 end）
   - 輸入護欄：行數＋單行 ≤1000 字＋總長 ≤200KB（超限 400）；內部軟時限 20s（超時回
-    400 帶已處理行數，不進 APIGW 504 重試迴圈）；Lambda timeout 29s、MemorySize 1769
+    400 帶已處理行數，不進 APIGW 504 重試迴圈）；Lambda timeout 29s、MemorySize 512（調大要在部署指令明確傳 `FunctionMemory`，
+    只改範本 Default 對既有 stack 無效）
   - 效能：查詢變體去重＋每請求記憶化（2026-08-14，~1.9x）
 - 環境變數：`BERRY_SITE_API_URL`（指向主站 API）、`MATCHER_SHARED_SECRET`（選配）
 - 呼叫者驗證（選配）：matcher 設了 `MATCHER_SHARED_SECRET` 就要求 `X-Matcher-Secret` header 相符，
