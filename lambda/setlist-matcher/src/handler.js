@@ -3,6 +3,7 @@
  * Migrated from worker/src/utils/fuzzy-matcher.js
  */
 
+import { timingSafeEqual } from 'node:crypto'
 import { Searcher } from 'fast-fuzzy'
 import leven from 'leven'
 
@@ -827,6 +828,23 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json'
 }
 
+/**
+ * 選配的呼叫者驗證：設了 MATCHER_SHARED_SECRET 才檢查 `X-Matcher-Secret` header。
+ * 未設＝不驗證（部署完不設任何密鑰也能跑，沿用主站 ORIGIN_VERIFY_SECRET 的慣例）；
+ * 這個端點的網址寫在公開 repo 裡，正式環境應該設上，否則任何人都能直接呼叫、燒 Lambda 費用。
+ * env 在呼叫時才讀（不放模組頂層），測試可以逐案切換。
+ */
+function isAuthorized(event) {
+  const expected = process.env.MATCHER_SHARED_SECRET
+  if (!expected) return true
+  // API Gateway REST API 的 proxy event 保留 header 原始大小寫，逐一比對小寫名
+  const headers = event.headers || {}
+  const name = Object.keys(headers).find((k) => k.toLowerCase() === 'x-matcher-secret')
+  const given = Buffer.from(name ? String(headers[name] ?? '') : '')
+  const want = Buffer.from(expected)
+  return given.length === want.length && timingSafeEqual(given, want)
+}
+
 export async function handler(event) {
   // Handle CORS preflight
   if (event.httpMethod === 'OPTIONS') {
@@ -834,6 +852,18 @@ export async function handler(event) {
       statusCode: 200,
       headers: CORS_HEADERS,
       body: ''
+    }
+  }
+
+  // 驗證排在所有解析之前：沒帶對密鑰的請求幾毫秒內就回掉，不進比對
+  if (!isAuthorized(event)) {
+    return {
+      statusCode: 401,
+      headers: CORS_HEADERS,
+      body: JSON.stringify({
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Missing or invalid X-Matcher-Secret header' }
+      })
     }
   }
 

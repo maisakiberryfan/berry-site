@@ -1,6 +1,6 @@
 // 驗證 updatedAt 的 ON UPDATE CURRENT_TIMESTAMP 語意（meta ETag 方案前置檢查）
 // 用法：
-//   1. 開 tunnel：ssh -N -L 13306:127.0.0.1:3306 db-host.example.com
+//   1. 開 tunnel：ssh -N -L 13306:127.0.0.1:3306 <DB 主機>
 //   2. node scripts/verify-timestamp-semantics.cjs
 // 唯讀正式 mbdb（只查 information_schema）；行為實測寫入僅在 mbdb_test。
 const mysql = require('mysql2/promise')
@@ -100,6 +100,6 @@ async function main() {
 
 main().catch((e) => {
   console.error('執行失敗：', e.message)
-  console.error('（請確認 tunnel 已開：ssh -N -L 13306:127.0.0.1:3306 db-host.example.com）')
+  console.error('（請確認 tunnel 已開：ssh -N -L 13306:127.0.0.1:3306 <DB 主機>）')
   process.exit(1)
 })

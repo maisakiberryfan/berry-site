@@ -12,9 +12,7 @@
 
 VTuber「苺咲べりぃ」非官方粉絲網站。
 
-> **歷史**：本 repo 整合自 `berry_pro/` 下的四個獨立 repo（已 archive）：
-> `maisakiberryfan/website`、`example-user/m-b-setlist-parser`、`example-user/getyoutubevideoid`、`example-user/berry_hyperdrive`。
-> 遷移計畫與歷史紀錄在 `~/.claude/projects/E--website-berry-pro/memory/` 中。
+> **歷史**：本 repo 整合自四個獨立 repo（前端靜態網站、歌單解析 Worker、YouTube 影片代理、資料庫 API），皆已封存。
 
 ```
 berry-site/
@@ -367,7 +365,13 @@ AWS EventBridge 為主要排程。CF cron 已停用。
   - 輸入護欄：行數＋單行 ≤1000 字＋總長 ≤200KB（超限 400）；內部軟時限 20s（超時回
     400 帶已處理行數，不進 APIGW 504 重試迴圈）；Lambda timeout 29s、MemorySize 1769
   - 效能：查詢變體去重＋每請求記憶化（2026-08-14，~1.9x）
-- 環境變數：`BERRY_SITE_API_URL`（指向主站 API）
+- 環境變數：`BERRY_SITE_API_URL`（指向主站 API）、`MATCHER_SHARED_SECRET`（選配）
+- 呼叫者驗證（選配）：matcher 設了 `MATCHER_SHARED_SECRET` 就要求 `X-Matcher-Secret` header 相符，
+  否則 401；未設＝不驗證。主站（`src/utils/fuzzy-matcher.js`）有同名設定時自動帶上。
+  **兩邊的值必須相同，只設一邊＝歌單解析全數 401**（AWS 側同一個 GitHub secret 同時餵兩個 stack；
+  CF 備用站要另外 `wrangler secret put`）。端點網址在公開 repo 裡，正式環境應設上
+- 節流：API Gateway stage 每秒 1 次／burst 5（`Globals.Api.MethodSettings`），是沒設密鑰時的費用兜底；
+  超過回 429，主站下次輪詢重試
 - 部署：push 自動（CI `deploy-matcher` job）；手動 `sam build && sam deploy` 亦可（獨立 SAM stack）
 - 測試：`node test-fix.mjs` / `test-regression.mjs` / `test-history.mjs [N]` / `verify-corrections.mjs`
   （連 production API 唯讀；改 matcher 後四支都要綠）
@@ -443,7 +447,7 @@ AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 ch
 觸發併發的典型情境：history-bot 的 04:30 push 與人工 commit 相繼落地。
 
 ### AWS (`.github/workflows/deploy.yml`)
-0. `sam deploy` 前對 `DB_PORT`／`LAMBDA_MATCHER_URL` 做必填檢核（`: "${VAR:?...}"`）——
+0. `sam deploy` 前對 `DB_PORT`／`LAMBDA_MATCHER_URL`／`ACM_CERTIFICATE_ARN` 做必填檢核（`: "${VAR:?...}"`）——
    這兩個 secret 若被清空，`Key=""` 會蓋掉 template 的有意義 Default 而**靜默**壞掉
    （NaN port ⇒ 全站 500／歌單解析失效）。其餘參數 Default 就是 `''`，留白合法
 1. `npm ci` → `sam build` → `sam deploy`（Lambda + API Gateway + CloudFront + S3）
@@ -460,7 +464,9 @@ AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 ch
    `--delete` 的另一半（邏輯與 `fansite-v2/scripts/deploy-sync.sh` 步驟 4 相同，
    demo 站仍用該腳本，**改判準要兩邊同步**）
 6. Invalidate CloudFront `/*`（1 path）
-7. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署
+7. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署；
+   matcher 的 `BerrySiteApiUrl` 取自主站 stack 的 `CloudFrontUrl` 輸出（不寫死，別人照這份 workflow
+   部署才不會把 matcher 指到原站），取不到就讓 job 失敗
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
 1. fansite-v2：`npm ci` → `npm run snapshot`（best-effort）→ 覆蓋 history/changelog
@@ -482,7 +488,7 @@ AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 ch
 npm run dev                    # wrangler dev → http://localhost:8787
 
 # Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑——workerd 連不上自簽 TLS DB）
-# 先開 tunnel：ssh -N -L 13307:127.0.0.1:8081 db-host.example.com
+# 先開 tunnel：ssh -N -L 13307:127.0.0.1:<DB 主機上的埠> <DB 主機>（實際值屬各自環境，不進 repo）
 DB_HOST=127.0.0.1 DB_PORT=13307 DB_NAME=mbdb_test node entry-dev.js   # → http://localhost:8788
 
 # AWS 路徑（API only）
@@ -583,6 +589,7 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.13 | 2026-11-13 | 以「能被別人 clone 接手」為前提的整理：新增接手指南 `docs/HANDOVER.md`；matcher 加選配共享密鑰（`MATCHER_SHARED_SECRET`／`X-Matcher-Secret`，未設＝不驗證）＋API Gateway 節流；CloudFront 憑證 ARN 改為必填參數（`ACM_CERTIFICATE_ARN`）、matcher 的主站網址改取自 stack 輸出；文件與腳本中的個人環境識別（主機名、本機路徑、帳號編號、舊 repo 連結）換成佔位字；Claude Code skills 移出版控（`.claude/skills/` 改為忽略） |
 | v3.12 | 2026-11-13 | 音樂作品收錄 11th Album『Dear xxx』（專輯 11 張）＋客座新增 SOUND VOLTEX 收錄曲「CAKE,Cake'n Cake!」（新類型 `game`）；個人資料頭像改 11th 無字主插畫圓裁、`og/profile.jpg`／`og/discography.jpg` 換 11th |
 | v3.11 | 2026-08-14 | 詳細頁 path 化＋per-page OG：`/clothes#20260611`→`/clothes/20260611`、`/discography#rebirthr`→`/discography/rebirthr`（router 加動態段 `/:id`＋`route.pattern/page/id`，舊 hash 連結 mount 時自動 replace 轉址）；build 後產 `dist/og/<slug>.html` 41 支（頁級 4＋專輯/單曲 21＋衣裝 16，資料源＝各頁資料模組），AWS 由 BotBlockerFunction rewrite、CF 由 worker 向 ASSETS 取同一支檔；白名單一致性檢查 `npm run check:routes`（五份清單全比） |
 | v3.10 | 2026-08-13 | 新增「音樂作品」（Discography）頁（v3/fansite-v2）：專輯 10・單曲 11・客座 9 的封面牆＋詳細面板（曲目/staff/特設・BOOTH・配信・XFD 連結/instrumental 註記），曲目 🎤N 鈕就地展開歌枠演唱場次（帶 ?t= 秒數）、`/setlist?song=` 跳轉；封面圖 `fansite/img/albums/`（隨 CI 上線）；dev 圖片改 vite middleware 直讀本地 `fansite/img`；資料權威序＝官方 discography 頁＞BOOTH＞特設頁＞iTunes＞wiki（wiki 累計漏曲 5 處不採信） |

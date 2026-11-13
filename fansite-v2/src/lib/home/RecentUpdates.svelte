@@ -1,7 +1,7 @@
 <script>
   // 最近更新：/data/changelog.json（快照，前 N 筆依語言取 msg）＋ /api/stats/last-updated（三表更新時間）
   //
-  // changelog.json 現況是「單一物件」（現站 /commit 每次覆蓋最新一筆），
+  // changelog.json 現況是「單一物件」（每次提交時覆蓋成最新一筆），
   // 但未來可能改成陣列 —— 兩種形狀都吃。
   import { apiGet } from '../../api/client.js'
   import { formatDateTime, formatDbTime, parseInlineLinks } from './util.js'

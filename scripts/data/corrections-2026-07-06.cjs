@@ -1,7 +1,7 @@
 // 用戶實聽修正寫入（2026-07-06 第二輪）— node apply-manual-corrections.cjs [--db=mbdb]
 // 每筆 UPDATE 的 WHERE 帶舊值驗證（樂觀鎖），舊值不符即跳過並回報
 const { createRequire } = require('module')
-const req = createRequire('E:/website/berry-site/package.json')
+const req = createRequire(require('path').join(__dirname, '../../package.json'))
 const mysql = req('mysql2/promise')
 
 const dbArg = process.argv.find(a => a.startsWith('--db='))

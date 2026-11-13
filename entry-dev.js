@@ -7,7 +7,7 @@
  * DB 設定與 Lambda 同走 process.env（platform.js fallback）。
  *
  * 用法（配合 ssh tunnel 連 DB，寫入測試一律用 mbdb_test）：
- *   1. ssh -N -L 13307:127.0.0.1:8081 db-host.example.com
+ *   1. ssh -N -L 13307:127.0.0.1:<DB 主機上的埠> <DB 主機>
  *   2. DB_HOST=127.0.0.1 DB_PORT=13307 DB_NAME=mbdb_test node entry-dev.js
  *   → http://localhost:8788
  *

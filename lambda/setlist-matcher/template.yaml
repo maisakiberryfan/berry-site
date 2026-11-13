@@ -18,8 +18,21 @@ Parameters:
     Type: String
     Default: 'https://d36w2d8blmdfr.cloudfront.net'
     Description: Berry Site API base URL for songlist/aliases data
+  MatcherSharedSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Shared secret callers must send as X-Matcher-Secret (blank = no check)
 
 Globals:
+  # 端點網址在公開 repo 裡，節流是費用的兜底上限（密鑰沒設時尤其重要）：
+  # 正常用量是一場直播一次呼叫、序列執行，遠低於每秒 1 次；超過的回 429，主站下次輪詢會重試
+  Api:
+    MethodSettings:
+      - ResourcePath: '/*'
+        HttpMethod: '*'
+        ThrottlingRateLimit: 1
+        ThrottlingBurstLimit: 5
   Function:
     Timeout: !Ref FunctionTimeout
     MemorySize: !Ref FunctionMemory
@@ -37,6 +50,8 @@ Resources:
       Environment:
         Variables:
           BERRY_SITE_API_URL: !Ref BerrySiteApiUrl
+          # 空值＝不驗證呼叫者（見 src/handler.js 的 isAuthorized）
+          MATCHER_SHARED_SECRET: !Ref MatcherSharedSecret
       Events:
         MatchSetlist:
           Type: Api

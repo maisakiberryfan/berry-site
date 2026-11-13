@@ -45,9 +45,20 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ''
+  # setlist-matcher stack 的 ApiEndpoint 輸出。空值＝歌單解析失效，故 CI 對它做必填檢核
   LambdaMatcherUrl:
     Type: String
-    Default: 'https://y6fqnsu8od.execute-api.ap-northeast-1.amazonaws.com/Prod/match-setlist'
+    Default: ''
+  MatcherSharedSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Sent to the matcher as X-Matcher-Secret; must equal the matcher stack's value (blank = not sent)
+  # CloudFront 只接受 us-east-1 的 ACM 憑證，且要涵蓋 DomainName 與 www.DomainName。
+  # 憑證是各自帳號的資源，沒有合理的預設值，故必填
+  AcmCertificateArn:
+    Type: String
+    Description: ARN of the us-east-1 ACM certificate covering DomainName and www.DomainName
   PubsubCallbackUrl:
     Type: String
     Default: ''
@@ -113,6 +124,8 @@ Resources:
           # DISCORD_SETLIST_WEBHOOK_URL: !Ref DiscordSetlistWebhookUrl
           TRIGGER_TOKEN: !Ref TriggerToken
           LAMBDA_MATCHER_URL: !Ref LambdaMatcherUrl
+          # 空值＝呼叫 matcher 時不帶密鑰（matcher 端也沒設時才通）
+          MATCHER_SHARED_SECRET: !Ref MatcherSharedSecret
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
           GITHUB_TOKEN: !Ref GithubToken
           THUMBNAIL_BUCKET: !Ref ThumbnailBucket
@@ -477,8 +490,8 @@ Resources:
             Override: true
           StrictTransportSecurity:
             AccessControlMaxAgeSec: 31536000   # 1 年
-            # IncludeSubdomains 先不開：會連帶把 sqldata.m-b.win / bus.m-b.win 等
-            # 所有子網域鎖成 https，且瀏覽器端無法即時回退，需另行確認後再啟用
+            # IncludeSubdomains 先不開：會連帶把同網域下的其他子網域全部鎖成 https，
+            # 且瀏覽器端無法即時回退，需另行確認後再啟用
             IncludeSubdomains: false
             Preload: false
             Override: true
@@ -500,7 +513,7 @@ Resources:
           - !Ref DomainName
           - !Sub "www.${DomainName}"
         ViewerCertificate:
-          AcmCertificateArn: arn:aws:acm:us-east-1:000000000000:certificate/086af653-fef6-466c-af06-655cf7f590a3
+          AcmCertificateArn: !Ref AcmCertificateArn
           SslSupportMethod: sni-only
           MinimumProtocolVersion: TLSv1.2_2021
 

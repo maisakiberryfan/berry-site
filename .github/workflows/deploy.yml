@@ -83,17 +83,21 @@ jobs:
           SNAPSHOT_BUCKET_B: ${{ secrets.SNAPSHOT_BUCKET_B }}
           SNAPSHOT_DISTRIBUTION_B: ${{ secrets.SNAPSHOT_DISTRIBUTION_B }}
           ORIGIN_VERIFY_SECRET: ${{ secrets.ORIGIN_VERIFY_SECRET }}
+          MATCHER_SHARED_SECRET: ${{ secrets.MATCHER_SHARED_SECRET }}
+          ACM_CERTIFICATE_ARN: ${{ secrets.ACM_CERTIFICATE_ARN }}
         run: |
           # ── 必填檢核 ──────────────────────────────────────────────────────
-          # 只針對「template.yaml 有**有意義的 Default**、而空值會靜默蓋掉它」的參數。
-          # secret 被刪／改名／打錯字時，下面的 Key="" 會把 Default 覆寫成空字串：
-          #   DbPort 空          → platform.js 的 parseInt('') = NaN → DB 全滅（全站 API 500）
+          # 針對「空值會讓站台壞掉、而且壞得不吵」的參數。secret 被刪／改名／打錯字時，
+          # 下面的 Key="" 會把空字串送進 template：
+          #   DbPort 空          → 蓋掉 Default 3306，platform.js 的 parseInt('') = NaN → DB 全滅（全站 API 500）
           #   LambdaMatcherUrl 空 → 歌單解析靜默失敗（沒人盯，過幾天才發現資料沒進來）
-          # 兩者都屬於「壞掉但不吵」的失敗模式，故改成部署當場失敗（吵）。
-          # 其餘參數（Discord/Github/Pubsub/Snapshot*/OriginVerify）的 Default 本來就是 ''，
-          # 留白＝該功能停用是合法狀態，不檢核。
+          #   AcmCertificateArn 空 → CloudFront 沒有憑證可掛，部署到一半才失敗、訊息難讀
+          # 改成部署當場失敗（吵）。
+          # 其餘參數（Discord/Github/Pubsub/Snapshot*/OriginVerify/MatcherSharedSecret）的 Default
+          # 本來就是 ''，留白＝該功能停用是合法狀態，不檢核。
           : "${DB_PORT:?secret 未設或為空 —— 會覆蓋 template 的 Default 3306，DB 將連不上}"
-          : "${LAMBDA_MATCHER_URL:?secret 未設或為空 —— 會覆蓋 template 的 Default URL，歌單解析將失效}"
+          : "${LAMBDA_MATCHER_URL:?secret 未設或為空 —— 歌單解析將失效（值＝matcher stack 的 ApiEndpoint 輸出）}"
+          : "${ACM_CERTIFICATE_ARN:?secret 未設或為空 —— CloudFront 需要 us-east-1 的 ACM 憑證 ARN}"
 
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-site \
@@ -114,7 +118,9 @@ jobs:
               "SnapshotDistributionA=\"$SNAPSHOT_DISTRIBUTION_A\"" \
               "SnapshotBucketB=\"$SNAPSHOT_BUCKET_B\"" \
               "SnapshotDistributionB=\"$SNAPSHOT_DISTRIBUTION_B\"" \
-              "OriginVerifySecret=\"$ORIGIN_VERIFY_SECRET\""
+              "OriginVerifySecret=\"$ORIGIN_VERIFY_SECRET\"" \
+              "MatcherSharedSecret=\"$MATCHER_SHARED_SECRET\"" \
+              "AcmCertificateArn=\"$ACM_CERTIFICATE_ARN\""
 
       # Get S3 bucket name and CloudFront distribution ID from stack outputs
       - name: Get stack outputs
@@ -334,9 +340,20 @@ jobs:
       - name: Build & deploy matcher
         if: steps.changes.outputs.changed == 'true'
         working-directory: lambda/setlist-matcher
+        env:
+          MATCHER_SHARED_SECRET: ${{ secrets.MATCHER_SHARED_SECRET }}
         run: |
+          # matcher 會回頭向主站讀歌曲與別名資料。主站網址取自主站 stack 的輸出、不寫死——
+          # 寫死的話別人照這份 workflow 部署，matcher 會靜靜地去讀原站的資料。
+          # 主站 stack 還不存在（全新環境第一次部署，兩個 job 併行）時這裡會失敗：
+          # 等主站部署成功後重跑本 job 即可。
+          SITE_URL=$(aws cloudformation describe-stacks --stack-name berry-site --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontUrl`].OutputValue' --output text)
+          case "$SITE_URL" in
+            https://*) ;;
+            *) echo "::error::取不到主站 stack（berry-site）的 CloudFrontUrl 輸出——主站部署成功後重跑本 job"; exit 1 ;;
+          esac
           sam build
           sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --resolve-s3 \
             --stack-name berry-setlist-matcher \
             --capabilities CAPABILITY_IAM \
-            --parameter-overrides BerrySiteApiUrl=https://d36w2d8blmdfr.cloudfront.net FunctionTimeout=29
+            --parameter-overrides "BerrySiteApiUrl=\"$SITE_URL\"" FunctionTimeout=29 "MatcherSharedSecret=\"$MATCHER_SHARED_SECRET\""

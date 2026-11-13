@@ -2,11 +2,7 @@
 
 VTuber「苺咲べりぃ」非官方粉絲網站 — 統一後端 + 靜態前端。
 
-> **程式碼來源**：本 repo 整合自以下四個原始 repo（已 archive）：
-> - [maisakiberryfan/website](https://github.com/maisakiberryfan/website) — 前端靜態網站
-> - [example-user/m-b-setlist-parser](https://github.com/example-user/m-b-setlist-parser) — 歌單解析 Worker
-> - [example-user/getyoutubevideoid](https://github.com/example-user/getyoutubevideoid) — YouTube 影片代理
-> - [example-user/berry_hyperdrive](https://github.com/example-user/berry_hyperdrive) — 資料庫 API
+> **程式碼來源**：本 repo 整合自四個原始 repo（前端靜態網站、歌單解析 Worker、YouTube 影片代理、資料庫 API），皆已封存。
 
 ## 架構
 
@@ -95,7 +91,9 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `DISCORD_WEBHOOK_URL` | Discord 通知 |
 | ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ | ~~Discord 歌單留言通知~~ ⚠️ **MIGRATED to yt-setlist-discord (2026-05-02)** |
 | `TRIGGER_TOKEN` | /trigger-* 端點驗證 |
-| `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL |
+| `LAMBDA_MATCHER_URL` | Lambda setlist-matcher URL（matcher stack 的 `ApiEndpoint` 輸出） |
+| `ACM_CERTIFICATE_ARN` | CloudFront 用的 ACM 憑證 ARN（必須在 us-east-1，涵蓋網域與 `www.` 子網域） |
+| `MATCHER_SHARED_SECRET` | （選配）主站呼叫 matcher 時帶的共享密鑰，任意長隨機字串。設了 matcher 才驗證呼叫者；未設＝任何人都能直接呼叫 matcher（僅剩節流兜底） |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
 | `GH_PAT_TOKEN` | GitHub PAT（commit 查詢） |
 | `SNAPSHOT_BUCKET_A` | （選配）CDN 快照 cron 的目標 S3 bucket A（現行主站）。未設＝該站台不處理 |
@@ -108,9 +106,9 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 > 只會在每次部署時更新，不再有每日兩次的保鮮）。bucket 名不寫進 public repo 是刻意的，
 > 故由 secret 傳入 → `template.yaml` 以 `!Sub` 拼成 `SNAPSHOT_TARGETS`。
 
-> ⚠️ `DB_PORT` 與 `LAMBDA_MATCHER_URL` 在 `template.yaml` 有**有意義的 Default**
-> （3306／matcher URL），secret 留空會把 Default 覆寫成空字串並靜默壞掉，
-> 故 workflow 在 `sam deploy` 前對這兩個做必填檢核（缺就讓部署失敗）。
+> ⚠️ `DB_PORT`、`LAMBDA_MATCHER_URL`、`ACM_CERTIFICATE_ARN` 留空會讓站台壞掉而且壞得不吵
+> （DB 連不上／歌單解析失效／CloudFront 沒有憑證），故 workflow 在 `sam deploy` 前對這三個
+> 做必填檢核（缺就讓部署當場失敗）。
 
 **GitHub Actions (Cloudflare)**：
 | Secret | 說明 |
@@ -120,6 +118,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
 - `YOUTUBE_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- （選配）`MATCHER_SHARED_SECRET`：matcher 那邊設了才需要，值必須相同
 
 ## 本地開發
 
@@ -287,4 +286,5 @@ curl -H "If-None-Match: \"abc123\"" https://m-b.win/api/songlist
 
 ## 文件
 
+- [`docs/HANDOVER.md`](docs/HANDOVER.md) — 接手指南：從零把這個站架到自己的環境、還原資料、上線後怎麼維護
 - `docs/architecture-diagram.html` — 互動式架構圖（排程流程、模組依賴、前端 SPA）

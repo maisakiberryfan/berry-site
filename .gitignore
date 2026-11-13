@@ -10,6 +10,8 @@ admin.bat
 admin.ps1
 ops-manual.md
 .claude/launch.json
+# Claude Code skills 是維護者個人的本機工具，不進版
+.claude/skills/
 .wrangler/
 dist/
 .aws-sam/
@@ -26,10 +28,6 @@ scripts/timestamps/
 # 下面這條是 v2 現站時代的殘留，待 fansite/ 清理 commit 一併移除
 fansite/data/
 
-# traffic-report skill (auto-downloaded GeoIP DB + npm artifacts)
-.claude/skills/traffic-report/dbip-country-lite.mmdb
-.claude/skills/traffic-report/dbip-country-lite.mmdb.gz
-.claude/skills/traffic-report/package-lock.json
 
 # 憑證檔一律不進 repo——這些 pattern 是最後防線，正確做法是把檔案放在 repo 外
 *.pem
@@ -42,4 +40,3 @@ fansite/data/
 *token*.txt
 *credential*
 aws?env*.txt
-.claude/skills/traffic-report/internal-ips.txt

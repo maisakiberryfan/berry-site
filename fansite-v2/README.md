@@ -45,11 +45,11 @@ npm run dev:testdb   # http://localhost:5175（/api 代理到本地後端，接�
 - 資料層 13 項契約測試 PASS；IDB 掛住降級、API 非預期形狀保護已補
 - 截圖見審閱訊息附檔
 
-## 部署（demo 站 v3.m-b.win）
+## 部署到獨立站台（原 demo 站 v3.m-b.win，網域已於 2026-11 停用，留作參考）
 
 ```bash
 npm run snapshot && VITE_ASSET_BASE=https://m-b.win npm run build
-BUCKET=berry-fansite-v3-000000000000 DISTRIBUTION_ID=E1ZENENQETM5MD bash scripts/deploy-sync.sh
+BUCKET=<bucket> DISTRIBUTION_ID=<distribution-id> bash scripts/deploy-sync.sh
 ```
 
 `scripts/deploy-sync.sh` 取代裸 `aws s3 sync --delete`：Vite 是 hash 檔名，`--delete`

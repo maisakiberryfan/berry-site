@@ -15,9 +15,9 @@
 # 同為 best-effort 不擋部署）**。日後調整回收判準請兩邊同步，否則兩站的保留窗口會分歧。
 #
 # 用法（環境變數或位置參數皆可）：
-#   BUCKET=berry-fansite-v3-000000000000 DISTRIBUTION_ID=E1ZENENQETM5MD \
+#   BUCKET=<bucket> DISTRIBUTION_ID=<distribution-id> \
 #     bash scripts/deploy-sync.sh
-#   bash scripts/deploy-sync.sh berry-fansite-v3-000000000000 E1ZENENQETM5MD
+#   bash scripts/deploy-sync.sh <bucket> <distribution-id>
 #
 #   DRY_RUN=1         只顯示會做什麼，不寫入 S3／不發 invalidation（sync 走 --dryrun）
 #   RETENTION_DAYS=14 舊 hash 資產保留天數（預設 14）

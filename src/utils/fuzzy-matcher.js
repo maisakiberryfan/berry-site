@@ -51,9 +51,15 @@ export async function fuzzyMatchSetlist(setlistComment, env) {
     setlistComment = lines.slice(0, MAX_SETLIST_LINES).join('\n')
   }
 
+  // matcher 設了 MATCHER_SHARED_SECRET 時，這裡要帶同一個值，否則它回 401；
+  // 兩邊都沒設＝不帶也不驗（選配）。只設其中一邊是設定錯誤，401 會從下面的 !response.ok 拋出來
+  const headers = { 'Content-Type': 'application/json' }
+  const matcherSecret = getSecret(env, 'MATCHER_SHARED_SECRET')
+  if (matcherSecret) headers['X-Matcher-Secret'] = matcherSecret
+
   const response = await fetch(lambdaUrl, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ setlistComment })
   })
 

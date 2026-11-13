@@ -1,7 +1,7 @@
 // wiki 全歷史比對通過的場次補標 wikiVerified=1（只補 NULL，不動自動驗證器的既有判定）
 // node apply-wikiverified.cjs [--db=mbdb]
 const { createRequire } = require('module')
-const req = createRequire('E:/website/berry-site/package.json')
+const req = createRequire(require('path').join(__dirname, '../../package.json'))
 const mysql = req('mysql2/promise')
 const { dbConfig } = require('../db-config.cjs')
 const path = require('path')

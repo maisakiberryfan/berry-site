@@ -15,12 +15,12 @@ npm run build        # 純靜態產物 → dist/（＝vite build ＋ 產 dist/og
 npm run check:routes # 路由／OG 白名單五份一致性檢查（改路由或加專輯後跑）
 ```
 
-v3 demo 站部署（獨立 CloudFront，與 git 無關）：
+部署到獨立站台（獨立 CloudFront，與 git 無關；原 demo 站 v3.m-b.win 的網域已於 2026-11 停用，留作參考）：
 ```bash
 npm run snapshot && VITE_ASSET_BASE=https://m-b.win npm run build
-BUCKET=berry-fansite-v3-000000000000 DISTRIBUTION_ID=E1ZENENQETM5MD bash scripts/deploy-sync.sh
+BUCKET=<bucket> DISTRIBUTION_ID=<distribution-id> bash scripts/deploy-sync.sh
 ```
-（demo 站 v3.m-b.win：distribution E1ZENENQETM5MD、/api/* 直通主站同一 API Gateway、SPA rewrite 用獨立 function `berry-v3-spa-rewrite`。上線切換的 TODO 見 README.md）
+（原 demo 站：/api/* 直通主站同一 API Gateway、SPA rewrite 用獨立 function `berry-v3-spa-rewrite`。上線切換的 TODO 見 README.md）
 
 **`scripts/deploy-sync.sh` 取代了裸 `aws s3 sync --delete`**——後者會在部署當下刪光舊
 hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃 404。腳本五步，
