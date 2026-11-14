@@ -1,7 +1,10 @@
-# fansite-v2 — 粉絲站 v3 重寫（社群評估版）
+# fansite-v2 — 粉絲站 v3 重寫
 
-> 版本脈絡：**v1**＝最初的靜態 JSON 版 → **v2**＝現行站（DB＋API＋jQuery/Bootstrap/Tabulator）
-> → **v3**＝本次重寫（本目錄）。位於 `fansite-v2` 分支，不影響 main／現站部署。
+> **現況註記（2026-11-14）**：本檔寫於 2026-08 的重寫期間，之後沒有再維護。文中的「現站」「v2」指當時的舊前端（jQuery＋Bootstrap＋Tabulator），它已於 2026-08-13 下線、2026-11-14 自 repo 移除，文中引用的 `fansite/pages/*.htm`、`fansite/assets/…` 等檔案要到 git 歷史才看得到。現行的維護說明以 `CLAUDE.md`（本目錄）為準。
+> 本目錄已在 `main` 上、是線上兩站的前端；下面「上線前 TODO」各項都已完成。
+>
+> 版本脈絡：**v1**＝最初的靜態 JSON 版 → **v2**＝重寫前的舊站（DB＋API＋jQuery/Bootstrap/Tabulator）
+> → **v3**＝本次重寫（本目錄）。
 > ⚠️ 唯一的後端改動：`src/routes/setlist.js` PUT 增加 startTime/endTime 欄位支援
 > （wiki 編輯時間戳用；向後相容，現站不受影響；已在測試 DB 實測）。
 

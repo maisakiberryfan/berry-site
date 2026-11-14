@@ -343,8 +343,8 @@ function buildGraph1() {
     makeNode('au', 'cron-jobs/auto-update.js', 'cron'),
     makeNode('df', 'cron-jobs/data-fetcher.js', 'cron'),
     makeNode('lm', 'lambda/setlist-matcher', 'lambda'),
-    makeNode('tool', 'fansite/js/tool.js', 'frontend'),
-    makeNode('analytics', 'fansite/js/analytics.js', 'frontend'),
+    makeNode('tool', 'fansite-v2/src/api/\n資料層（store／client）', 'frontend'),
+    makeNode('analytics', 'fansite-v2/src/lib/analytics/', 'frontend'),
     makeNode('sc', 'scripts/timestamps/', 'script'),
   ]);
 
@@ -413,7 +413,7 @@ function buildGraph1() {
 function buildGraph2() {
   const nodes = new vis.DataSet([
     makeNode('user', '使用者', 'trigger', { shape: 'circle' }),
-    makeNode('setcontent', 'setContent(path)', 'process'),
+    makeNode('setcontent', 'router.svelte.js\nnavigate(path)', 'process'),
     makeNode('pushstate', 'history.pushState()', 'process'),
     makeNode('home', '首頁 /', 'page'),
     makeNode('profile', '個人介紹\n/profile', 'page'),
@@ -424,10 +424,11 @@ function buildGraph2() {
     makeNode('song', '歌曲\n/songlist', 'page'),
     makeNode('alias', '別名管理\n/aliases', 'page'),
     makeNode('analytics_p', '分析\n/analytics', 'page'),
-    makeNode('cache', 'IndexedDB 表格快取\n+ ETag／manifest 校正', 'process'),
+    makeNode('disco', '音樂作品\n/discography', 'page'),
+    makeNode('cache', 'IndexedDB 快取\n→ /data 快照 → API 校正', 'process'),
     makeNode('api_calls', 'fetch /api/*\n+ CRUD editing', 'api'),
     makeNode('backend', 'Hono API\n端點', 'core'),
-    makeNode('static', '靜態頁面\npages/*.htm|md', 'external'),
+    makeNode('static', '內容\n資料模組＋/img\n/data/history.md', 'external'),
     makeNode('sqljs', 'sql.js (SQLite/WASM)\nself-host、按需載入', 'lambda'),
   ]);
 
@@ -443,10 +444,13 @@ function buildGraph2() {
     makeEdge('setcontent', 'song'),
     makeEdge('setcontent', 'alias'),
     makeEdge('setcontent', 'analytics_p'),
+    makeEdge('setcontent', 'disco'),
+    makeEdge('disco', 'static', '封面／曲目'),
+    makeEdge('disco', 'api_calls', '演唱紀錄'),
     makeEdge('profile', 'static'),
     makeEdge('history_p', 'static', 'markdown'),
     makeEdge('clothes', 'static'),
-    makeEdge('home', 'api_calls', 'allSettled'),
+    makeEdge('home', 'api_calls'),
     makeEdge('stream', 'api_calls'),
     makeEdge('setlist', 'api_calls'),
     makeEdge('song', 'api_calls'),

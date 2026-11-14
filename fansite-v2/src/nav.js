@@ -1,4 +1,4 @@
-// 導覽列資料（結構與三語 label 沿用現站 fansite/assets/data/nav.json）
+// 導覽列資料（結構與三語 label 沿用舊前端的 nav.json；該檔已隨舊前端自 repo 移除）
 //
 // - internal: 由 SPA router 接手的站內路徑
 // - external: 開新分頁的外部連結

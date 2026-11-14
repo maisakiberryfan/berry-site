@@ -1,7 +1,7 @@
 # fansite-v2（v3 站）維護手冊
 
 > 本檔供接手維護的 Claude Code 使用。專案總體規範見 repo 根 `CLAUDE.md`（後端／部署／DB 紀律都在那），本檔只講 v3 前端。
-> 版本脈絡：v1＝最初靜態 JSON 版 → v2＝`fansite/`（jQuery+Bootstrap+Tabulator，現行主站）→ **v3＝本目錄**（2026-08 重寫，社群評估中；用戶已裁示「以 v3 介面為主」，v2 前端將退場）。
+> 版本脈絡：v1＝最初靜態 JSON 版 → v2＝舊前端（jQuery+Bootstrap+Tabulator，原在 `fansite/`）→ **v3＝本目錄**（2026-08 重寫，2026-08-13 起是線上兩站的前端）。v2 的程式已於 2026-11-14 自 repo 移除，`fansite/` 只剩圖片、年表與首頁的「最近更新」三樣內容；下文提到「現站」「v2」的地方，指的都是當時的舊前端。
 
 ## 技術棧與指令
 
@@ -68,7 +68,7 @@ hash chunk，開著舊分頁的人 lazy-load（QueryPanel、sql.js wasm）就吃
   `dist/og/<slug>.html`，只換 og:*／description／twitter:card）。目前 42 支＝頁級 4
   ＋專輯/單曲 22（封面 520x520，twitter:card 用 `summary` 免被裁）＋衣裝 16
   （每套一張專屬卡）
-- **OG 卡圖**：`fansite/img/og/`（源在 v2 目錄、隨兩支 workflow 的 `fansite/img/` 整目錄
+- **OG 卡圖**：`fansite/img/og/`（圖片都放在 repo 根的 `fansite/img/`，隨兩支 workflow 整目錄
   同步上線）——`site.jpg`（站台卡，index.html 與 `/setlist` 共用）／`discography.jpg`／
   `clothes.jpg`／`profile.jpg`／`clothes/{YYYYMMDD}.jpg`（16 套各一張）。
   全部 1200×630 jpg（＝summary_large_image 標準比例，各平台不再裁），
@@ -152,12 +152,16 @@ BOOTH 商品頁（`https://booth.pm/ja/items/<id>.json` 有純文字曲目／cre
   ＞iTunes＞wiki，wiki 有漏曲前科勿直接採信）
 - 全列表頁：全域搜尋（`欄位:值`／`欄位:*` 語法）∧ FilterChips ∧ 欄位篩選列，三層 AND；計數統一 cascade 語意（收斂計數、不裁選項）
 
-## 與 main（v2）的關係
+## 與 repo 其他部分的關係
 
-後端 `src/` 兩站共用——**改後端必須與 origin/main 逐位元對齊**（整組檔案 checkout，別挑檔案——漏過 app.js 路由註冊一次）。跨 session 協作紀錄與規格在共用記憶（`spec-setlist-reorder-api.md`、`v2-to-v3-migration-checklist.md`——移植進度在後者打勾）。CSP 若改必須 entry-worker.js 與 template.yaml 兩側逐字同步（根 CLAUDE.md 紀律）。
+- repo 只有 `main` 一個分支，前後端在同一份提交裡；後端在 repo 根的 `src/`
+- 圖片、年表、首頁「最近更新」的原始檔在 repo 根的 `fansite/`（不在本目錄），路徑不可搬動——
+  引用清單見根 CLAUDE.md「`fansite/` 目錄」一節
+- CSP 若改必須 `entry-worker.js` 與 `template.yaml` 兩側逐字同步（根 CLAUDE.md 紀律）
+- 路由白名單有幾份在本目錄之外（`template.yaml`、`entry-worker.js`），見上方「路由與 per-page OG」
 
 ## 文件索引
 
-- `README.md`——預覽方式、速度數據、上線前 TODO（快照 cron／OG meta／CF 備用站等 8 項）
-- `DESIGN.md`——設計原則與驗收標準｜`SPEC-api.md`——API 契約｜`SPEC-frontend.md`——v2 現況對照
+- `README.md`——預覽方式、速度數據（重寫期間寫的，「上線前 TODO」已全數完成，留作紀錄）
+- `DESIGN.md`——設計原則與驗收標準｜`SPEC-api.md`——API 契約｜`SPEC-frontend.md`——重寫前對舊前端的盤點（該前端已移除）
 - 專案記憶 `fansite-v2-rebuild.md`——十輪審閱的完整決策史（為什麼長這樣的答案都在裡面）

@@ -23,10 +23,8 @@ scripts/*.sql
 scripts/*.parquet
 scripts/timestamps/
 
-# CDN 靜態快照（由正式 API 產生，部署時重建；不進 git）
-# 現行產物在 fansite-v2/public/data/（該目錄由 fansite-v2/.gitignore 管）；
-# 下面這條是 v2 現站時代的殘留，待 fansite/ 清理 commit 一併移除
-fansite/data/
+# CDN 靜態快照（由正式 API 產生，部署時重建；不進 git）在 fansite-v2/public/data/，
+# 由 fansite-v2/.gitignore 管，這裡不必另列
 
 
 # 憑證檔一律不進 repo——這些 pattern 是最後防線，正確做法是把檔案放在 repo 外

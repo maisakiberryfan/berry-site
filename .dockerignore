@@ -7,7 +7,6 @@
 **/node_modules
 fansite-v2/dist
 fansite-v2/public/data
-fansite/assets
 scripts
 docs
 db-init

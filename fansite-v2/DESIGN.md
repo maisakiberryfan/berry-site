@@ -1,5 +1,7 @@
 # fansite-v2 設計規格
 
+> **現況註記（2026-11-14）**：本檔寫於 2026-08 的重寫期間，之後沒有再維護。文中的「現站」「v2」指當時的舊前端（jQuery＋Bootstrap＋Tabulator），它已於 2026-08-13 下線、2026-11-14 自 repo 移除，文中引用的 `fansite/pages/*.htm`、`fansite/assets/…` 等檔案要到 git 歷史才看得到。現行的維護說明以 `CLAUDE.md`（本目錄）為準。
+
 > 苺咲べりぃ非官方粉絲站「砍掉重做」版。本文件是所有實作的統一依據。
 > 後端 API **完全沿用不動**；重做的只有前端。部署仍為純靜態（S3+CloudFront / CF Workers Static Assets）。
 

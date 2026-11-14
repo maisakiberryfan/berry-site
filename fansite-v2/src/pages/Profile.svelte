@@ -1,5 +1,5 @@
 <script>
-  // 個人資料頁（搬運自 fansite/pages/profile.htm + assets/js/profile.js）
+  // 個人資料頁（搬運自舊前端的 profile.htm + profile.js，兩支都已自 repo 移除）
   // 內容（facts/hashtags/三語自介/BGM 曲名與作曲者）皆照搬現站；版面重排為極簡卡片式。
   import Page from '../lib/Page.svelte'
   import { t, getLang } from '../i18n.svelte.js'

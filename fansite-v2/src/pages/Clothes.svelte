@@ -1,5 +1,5 @@
 <script>
-  // 衣裝頁：搬運自 fansite/pages/clothes.htm + assets/js/clothes.js
+  // 衣裝頁：搬運自舊前端的 clothes.htm + clothes.js（兩支都已自 repo 移除）
   // 資料照搬進 clothesData.js；modal 換成自寫 detail 面板 + 自寫 Lightbox（不裝 Fancybox）。
   //
   // 詳細頁走 **path**：`/clothes/20260611`（2026-08-14 由 `#20260611` 改制——path 才能

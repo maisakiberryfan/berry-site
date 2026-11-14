@@ -1,4 +1,4 @@
-// 衣裝資料 —— 照搬自 fansite/assets/js/clothes.js 的 sourceArray（唯讀資料模組）。
+// 衣裝資料 —— 照搬自舊前端 clothes.js 的 sourceArray（唯讀資料模組；原檔已自 repo 移除）。
 //
 // ⚠️ **本檔必須能被裸 Node 直接 import**（scripts/og-config.mjs 由它產生每套衣裝的
 //    OG meta）：不得 import 任何吃 `import.meta.env` 的模組（如 ../assets.js）或

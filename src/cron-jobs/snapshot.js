@@ -18,9 +18,7 @@
  *   songlist.json / streamlist.json / yt-latest.json
  *   manifest.json（額外加 fetchedAt）
  *   setlist-{YYYY-MM}.json / setlist-none.json（依 manifest 逐月）
- *   history.md / changelog.json（現站靜態檔，非 API，走 HTTP 抓）
- *   ※ 後三者（yt-latest/history/changelog）是 v3 才用的；寫進 v2 現站 bucket 只是
- *     幾 KB 的無害多餘檔（且會被現站 CI 的 `sync --delete` 清掉、下輪 cron 再補）。
+ *   history.md / changelog.json（站上的靜態檔，非 API，走 HTTP 抓）
  *
  * 為什麼要 cron：快照原本只在部署時產（CI `npm run snapshot`），資料更新後就過期。
  *   前端有 API 背景校正兜底，所以快照「不必永遠新鮮」——但首訪體感差，故定期重產。
@@ -30,7 +28,7 @@
  *   未配置此功能的環境完全不受影響。
  *
  * 失效策略：每個 target 全部寫完後發 **一次** invalidation `/data/*`（1 path）。
- *   物件 CacheControl 固定 `public, max-age=300`，與現站 CI 的快照 sync 一致
+ *   物件 CacheControl 固定 `public, max-age=300`，與 CI（deploy.yml）的快照 sync 一致
  *   （invalidation 管不到瀏覽器快取，短 max-age 才是瀏覽器端的收斂手段）。
  *
  * 失敗語意：單檔失敗不中斷（照 fetch-snapshot.mjs 的 failures 模式）——舊物件留在 S3
@@ -51,18 +49,18 @@ import app from '../app.js'
 import { getSecret } from '../platform.js'
 import { sendDiscordNotification } from '../utils/discord-notifier.js'
 
-// 前端以 `/data/<file>` 取用（fansite-v2/src/api/client.js、現站 assets/js 快照層）
+// 前端以 `/data/<file>` 取用（fansite-v2/src/api/client.js）
 const KEY_PREFIX = 'data/'
 // 帶完整 URL 呼叫 app.request() 可跳過 Hono 的 mergePath，query string 原樣保留
 const INTERNAL_ORIGIN = 'http://localhost'
-// history.md / changelog.json 只存在於現站 S3（不是 API），故走 HTTP。
-// ⚠️ 新站切換後若這兩支路徑消失，fetch 失敗＝保留 S3 舊檔，不致命（可用
-//    SNAPSHOT_STATIC_BASE 改來源）
+// history.md / changelog.json 是站上的靜態檔（不是 API），故走 HTTP 抓它們的原位
+// （/pages/history.md、/changelog.json，由 deploy.yml 從 repo 的 fansite/ 上傳）。
+// ⚠️ 這兩支路徑若消失，fetch 失敗＝保留 S3 舊檔，不致命（可用 SNAPSHOT_STATIC_BASE 改來源）
 const STATIC_BASE_DEFAULT = 'https://m-b.win'
 const STATIC_TIMEOUT_MS = 20_000
 // S3 併發寫入數（內部 API 調用序列化——Lambda 共用單一 DB 連線，併發無益）
 const PUT_CONCURRENCY = 6
-// 與現站 CI 的 `aws s3 sync fansite/data/ --cache-control` 逐字一致
+// 與 deploy.yml 快照 sync 的 `--cache-control` 逐字一致
 const CACHE_CONTROL = 'public, max-age=300'
 // **抓取階段**的整體時間預算（Lambda Timeout 180s，留 60s 給 S3 寫入＋清理＋invalidation）。
 // 被 timeout 中砍＝連 S3 都沒寫、也沒有任何摘要或通知；主動在 120s 收手則能寫完手上的檔、
@@ -201,7 +199,7 @@ async function internalJson(pathname, env) {
   return body
 }
 
-/** 原樣抓現站靜態檔（不解信封、不重新序列化） */
+/** 原樣抓站上的靜態檔（不解信封、不重新序列化） */
 async function fetchStatic(url) {
   const res = await fetch(url, { signal: AbortSignal.timeout(STATIC_TIMEOUT_MS) })
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} — ${url}`)
@@ -413,7 +411,7 @@ export async function runSnapshot(env = {}) {
     }
   }
 
-  /** 現站靜態檔 → 原樣字串，收進待寫清單 */
+  /** 站上的靜態檔 → 原樣字串，收進待寫清單 */
   const collectStatic = async (file, pathname, contentType) => {
     if (overBudget(file)) return
     try {
