@@ -4,7 +4,7 @@ compatibility_date = "2024-11-06"
 compatibility_flags = ["nodejs_compat"]
 
 # Workers Static Assets — 靜態檔案（備用站完整網站）
-# v3 切換：指向 fansite-v2 的 build 產物（Vite hash 檔名），不再是 fansite/ 原始目錄。
+# 指向 fansite-v2 的 build 產物（Vite hash 檔名）。
 # ⚠️ dist/ 是 gitignored 的建置產物——部署前必須先產生它，否則 wrangler 會找不到目錄：
 #     cd fansite-v2 && npm ci && npm run snapshot && npm run build
 #   （snapshot 抓 CDN 快照層 public/data/*.json；缺了仍能 build，只是首訪退回 API 校正）
@@ -14,7 +14,7 @@ directory = "fansite-v2/dist"
 binding = "ASSETS"
 # 預設行為是「請求命中靜態檔案就由資產伺服器直接回傳、完全不執行 worker」，
 # 那條路徑上 entry-worker.js 的 security header 注入不會發生（實測：/ 與
-# /assets/dist/tool.js 無任何 header，只有走 SPA fallback 的 /profile 有）。
+# 靜態的 .js 檔無任何 header，只有走 SPA fallback 的 /profile 有）。
 # 設 true 讓所有請求都先進 worker，再由 worker 內的 env.ASSETS.fetch() 取檔並補 header。
 run_worker_first = true
 
@@ -56,5 +56,4 @@ LAMBDA_MATCHER_URL = "http://localhost:3000/match-setlist"
 # wrangler secret put YOUTUBE_API_KEY
 # wrangler secret put DISCORD_WEBHOOK_URL
 # wrangler secret put PUBSUB_CALLBACK_URL
-# wrangler secret put GITHUB_TOKEN
 # wrangler secret put TRIGGER_TOKEN   # webhook 簽名驗證與 /trigger-* 端點都依賴此值，未設＝不處理通知

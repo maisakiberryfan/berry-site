@@ -13,11 +13,18 @@
 VTuber「苺咲べりぃ」非官方粉絲網站。
 
 > **歷史**：本 repo 整合自四個獨立 repo（前端靜態網站、歌單解析 Worker、YouTube 影片代理、資料庫 API），皆已封存。
+> 前端在 2026-08 重寫（`fansite-v2/`），舊前端的程式已於 2026-11-14 自 repo 移除。
 
 ```
 berry-site/
-├── fansite/                   # 前端靜態網站
-│   └── assets/js/tool.js      # 主要前端邏輯
+├── fansite-v2/                # 前端（Vite＋Svelte 5）；維護手冊在 fansite-v2/CLAUDE.md
+│   ├── src/                   # 頁面、資料層、共用元件
+│   ├── scripts/               # 快照、OG 快照、路由白名單檢查
+│   └── dist/                  # build 產物（gitignored）——三條部署路線發布的都是它
+├── fansite/                   # 只剩內容檔，路徑不可搬動（見「前端」章）
+│   ├── img/                   # 站上所有圖片與音訊
+│   ├── pages/history.md       # 年表
+│   └── changelog.json         # 首頁「最近更新」
 ├── src/                       # 後端共用程式碼（Hono app）
 │   ├── app.js                 # 主應用程式 + 路由 + handleCronTrigger
 │   ├── config.js              # CORS 設定
@@ -89,126 +96,82 @@ wrangler dev 時 `.dev.vars` 注入到 `c.env`（不是 `process.env`）。
 
 ---
 
-## 前端（fansite/）
+## 前端（fansite-v2/）
 
-### 技術棧
-- jQuery 3.7.1 + Bootstrap 5.3.8（**SCSS 客製編譯**，亮暗雙主題）
-- Tabulator 6.5.2 + Select2 4.1.0（IME 支援；4.0.13 組字有致命 bug 勿降版，
-  2026-08-08 由 rc.0 升正式版、日文組字全流程實測通過。**任何 Select2 升級都必須重測 IME**）
-- sql.js 1.14（Analytics 進階 SQL；SQLite/WASM self-host 於 `assets/vendor/`，
-  按下執行才載入 ~0.64MB wasm。取代 DuckDB-WASM＋parquet，見下方 Analytics 節）
-- 表格快取：IndexedDB（idb-keyval，store `berry-cache`/`tables`；IDB 不可用時降級直抓 API）
-- 資料載入三層瀑布：IndexedDB → CDN 靜態快照（`/data/*.json`）→ API 增量校正（見下節）
-- esbuild 建置（`--format=esm`，因 top-level await 不支援 iife）
-- 自訂 SCSS 用 `@use ... with` 覆寫 Tabulator 變數 + CSS custom properties 實現 dark mode（比官方 dark mode 更完善）
+線上兩站與單機路線發布的都是 `fansite-v2/` 的 build 產物：Vite 7＋Svelte 5（runes）＋Tailwind 4，
+表格、下拉、圖表、lightbox 全部自寫，沒有 jQuery／Bootstrap／Tabulator。
 
-### 主題色系統（苺咲べりぃ配色，色碼取樣自官方 logo/symbol @ `img/profile/`）
-- `assets/css/bootstrap-berry.scss`：**官方 Sass 變數覆蓋路線**（先設 `$primary`/`$body-bg`/
-  `$*-dark` 再 `@import bootstrap`），primary=草莓紅 `#E24368`，衍生色（hover/focus ring/
-  subtle/emphasis）編譯期自動生成。亮色主題=草莓牛奶（`#FCF4F6` 底＋深草莓連結）為**預設**；
-  暗色主題=暗莓（`#261A21` 系＋徽章粉連結 `#F193AB`）。產物 `bootstrap-berry.css` **進 git**
-  （同 tabulator 慣例，CI 只跑 build:js 不重編）——改 scss 後必須 `npm run build:bootstrap`
-- `assets/css/theme-berry.css`：裝飾層（navbar 漸層線＋brand 色、兩角光暈、h2 hairline、
-  `.table-dark` 硬編色跟隨主題、Tabulator 表頭底線/編輯格、工具列按鈕暗色提亮）；
-  bundle 順序必須排在 bootstrap-berry 與 tabulator CSS 之後
-- `assets/js/theme-init.js`：head 內**同步** script（CSP 禁 inline 故獨立成檔），首繪前套用
-  主題防閃爍。優先序：`?theme=` 測試 override（不落地）> localStorage（切換鈕選過）
-  > 系統 prefers-color-scheme > light。navbar 切換鈕（`#themeToggle`）寫 localStorage
-- ⚠️ 新增 UI 勿硬編亮/暗前提 class（`btn-outline-light`、`bg-dark text-light`、
-  `table-dark` 例外——表格容器沿用它但變數已跟隨主題），一律用主題自適應變數/元件
+**前端的維護手冊是 [`fansite-v2/CLAUDE.md`](fansite-v2/CLAUDE.md)**——資料層、共用元件、各頁的非顯然行為、
+鐵則（亮暗主題、手機唯讀、IME、時區…）、新專輯發售時的更新清單都在那裡。
+本章只記「跨前後端」或「要同時改 repo 其他位置」的事，不重複那份的內容。
 
-### 資料載入三層瀑布（首訪加速；2026-08-09 由 fansite-v2 移植）
+> 名稱對照：目錄叫 `fansite-v2/`，文件裡稱它 v3（v2 指被它取代的舊前端）。舊前端
+> （jQuery＋Bootstrap＋Tabulator，原本在 `fansite/`）2026-08-13 下線、2026-11-14 自 repo 移除，
+> 要查它的實作看該日之前的 git 歷史。
+
+```bash
+cd fansite-v2
+npm run dev          # :5173，/api 代理到正式站——唯讀瀏覽用；按「儲存」會寫進正式資料庫
+npm run dev:testdb   # :5175，/api 代理到本機後端 :8788（entry-dev.js＋測試庫）——測編輯用這個
+npm run build        # → dist/（vite build ＋ 產 dist/og/*.html）
+npm run check:routes # 路由／OG 白名單一致性檢查
+npm run snapshot     # 資料快照 → public/data/（repo 根的 `npm run snapshot` 是同一支）
+```
+
+### `fansite/` 目錄：只剩三樣內容，路徑不可搬動
+
+| 路徑 | 內容 | 發布後的網址 |
+|------|------|-------------|
+| `fansite/img/` | 站上所有圖片與音訊（衣裝、個人資料、專輯封面、分享卡） | `/img/*` |
+| `fansite/pages/history.md` | 年表 | `/data/history.md`（前端讀這份）＋ `/pages/history.md`（原位，AWS 主站與單機路線才有） |
+| `fansite/changelog.json` | 首頁「最近更新」，三語各一句 | `/data/changelog.json`（前端讀這份）＋ `/changelog.json`（原位，同上） |
+
+它們不在 `fansite-v2/` 裡是歷史因素，但現在有一串東西認這三個路徑，**搬動任何一個就要全部一起改**：
+
+- `.github/workflows/deploy.yml`（AWS：`img/` 同步到 bucket、後兩支傳到原位並覆蓋快照副本）
+- `.github/workflows/deploy-cf.yml`（CF：`img/` 併進 dist、後兩支覆蓋快照副本）
+- `Dockerfile`（`COPY`）與 `docker-compose.yml`（後兩支以 bind mount 掛進容器，改完存檔就生效）
+- `entry-node.js`、`entry-dev.js`（直接從這三個路徑讀檔）
+- `fansite-v2/vite.config.js`（dev 時 `/img` 先讀本機的 `fansite/img`）
+- 「原位」網址：`fansite-v2/scripts/fetch-snapshot.mjs` 與快照 cron（`src/cron-jobs/snapshot.js`）
+  是從 `/pages/history.md`、`/changelog.json` 抓這兩支再寫進 `/data/`
+- repo 以外的自動化工具會直接改寫 `fansite/pages/history.md`——**手動編輯前先 pull**
+
+這個目錄不要再放程式或建置設定。新圖片照既有子目錄放（規格見 `fansite-v2/CLAUDE.md`）。
+
+### CDN 靜態快照（`/data/*.json`）
+
+前端的資料載入是三層瀑布，快照是中間那層：
 
 ```
 IndexedDB 快取  →  CDN 靜態快照 /data/*.json  →  API 增量校正
-（回訪，不變）      （首訪，edge 直出）           （既有 manifest/ETag 邏輯）
+（回訪秒開）        （首訪，edge 直出）           （manifest／ETag 比對，只重抓有變的）
 ```
 
-- **快照產生**：`npm run snapshot`（＝`node fansite-v2/scripts/fetch-snapshot.mjs`，
-  純 Node 無相依）向正式 API 唯讀 GET，輸出到 `fansite-v2/public/data/`（**gitignored**，
-  部署時重建，vite build 會連同 `public/` 拷進 `dist/data/`）：
-  `songlist.json`、`streamlist.json`、`yt-latest.json`、`manifest.json`、
-  `setlist-{YYYY-MM}.json`（每月一檔）＋`setlist-none.json`
-  ＋`history.md`／`changelog.json`（現站靜態檔，CI 隨後以 repo 版覆蓋，見下）。
-  `BERRY_API=http://localhost:8788` 可改抓本地 API。
-  單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）——
-  **manifest 形狀不對（缺 months 陣列）與 songlist/streamlist/月度檔非陣列同樣計入
-  failures**：AWS 側的 `s3 sync --delete` 吃這個 exit code，靜默 exit 0 會清空線上 /data/
-  （v2 舊版本的根目錄腳本已於 2026-08-14 除役刪除）
-- **前端**（tool.js）：IDB 無快取時才抓快照。setlist 走 `primeSetlistFromSnapshot()`——
-  manifest 快照給月份清單並 **seed fingerprints**，逐月快照併發 6 抓齊後灌入，之後
-  **照常走既有的 manifest 比對**：快照過時的月份指紋對不上、自動由 API 重抓（缺檔的月份
-  不寫指紋，效果同缺月自癒）。songlist/streamlist 用整包快照當 Tabulator 初始 data，
-  校正交給既有的 `backgroundFetchAndUpdate`
-- **etag 一律為 null**：靜態快照沒有 ETag，帶假值會 304 短路把過時資料鎖死
-- **fallback**：快照 404／解析失敗 → 回傳 null → 完全走原本的 API 路徑（首訪漸進載入
-  不變），代價只是一個 404 往返
+前端怎麼消費快照見 `fansite-v2/CLAUDE.md` 的「資料層」；這裡記產生端與部署端。
+
+- **輸出契約**（檔名／信封／排序）：`songlist.json`、`streamlist.json`、`yt-latest.json`、
+  `manifest.json`、`setlist-{YYYY-MM}.json`（每月一檔）＋`setlist-none.json`（不留檔場），
+  外加原樣存檔的 `history.md`／`changelog.json`。**產生端有兩個，輸出必須一致**：
+  部署時的 `fansite-v2/scripts/fetch-snapshot.mjs`（逐月抓）與每日兩次的快照 cron
+  （`src/cron-jobs/snapshot.js`，一次全量再分桶，見後端章）。改其中一邊的輸出就要改另一邊與前端
+- **部署時的產生**：`npm run snapshot`（純 Node 無相依）向正式 API 唯讀 GET，輸出到
+  `fansite-v2/public/data/`（**gitignored**，vite build 會連同 `public/` 拷進 `dist/data/`）。
+  `BERRY_API=http://localhost:8788` 可改抓本地 API
+- **失敗語意**：單檔失敗不中斷但**整支 exit 1**，CI 據此跳過同步（保住線上既有的完整快照）。
+  **manifest 形狀不對（缺 months 陣列）與 songlist/streamlist/月度檔非陣列同樣計入 failures**：
+  AWS 側的 `s3 sync --delete` 吃這個 exit code，靜默 exit 0 會清空線上 `/data/`
+- **快照沒有 ETag**：前端灌入快照後 etag 一律記 null。帶假值會讓 API 回 304、把過時資料鎖死；
+  同理，快取缺月份時 manifest 請求不得帶舊 ETag
+- **fallback**：快照 404／解析失敗 → 前端完全走 API 路徑，代價只是一個 404 往返
 - **CI**：build **之前**跑 `npm run snapshot`（`continue-on-error`——快照抓不全不該擋部署），
   緊接著用 repo 的 `fansite/pages/history.md`／`fansite/changelog.json` 覆蓋快照抓來的線上版
-  （快照是從 m-b.win 抓的，此刻線上還是上一次部署的內容，不覆蓋就永遠落後一次部署）；
+  （快照是從線上抓的，此刻線上還是上一次部署的內容，不覆蓋就永遠落後一次部署）；
   AWS 側 `fansite-v2/dist/data/` 獨立一輪 s3 sync（`max-age=300`＋`--delete`，
   不用 `--size-only`，且 `if: steps.snapshot.outcome == 'success'`），
   CF 側隨 Workers Static Assets 一起上傳。CloudFront 的 `/*` invalidation 已涵蓋 `/data/`
-- **新鮮度**：快照只跟得上「最近一次部署」，這是設計的一部分——正確性由 API 校正保證，
+- **新鮮度**：快照跟得上「最近一次部署」與每日兩次的 cron，這是設計的一部分——正確性由 API 校正保證，
   快照只負責讓首訪先有東西看
-
-### Analytics（`pages/analytics.htm` ＋ `assets/js/analytics.js` ＋ `assets/js/analytics/`）
-
-頁內兩個分頁籤：**統計**（第一屏、零下載）與**資料查詢**（引擎按需載入）。
-
-- **資料源＝瀏覽器既有快取**：`window.loadBerryTables()`（tool.js）以與表格頁相同的
-  三層瀑布（IDB → CDN 快照 → API）取回 setlist／songlist／streamlist。
-  **不再有 `sqldata.m-b.win` 的每日 parquet 管線**（VPS 匯出 cron 與 R2 bucket 待退役）
-- **統計面板**：純 JS 聚合（統計卡、Top 20 曲、Top 10 歌手、24 個月趨勢），
-  圖表為自繪 SVG（`analytics/charts.js`，無圖表庫）。色彩全走 CSS 變數
-  （`--berry-primary`/`--berry-pink` ＋ `--bs-*` 文字/邊框階層），亮暗自適應
-- **查詢建構器**（`analytics/builder.js`）：欄位勾選＋7 運算子＋6 聚合＋SQL 即時預覽。
-  欄位名走 `DATASET_COLUMNS` 白名單、運算子走固定表、**值一律 bind（`?`）**、
-  LIKE 另加 `ESCAPE '\'` ⇒ 使用者輸入不可能變成語法
-- **進階 SQL**：`analytics/engine.js` 以原生 `<script src>` 載入 self-host 的
-  `assets/vendor/sql-wasm-browser.{js,wasm}`（sql.js 1.14，**按下執行才載**）。
-  版本由 `fansite/package.json` 的 `sql.js` 相依管理，升級後跑 `npm run vendor:sqljs`
-  重新複製產物（vendor 檔進 git，同 `xlsx.full.min.js` 慣例）
-- **時間語意（全部本地時區）**：寬表的 `time` 在建表時就轉成瀏覽器時區的
-  `'YYYY-MM-DD HH:MM'` 固定寬度字串（SQLite 無 timestamp 型別，字典序＝時序），
-  使用者直接寫本地日期即可；統計面板的月度分桶同樣用本地月（2026-08-09 用戶指正
-  統一——原沿用 v3 的 UTC 桶會讓跨月深夜場與查詢的 `month` 對不上）。代價：統計桶
-  與後端 manifest 的 UTC 月度分段不可直接對帳（僅影響開發者除錯）
-- **三語**：靜態文字走 `data-lang` span（`updatePageLang`）；JS 動態產生的內容走
-  `analytics/i18n.js` 字典（動態節點不在 `updatePageLang` 掃描時機內）
-- **已移除**：AI「SQL 小幫手」（`/api/text-to-sql`、`ai_usage` 預算表、`ANTHROPIC_API_KEY`）
-  與 DuckDB-WASM；CSP 兩側同步移除 `cdn.jsdelivr.net`、`sqldata.m-b.win`
-
-### 表格快速搜尋語法（`欄位:值`；2026-08-09 由 fansite-v2 移植）
-
-四張表頁（songlist/streamlist/setlist/aliases）的「進階搜尋」卡片首列＝**快速搜尋框**，
-即時過濾（200ms debounce、IME 組字中不觸發、Enter 立即套用）。
-
-- **語法本體**：`fansite/assets/js/table-search.js`（`tokenize` / `buildHaystack` /
-  `matchesQuery` 三支純函式＋四表的 `SEARCH_SPECS`）。空白分隔＝AND、引號括住含空白的值、
-  全形冒號「：」／全形空白／彎引號一併吃、`欄位:*`＝該欄不為空
-- **關鍵設計**：欄位名比不到別名表時，**整個 token（含冒號）退回全文比對**——
-  時間「12:34」不會被誤拆成 `12` 欄位。別名表以 `hasOwnProperty` 把關
-  （`constructor:x` 這類 key 會撈到 Object.prototype 成員，直接用會炸）
-- **別名表三語都收**（`曲名`/`song`/`曲名`、`歌手`/`artist`/`アーティスト`…），key 一律小寫；
-  雙語欄（曲名/歌手）同時比日文與英文欄，與各表 headerFilterFunc 既有行為一致
-- ⚠️ **取值對象是 Tabulator 的列資料（已過 mutator）**：setlist/streamlist 的 `time`
-  是 `'YYYY/MM/DD HH:mm'` 本地字串（不是 ISO），不留檔場（time NULL）會是 `'Invalid Date'`。
-  日期一律走 `dateText()`（同時吐斜線與短橫線兩版、`Invalid Date` 視同空）
-- **與多欄運算子搜尋並存**：兩者狀態各自維護，最後由 `applyTableFilters()` 併成單一
-  custom filter 送 `setFilter`。Tabulator 的 `setFilter` 會整組取代既有程式化 filter，
-  **兩邊各自呼叫必定互相清掉**——新增任何程式化篩選都必須走這個出口。
-  headerFilter 是另一組，Tabulator 自己 AND 起來，不受影響
-- 條件全空時用 `clearFilter()`（不帶 `true`）：帶 `true` 會連 headerFilter 一起清掉，
-  刪空搜尋框不該連欄頭篩選一起沒。整組清空由「清除」鈕與「重新載入」負責
-- 「?」說明面板為 Bootstrap collapse 的宣告式 `data-bs-toggle`（無 inline script，CSP 相容），
-  三語走 `data-lang` 區塊；範例可點擊直接套用，**值取自實際資料**（點下去不會 0 筆）
-
-### 核心功能
-- 三語言系統（zh/en/ja）+ 瀏覽器自動偵測
-- 即時編輯：Tabulator inline editing + API 同步
-- 聯動篩選：HeaderFilter cascade filtering + 模糊搜尋 + 快速搜尋語法（見上節）
-- SPA 路由：`setContent(path)` + `history.pushState`
 
 ### ⚠️ SPA 路由白名單（**四份，新增／改名路由必須四處一起改**）
 1. `fansite-v2/src/router.svelte.js` 的 `ROUTES` —— 站內連結清單的單一真相
@@ -249,17 +212,12 @@ HTML。`fansite-v2/scripts/generate-og-html.mjs`（`npm run build` 已串上）�
   （不做 UA 分流：CachingOptimized 的快取鍵不含 UA，分流只會變成隨機二選一）
 - ⚠️ `clothesData.js`／`discographyData.js` **必須維持裸 Node 可 import**
   （不得 import 吃 `import.meta.env` 的模組或 .svelte 檔）
-- `Promise.allSettled` 確保首頁各區塊獨立載入
 
-### 建置
-```bash
-cd fansite && npm run build:js         # esbuild bundle → assets/dist/（CI 跑這個）
-cd fansite && npm run build:bootstrap  # bootstrap-berry.scss → .css（改主題 scss 後必跑，產物進 git）
-cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
-cd fansite && npm run vendor:sqljs     # sql.js dist → assets/vendor/（升 sql.js 後必跑，產物進 git）
-npm run snapshot                       # repo 根：＝ node fansite-v2/scripts/fetch-snapshot.mjs
-                                       # → fansite-v2/public/data/（CI 在 fansite-v2/ 內跑同一支）
-```
+### CSP：兩側逐字一致
+
+前端要載入新的外部來源（腳本、圖片、字型、連線對象）時，CSP 要改兩處且**字串必須逐字相同**：
+`entry-worker.js` 的 `CSP` 常數（CF 備用站與單機路線）與 `template.yaml` 的 `SecurityHeadersPolicy`
+（AWS 主站）。各 source 為什麼存在，寫在 `entry-worker.js` 該常數上方的註解。
 
 ---
 
@@ -366,8 +324,7 @@ AWS EventBridge 為主要排程。CF cron 已停用。
 - `streamlist`：直播資訊
 - `setlist_ori` → `setlist` VIEW（JOIN songlist + streamlist，YTLink 含 `?t=startTime`）
   - `startTime INT NULL`（秒數）、`endTime INT NULL`（秒數）— 從 YouTube 留言回補；
-    亦可前端編輯模式直接編輯（timeEditor：h:mm:ss/m:ss/秒；PUT 驗證 null 或 0~360000，
-    與 fansite-v2 同一套 API 更新方法）
+    亦可在站上直接編輯（輸入 h:mm:ss／m:ss／秒；PUT 驗證 null 或 0~360000）
 - `aliases`：歌曲/歌手別名
   - title 別名可綁 `songID`（精準對應、同名異曲不互染）；artist 別名為字串表（跨曲共用，設計如此）
   - **UNIQUE = (aliasType, canonicalName, aliasValue, songKey)**，`songKey INT UNSIGNED
@@ -461,7 +418,7 @@ CF 備用站的 `entry-worker.js` 有對應的一份（惡意路徑 404／SPA �
 ### 縮圖系統
 
 - 新影片透過 `runAutoUpdate` / PubSub 自動下載到 S3（`src/utils/thumbnail.js`）
-- 前端 `imageLink()` 使用 `/tb/{id}.jpg`，onerror fallback YouTube CDN
+- 前端以 `/tb/{id}.jpg` 取圖，載入失敗改用 YouTube CDN（`fansite-v2/src/lib/table/utils.js` 的 `ytThumbUrl()`）
 - 小於 5KB 視為 YouTube 預設佔位圖，跳過上傳
 - **CF 備用站沒有縮圖 bucket**：`entry-worker.js` 把 `/tb/{11 碼}.jpg` 直接 302 到
   `https://i.ytimg.com/vi/{id}/mqdefault.jpg`（`Cache-Control: max-age=86400`），
@@ -493,7 +450,7 @@ AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 ch
 5. 孤兒 hash 資產回收（`continue-on-error`）：只掃 `assets/` 前綴，
    「本地 dist 已無 ∧ S3 LastModified >14 天」兩條件同時成立才刪——第 3 步不帶
    `--delete` 的另一半（邏輯與 `fansite-v2/scripts/deploy-sync.sh` 步驟 4 相同，
-   demo 站仍用該腳本，**改判準要兩邊同步**）
+   該腳本留給獨立站台的部署用，**改判準要兩邊同步**）
 6. Invalidate CloudFront `/*`（1 path）
 7. `deploy-matcher` job：僅 `lambda/setlist-matcher/**` 或本 workflow 變更時部署；
    matcher 的 `BerrySiteApiUrl` 取自主站 stack 的 `CloudFrontUrl` 輸出（不寫死，別人照這份 workflow
@@ -515,19 +472,25 @@ AWS 側 `cancel-in-progress: false`（排隊——CloudFormation 拒絕併發 ch
 ## 本地開發
 
 ```bash
-# CF 路徑（含靜態檔案 + API）
-npm run dev                    # wrangler dev → http://localhost:8787
-
-# Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑——workerd 連不上自簽 TLS DB）
+# 後端（Node；唯一能本地連 DB 的路徑——workerd 連不上自簽 TLS DB）
 # 先開 tunnel：ssh -N -L 13307:127.0.0.1:<DB 主機上的埠> <DB 主機>（實際值屬各自環境，不進 repo）
 DB_HOST=127.0.0.1 DB_PORT=13307 DB_NAME=mbdb_test node entry-dev.js   # → http://localhost:8788
 
+# 前端（另開一個終端機；改前端用這個，有 HMR）
+cd fansite-v2 && npm run dev:testdb    # → http://localhost:5175，/api 代理到上面的 8788
+cd fansite-v2 && npm run dev           # → http://localhost:5173，/api 代理到正式站（唯讀瀏覽用）
+
+# CF 路徑（wrangler dev；靜態檔來自 fansite-v2/dist，要先 build）
+npm run dev                    # → http://localhost:8787
+
 # AWS 路徑（API only）
 sam build && sam local start-api --port 3001 --env-vars .env.json
-
-# 前端 bundle
-cd fansite && npm run build:js
 ```
+
+`entry-dev.js` 在 `fansite-v2/dist` 存在時也會同源 serve build 後的前端（請求處理重用
+`entry-worker.js` 的 fetch，同 `entry-node.js`——路由白名單、OG 快照、安全標頭都和正式環境一樣）；
+沒有 build 產物就只提供 API。靜態檔的路徑對應在 `entry-node.js` 與 `entry-dev.js` 各有一份，
+**改一邊要同步另一邊**。
 
 | 檔案 | 用途 |
 |------|------|
@@ -538,6 +501,18 @@ cd fansite && npm run build:js
 ---
 
 ## 重要提醒
+
+### 直連後端原始網址的寫入一律拒絕（2026-11-14）
+- 後端有兩個入口：站台網域（經 CloudFront，由 CloudFront 帶上 `x-origin-verify`）與 API Gateway
+  自動給的原始網址（不經 BotBlocker）。`src/app.js` 的 `isDirectOriginWrite` 讓**會改資料的方法**
+  （GET／HEAD／OPTIONS 以外）只能從前者進來，不符回 403
+- **沒設 `ORIGIN_VERIFY_SECRET`＝不啟用**；只在 Lambda 鏈路生效，Cloudflare 備用站與內部調用不適用；
+  讀取不擋。不經 HTTP 的呼叫（排程直接 invoke、通知的非同步 self-invoke）本來就不走這一層
+- ⚠️ 單機路線（`entry-node.js`）也會填 `requestContext.http.sourceIp`，而它前面的代理不帶驗證值——
+  **單機部署不要設 `ORIGIN_VERIFY_SECRET`**，設了所有寫入都會被拒
+- ⚠️ 之後若再建一個接同一支 API 的 CloudFront（測試站之類），它的 API origin 也要帶同一個
+  `X-Origin-Verify`，否則該站只能讀不能寫
+- 測試：`node scripts/test-origin-verify.mjs`（不連網）
 
 ### Hyperdrive
 - 使用 `connection.query()` 替代 `connection.execute()`（COM_STMT_PREPARE 限制）
@@ -563,12 +538,6 @@ cd fansite && npm run build:js
   指紋變更的月份；不留檔場（佔位 streamID、time NULL）走 `none` bucket；快取不完整
   （缺月 record）時 etag 回 null 停用 If-None-Match——帶舊 etag 會 304 短路擋死自癒路徑
 
-### Select2 IME
-- 使用 **4.1.0**（2026-08-08 起；此前鎖 4.1.0-rc.0 五年）。4.0.13 的組字 bug 是底線，
-  任何版本變動都必須人工重測日文輸入（組字 Enter 兩段式、multiple textarea、Tab 行為）
-- cell editor 的 destroy 必須 defer（tool.js select2 editor 註解）：4.1.0 clear 流程
-  在 change 後還會 toggleDropdown，同步 destroy 會拋 dataAdapter null
-
 ### DB 連線
 - `src/utils/database.js` 的 `ping()` 有 3 秒 timeout 保護
 - CF Workers TCP socket 行為跟 Node.js 不同，壞連線不會自動偵測
@@ -577,7 +546,6 @@ cd fansite && npm run build:js
 
 ### Setlist Composite Key
 - 路由：`/api/setlist/:streamID/:segmentNo/:trackNo`
-- 新增 row 用 `_isNew` flag 區分 POST/PUT
 
 ### PubSubHubbub 訂閱
 - Lease 5 天，由每日排程的 `runAutoUpdate` **每天**自動續訂（`hub.secret`=TRIGGER_TOKEN）。
@@ -643,6 +611,8 @@ cd fansite && npm run build:js
 
 | 版本 | 日期 | 主要更新 |
 |------|------|----------|
+| v3.17 | 2026-11-14 | 後端寫入只收經 CloudFront 的請求（`isDirectOriginWrite`，需設 `ORIGIN_VERIFY_SECRET`、未設不啟用、讀取不擋）；wiki 對照抓取失敗時重試一次（頁面 3.7MB，對方冷的時候第一次會超過 15 秒）；新增 `LICENSE`（The Unlicense，僅涵蓋程式碼）；前端三處表單下拉選單接上欄位標籤、表格工具的空值判斷收成 `isEmptyValue`；移除後端已無使用處的 GitHub token 部署參數（`GithubToken`／`GH_PAT_TOKEN`，使用它的功能早已換成靜態 changelog） |
+| v3.16 | 2026-11-14 | 舊前端自 repo 移除：`fansite/` 底下的 jQuery＋Tabulator 程式、建置設定與舊頁面全部刪除，只留 `img/`、`pages/history.md`、`changelog.json` 三樣內容（路徑不變）；`entry-dev.js` 改為重用 `entry-worker.js` 的 fetch 並 serve `fansite-v2/dist`；本檔的前端章節改寫為現況摘要，細節一律以 `fansite-v2/CLAUDE.md` 為準。下表更早的列提到的 `fansite/assets/…`、`tool.js`、Select2、Tabulator 等都是當時的舊前端，檔案已不在 repo 內 |
 | v3.15 | 2026-11-14 | YouTube 通知回呼防護（第一階段）：回呼網址改為 `<設定值>/<key>`（key 由 TRIGGER_TOKEN 算出，`src/utils/pubsub.js`），key 不符 404；續訂只訂新路徑、未設 `TRIGGER_TOKEN` 也跳過；沒有 key 的舊路徑以 `LEGACY_PUBSUB_PATH_ENABLED` 暫時保留，待舊訂閱過期並確認新路徑收得到通知後關閉 |
 | v3.14 | 2026-11-13 | 單機部署路線：新增 `entry-node.js`（重用 `entry-worker.js` 的 fetch，以本機檔案取代 ASSETS；內建排程、歌單比對與資料快照；訪客 IP 取自連線對端或受信任代理附加的 XFF 末段）＋`Dockerfile`／`docker-compose.yml`（網站＋MariaDB＋Caddy）、`DB_SSL=false`、`TRUSTED_PROXIES`；PubSub 回呼網址移除預設值（未設＝不續訂，避免別的部署蓋掉原站的訂閱）；接手指南改為兩條路線（單機 Docker／AWS＋Cloudflare） |
 | v3.13 | 2026-11-13 | 以「能被別人 clone 接手」為前提的整理：新增接手指南 `docs/HANDOVER.md`；matcher 加選配共享密鑰（`MATCHER_SHARED_SECRET`／`X-Matcher-Secret`，未設＝不驗證）＋API Gateway 節流；CloudFront 憑證 ARN 改為必填參數（`ACM_CERTIFICATE_ARN`）、matcher 的主站網址改取自 stack 輸出；文件與腳本中的個人環境識別（主機名、本機路徑、帳號編號、舊 repo 連結）換成佔位字；Claude Code skills 移出版控（`.claude/skills/` 改為忽略） |

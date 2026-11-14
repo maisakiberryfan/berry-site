@@ -1778,8 +1778,9 @@
         </div>
       </div>
 
-      <Field label={m.pickSong} hint={m.pickSongHint} error={fieldErrors.songID}>
+      <Field label={m.pickSong} hint={m.pickSongHint} error={fieldErrors.songID} forId="setlist-song">
         <Combobox
+          id="setlist-song"
           options={songOptions}
           value={form.songID}
           invalid={!!fieldErrors.songID}
@@ -2096,9 +2097,11 @@
           required
           hint={m.aliasCanonicalTitleHint}
           error={fieldErrors.canonicalName}
+          forId="setlist-alias-song"
         >
           {#if aliasPicking}
             <Combobox
+              id="setlist-alias-song"
               options={songOptions}
               value={aliasForm.songID}
               placeholder={m.pickSong}

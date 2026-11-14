@@ -65,7 +65,8 @@ function* scanTagContents(text, lower, openTags, closeTags, from = 0, until = te
  * 從 wiki 抓取全曲リスト並按日期分組
  * @returns {Map<string, string[]>} date → song titles
  */
-export async function fetchWikiSongsByDate() {
+/** 抓整頁（含讀完 body）；逾時涵蓋到 body 讀完為止 */
+async function fetchWikiPage() {
   const response = await fetch(WIKI_URL, {
     headers: { 'User-Agent': 'Mozilla/5.0 (berry-site wiki-verifier)' },
     signal: AbortSignal.timeout(WIKI_TIMEOUT_MS)
@@ -75,7 +76,20 @@ export async function fetchWikiSongsByDate() {
     throw new Error(`Wiki fetch failed: ${response.status}`)
   }
 
-  const buffer = await response.arrayBuffer()
+  return response.arrayBuffer()
+}
+
+export async function fetchWikiSongsByDate() {
+  // 失敗就再試一次：這一頁有 3.7MB，對方一陣子沒被讀取時第一次要十幾秒才吐完
+  //（2026-11-14 實測連抓三次：17.4s／1.7s／1.3s），第一次逾時、第二次通常一兩秒就回來。
+  // 只重試一次——對方真的掛掉時最多多等一個逾時，不會把整輪排程拖住
+  let buffer
+  try {
+    buffer = await fetchWikiPage()
+  } catch (error) {
+    console.warn(`[WIKI] 第一次抓取失敗（${error.message}），重試一次`)
+    buffer = await fetchWikiPage()
+  }
   const text = new TextDecoder('euc-jp').decode(buffer)
 
   if (text.length > WIKI_MAX_CHARS) {

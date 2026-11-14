@@ -62,14 +62,10 @@ Parameters:
   PubsubCallbackUrl:
     Type: String
     Default: ''
-  GithubToken:
-    Type: String
-    NoEcho: true
-    Default: ''
   # CDN 快照 cron（src/cron-jobs/snapshot.js）的目標站台：bucket ＋ 該站的 distribution。
   # public repo 不寫死 bucket 名 → 由 CI secrets 傳入（deploy.yml）。
   # 留白＝該站台不處理；兩組都留白＝整個快照步驟 skip 並 log（向後安全）。
-  # A＝現站（v2，fansite/data/ 由 CI 產、cron 保鮮）／B＝v3 站（demo 或切換後的新站）
+  # A＝主站／B＝第二個站台（選配；同一份快照要同時寫到另一個 bucket 時才設）
   SnapshotBucketA:
     Type: String
     Default: ''
@@ -127,7 +123,6 @@ Resources:
           # 空值＝呼叫 matcher 時不帶密鑰（matcher 端也沒設時才通）
           MATCHER_SHARED_SECRET: !Ref MatcherSharedSecret
           PUBSUB_CALLBACK_URL: !Ref PubsubCallbackUrl
-          GITHUB_TOKEN: !Ref GithubToken
           THUMBNAIL_BUCKET: !Ref ThumbnailBucket
           CLOUDFRONT_DISTRIBUTION_ID: !Ref CfDistributionId
           # `bucket:distributionId,bucket:distributionId`；未設定的組留下空段（如 `:`），

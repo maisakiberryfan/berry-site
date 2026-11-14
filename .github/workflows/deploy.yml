@@ -77,7 +77,6 @@ jobs:
           TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
           LAMBDA_MATCHER_URL: ${{ secrets.LAMBDA_MATCHER_URL }}
           PUBSUB_CALLBACK_URL: ${{ secrets.PUBSUB_CALLBACK_URL }}
-          GH_PAT_TOKEN: ${{ secrets.GH_PAT_TOKEN }}
           SNAPSHOT_BUCKET_A: ${{ secrets.SNAPSHOT_BUCKET_A }}
           SNAPSHOT_DISTRIBUTION_A: ${{ secrets.SNAPSHOT_DISTRIBUTION_A }}
           SNAPSHOT_BUCKET_B: ${{ secrets.SNAPSHOT_BUCKET_B }}
@@ -113,7 +112,6 @@ jobs:
               "TriggerToken=\"$TRIGGER_TOKEN\"" \
               "LambdaMatcherUrl=\"$LAMBDA_MATCHER_URL\"" \
               "PubsubCallbackUrl=\"$PUBSUB_CALLBACK_URL\"" \
-              "GithubToken=\"$GH_PAT_TOKEN\"" \
               "SnapshotBucketA=\"$SNAPSHOT_BUCKET_A\"" \
               "SnapshotDistributionA=\"$SNAPSHOT_DISTRIBUTION_A\"" \
               "SnapshotBucketB=\"$SNAPSHOT_BUCKET_B\"" \
@@ -171,13 +169,15 @@ jobs:
         working-directory: fansite-v2
         run: npm run build
 
-      # Sync v3 static files to S3
+      # Sync static files to S3
       # ⚠️ 刻意「不」用全域 --delete：
       #   ① hash 資產只增不刪——Vite 內容 hash 檔名，開著舊分頁的使用者 lazy chunk
-      #     不會 404；v2 遺產（assets/js|css|dist/）同樣落在保留路徑，
-      #     切換觀察期滿後由清理 commit 一次出清（見 plan-v3-switchover）
+      #     不會 404（過期的由下面的「孤兒 hash 資產回收」收掉）
       #   ② img/、pages/history.md、changelog.json 是 bucket 上必須保留的非 dist 內容
-      #     （og:image／history-bot 持續 push／commit skill 更新），--delete 會誤刪
+      #     （分享卡圖片、快照 cron 抓的原位），--delete 會誤刪
+      #   代價：repo 裡刪掉的檔案不會自動從 bucket 消失。舊前端（2026-11-14 自 repo 移除）
+      #   當年傳到 bucket 的東西，assets/ 底下的由回收步驟依 LastModified 收掉，
+      #   其餘（根層的 config.js、pages/ 底下 history.md 以外的檔）要手動刪
       - name: Sync fansite-v2 to S3
         run: |
           # hash 資產：內容不變 URL 就不變，--size-only 跳過已存在的同 hash 檔
@@ -194,9 +194,10 @@ jobs:
             --cache-control "no-cache, must-revalidate" \
             --exclude "assets/*" \
             --exclude "data/*"
-          # v2 沿用內容（來源仍在 fansite/，v3 的 og:image 與快照 cron 靜態抓取都依賴）
-          # ⚠️ fansite/ 目錄清理時，img/、pages/history.md、changelog.json 三個來源必須先
-          #    遷到新位置並改這裡（快照 cron 的 SNAPSHOT_STATIC_BASE 抓的也是後兩支）
+          # 內容檔：來源在 fansite/（2026-11-14 清理後該目錄只剩這三樣，程式已全部移除）。
+          # ⚠️ 這三個來源路徑有一串引用（清單見 CLAUDE.md「fansite/ 目錄」一節），要搬得全部
+          #    一起改；bucket 上的 /pages/history.md 與 /changelog.json 是快照 cron
+          #    （SNAPSHOT_STATIC_BASE）抓的原位，網址也不能改
           aws s3 sync fansite/img/ s3://${{ steps.stack.outputs.bucket }}/img/ \
             --size-only \
             --cache-control "public, max-age=86400"

@@ -179,7 +179,8 @@ repo 根目錄的 `docker-compose.yml` 會起三個容器：網站、MariaDB、�
 - `MATCHER_SHARED_SECRET`：比對服務的網址在公開 repo 裡看得到，不設的話任何人都能直接呼叫它、
   花你的 Lambda 費用。設一個夠長的隨機字串當 GitHub secret；有做備用站的話，
   用 `wrangler secret put MATCHER_SHARED_SECRET` 設同一個值。範本另外有節流當兜底。
-- `ORIGIN_VERIFY_SECRET`：讓限流能認出訪客的真實 IP。
+- `ORIGIN_VERIFY_SECRET`：讓限流能認出訪客的真實 IP，並拒絕不經 CloudFront、直接打後端原始網址的寫入請求。
+  只用在 AWS 路線；單機路線不要設（前面的代理不會帶驗證值，設了所有寫入都會被拒）。
 - `TRIGGER_TOKEN`：手動觸發端點與 YouTube 通知簽章都靠它，務必設。
 
 **備用站（Cloudflare，可以不做）**

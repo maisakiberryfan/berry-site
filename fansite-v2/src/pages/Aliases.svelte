@@ -806,8 +806,9 @@
       </Field>
 
       {#if form.aliasType === 'title'}
-        <Field label={m.boundSong} hint={m.boundHint}>
+        <Field label={m.boundSong} hint={m.boundHint} forId="alias-song">
           <Combobox
+            id="alias-song"
             options={songOptions}
             value={form.songID}
             placeholder={m.boundSong}

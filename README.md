@@ -56,14 +56,15 @@ Node 程序裡，資料庫不必對外開放。它直接重用
 
 ## 技術棧
 
-- **後端**：Hono 4.13（雙入口：`entry-worker.js` / `entry-lambda.js`）+ mysql2
-- **前端**：jQuery 3.7 + Bootstrap 5.3（SCSS 客製編譯，苺主題亮暗雙模式）+
-  Tabulator 6.5 + Select2 4.1.0（IME 支援，升級需人工重測日文組字）+ sql.js（Analytics）
-- **建置**：esbuild（bundle）+ sass（Bootstrap / Tabulator 主題編譯，產物進 git）
+- **後端**：Hono 4.13（入口：`entry-worker.js` / `entry-lambda.js` / `entry-node.js`）+ mysql2
+- **前端**：`fansite-v2/`——Vite 7 + Svelte 5 + Tailwind 4，表格／下拉／圖表都是自寫的；
+  Analytics 的進階 SQL 用 self-host 的 sql.js。維護手冊在 [`fansite-v2/CLAUDE.md`](fansite-v2/CLAUDE.md)
+- **內容檔**：`fansite/` 只放圖片（`img/`）、年表（`pages/history.md`）與首頁的「最近更新」
+  （`changelog.json`），沒有程式
+- **建置**：前端 `vite build`；Lambda 由 SAM 以 esbuild 打包
 - **平台抽象**：`src/platform.js`（自動偵測 CF Workers / Lambda / 本地開發環境）
 
-> 依賴升級原則：minor/patch 隨 `npm update` 跟進；jQuery 4（Select2 相容未驗）、
-> marked 18（major、低收益）暫緩；Select2 任何升級都需人工重測 IME 組字；
+> 依賴升級原則：minor/patch 隨 `npm update` 跟進；
 > DB driver 升級後需 grep 後端裸 `JSON.parse(DB 欄位)`（mysql2 3.23 曾因
 > JSON 欄位自動 parse 造成寫入路徑 500）。
 
@@ -76,7 +77,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 2. fansite-v2（v3 前端）：`npm ci` → `npm run snapshot`（best-effort，→ `public/data/`）
    → 以 repo 版覆蓋快照中的 `history.md`／`changelog.json` → `npm run build`
 3. Sync `fansite-v2/dist/` 至 S3（快照獨立一輪，`max-age=300`＋`--delete`；
-   快照步驟失敗時跳過該輪，保住線上既有快照）
+   快照步驟失敗時跳過該輪，保住線上既有快照），另同步 `fansite/img/`、年表與「最近更新」
 4. Invalidate CloudFront cache
 
 ### Cloudflare (`.github/workflows/deploy-cf.yml`)
@@ -103,12 +104,11 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `ACM_CERTIFICATE_ARN` | CloudFront 用的 ACM 憑證 ARN（必須在 us-east-1，涵蓋網域與 `www.` 子網域） |
 | `MATCHER_SHARED_SECRET` | （選配）主站呼叫 matcher 時帶的共享密鑰，任意長隨機字串。設了 matcher 才驗證呼叫者；未設＝任何人都能直接呼叫 matcher（僅剩節流兜底） |
 | `PUBSUB_CALLBACK_URL` | PubSub webhook URL |
-| `GH_PAT_TOKEN` | GitHub PAT（commit 查詢） |
 | `SNAPSHOT_BUCKET_A` | （選配）CDN 快照 cron 的目標 S3 bucket A（現行主站）。未設＝該站台不處理 |
 | `SNAPSHOT_DISTRIBUTION_A` | （選配）站台 A 的 CloudFront distribution ID，寫完後清 `/data/*`。未設＝不發 invalidation |
-| `SNAPSHOT_BUCKET_B` | （選配）快照 cron 的第二個目標 bucket（demo／備援站） |
+| `SNAPSHOT_BUCKET_B` | （選配）快照 cron 的第二個目標 bucket（另有第二個站台要同步時才設） |
 | `SNAPSHOT_DISTRIBUTION_B` | （選配）站台 B 的 distribution ID |
-| `ORIGIN_VERIFY_SECRET` | （選配）CloudFront→API 的 origin 驗證共享值，任意長隨機字串。設了才啟用限流的訪客真實 IP 識別；未設＝限流沿用 CloudFront edge IP（行為與導入前相同） |
+| `ORIGIN_VERIFY_SECRET` | （選配）CloudFront→API 的 origin 驗證共享值，任意長隨機字串。設了才啟用限流的訪客真實 IP 識別；未設＝限流沿用 CloudFront edge IP（行為與導入前相同）。設了之後另外會拒絕不經 CloudFront、直接打 API Gateway 原始網址的寫入請求（讀取不擋） |
 
 > **四個 `SNAPSHOT_*` 都未設＝快照 cron 整個步驟 skip 並 log**（`/data/*.json`
 > 只會在每次部署時更新，不再有每日兩次的保鮮）。bucket 名不寫進 public repo 是刻意的，
@@ -125,7 +125,7 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 | `CLOUDFLARE_ACCOUNT_ID` | CF Account ID |
 
 **Cloudflare Worker Secrets**（透過 `wrangler secret put`）：
-- `YOUTUBE_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`, `GITHUB_TOKEN`
+- `YOUTUBE_API_KEY`, `DISCORD_WEBHOOK_URL`, ~~`DISCORD_SETLIST_WEBHOOK_URL`~~ ⚠️ migrated to yt-setlist-discord (2026-05-02), `TRIGGER_TOKEN`, `PUBSUB_CALLBACK_URL`
 - （選配）`MATCHER_SHARED_SECRET`：matcher 那邊設了才需要，值必須相同
 
 ## 本地開發
@@ -133,22 +133,24 @@ Push 到 `main` 分支會自動觸發兩個 workflow：
 ```bash
 # 安裝依賴
 npm install
-cd fansite && npm install && cd ..
+cd fansite-v2 && npm install && cd ..
 
-# CF 路徑（wrangler dev，含靜態檔案；workerd 連不上自簽 TLS DB）
-npm run dev          # http://localhost:8787
-
-# Node 路徑（含靜態檔案 + API；唯一能本地連 DB 的路徑）
+# 後端（Node；唯一能本地連 DB 的路徑）
 # 需先建立通往 DB 的 ssh tunnel（連線細節見本地維運文件，不在 repo 內）
 node --env-file=.env.dev entry-dev.js   # http://localhost:8788
+#   fansite-v2/dist 存在時也會同源 serve build 後的前端；沒有就只提供 API
+
+# 前端（另開一個終端機）
+cd fansite-v2 && npm run dev:testdb     # http://localhost:5175，/api 代理到上面的 8788（測編輯用這個）
+cd fansite-v2 && npm run dev            # http://localhost:5173，/api 代理到正式站
+                                        # （唯讀瀏覽用；按「儲存」會寫進正式資料庫）
+cd fansite-v2 && npm run build          # 產物 → fansite-v2/dist/
+
+# CF 路徑（wrangler dev；靜態檔來自 fansite-v2/dist，要先 build；workerd 連不上自簽 TLS DB）
+npm run dev          # http://localhost:8787
 
 # AWS 路徑（SAM local）
 sam build && sam local start-api --port 3001 --env-vars .env.json
-
-# Fansite 前端建置
-cd fansite && npm run build:js         # esbuild bundle（CI 跑這個）
-cd fansite && npm run build:bootstrap  # 主題 SCSS 改動後必跑（產物進 git）
-cd fansite && npm run build            # 全部（bootstrap + tabulator + js）
 
 # CDN 靜態快照（首訪資料來源；輸出 fansite-v2/public/data/，gitignored，CI 每次部署重建）
 npm run snapshot                       # ＝ node fansite-v2/scripts/fetch-snapshot.mjs
@@ -292,7 +294,16 @@ curl -H "If-None-Match: \"abc123\"" https://m-b.win/api/songlist
 - 寫入端點（POST/PUT/DELETE）有 rate limiting 保護
 - 資料來源為非官方整理，可能有錯誤或遺漏
 
+## 授權
+
+程式碼以 [The Unlicense](LICENSE) 釋出：不保留著作權，任何人都可以自由使用、修改、再發布，
+不需要註明出處，也不需要徵求同意。
+
+圖片與音訊不在此授權範圍內。
+
 ## 文件
 
 - [`docs/HANDOVER.md`](docs/HANDOVER.md) — 接手指南：從零把這個站架到自己的環境、還原資料、上線後怎麼維護
+- [`CLAUDE.md`](CLAUDE.md) — 後端、部署與資料庫的細節與踩過的坑；
+  [`fansite-v2/CLAUDE.md`](fansite-v2/CLAUDE.md) — 前端
 - `docs/architecture-diagram.html` — 互動式架構圖（排程流程、模組依賴、前端 SPA）

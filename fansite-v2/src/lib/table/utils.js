@@ -93,6 +93,11 @@ export function tokenize(q) {
   return out
 }
 
+/** 空值判定：null／undefined／空字串（不含 0、空白字串、false） */
+export function isEmptyValue(v) {
+  return v == null || v === ''
+}
+
 /**
  * 由列組出小寫 haystack。
  * fields 元素可為欄位名字串，或 (row) => any 的取值函式（例如格式化後的日期）。
@@ -101,7 +106,7 @@ export function buildHaystack(row, fields) {
   let s = ''
   for (const f of fields) {
     const v = typeof f === 'function' ? f(row) : row[f]
-    if (v == null || v === '') continue
+    if (isEmptyValue(v)) continue
     s += (Array.isArray(v) ? v.join(' ') : String(v)).toLowerCase()
     s += ' ' // 欄位分隔：避免「前一欄尾＋後一欄頭」被誤判為命中
   }
@@ -239,10 +244,10 @@ export function countDistinct(rows, getter) {
   const counts = new Map()
   for (const row of rows) {
     const v = getter(row)
-    if (v == null || v === '') continue
+    if (isEmptyValue(v)) continue
     if (Array.isArray(v)) {
       for (const item of v) {
-        if (item == null || item === '') continue
+        if (isEmptyValue(item)) continue
         counts.set(String(item), (counts.get(String(item)) ?? 0) + 1)
       }
     } else {
@@ -258,8 +263,8 @@ export function countDistinct(rows, getter) {
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 export function compareValues(a, b) {
-  const aEmpty = a == null || a === ''
-  const bEmpty = b == null || b === ''
+  const aEmpty = isEmptyValue(a)
+  const bEmpty = isEmptyValue(b)
   if (aEmpty && bEmpty) return 0
   if (aEmpty) return 1 // 空值一律殿後（不隨升降序翻面前的原始比較）
   if (bEmpty) return -1
@@ -281,8 +286,8 @@ export function applySort(rows, sort, columns) {
     const av = getter(a)
     const bv = getter(b)
     // 空值恆殿後（不隨升降序翻面）：時長等大量 null 的欄位才不會把空列頂到最前
-    const aEmpty = av == null || av === ''
-    const bEmpty = bv == null || bv === ''
+    const aEmpty = isEmptyValue(av)
+    const bEmpty = isEmptyValue(bv)
     if (aEmpty || bEmpty) return aEmpty && bEmpty ? 0 : aEmpty ? 1 : -1
     return dir * compareValues(av, bv)
   })

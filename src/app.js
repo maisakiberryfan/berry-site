@@ -310,6 +310,33 @@ function isInternalRequest(c) {
     !c.req.header('x-forwarded-for')
 }
 
+// ── 直連後端原始網址的寫入一律拒絕 ──
+// 後端有兩個入口：站台網域（經 CloudFront，前面有擋惡意機器人的那一層，並由 CloudFront 帶上
+// x-origin-verify）與 API Gateway 自動給的原始網址（什麼都不經過）。這一層讓「會改資料的請求」
+// 只能從前者進來。
+// · 只在 Lambda 鏈路生效（requestContext.http.sourceIp 存在）；Cloudflare 備用站與內部調用不適用
+// · 只擋寫入方法：讀取不擋，就算有人直接拿原始網址讀資料也不會壞
+// · **沒設 ORIGIN_VERIFY_SECRET＝不啟用**（保護機制沒設也要能跑）
+// · ⚠️ 單機路線（entry-node.js）也會填 sourceIp，而它前面的代理不會帶 x-origin-verify——
+//   單機部署**不要設** ORIGIN_VERIFY_SECRET，設了所有寫入都會被拒
+// · 不經 HTTP 的呼叫（排程直接 invoke、通知的非同步 self-invoke）本來就不走這裡
+function isDirectOriginWrite(c) {
+  if (!c.env?.requestContext?.http?.sourceIp) return false
+  const method = c.req.method
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
+  const originSecret = getSecret(c.env, 'ORIGIN_VERIFY_SECRET')
+  if (!originSecret) return false
+  return !timingSafeEqualStr(c.req.header('x-origin-verify') || '', originSecret)
+}
+
+app.use('*', async (c, next) => {
+  if (isDirectOriginWrite(c)) {
+    console.warn(`[ORIGIN] 拒絕直連原始網址的寫入: ${c.req.method} ${c.req.path.slice(0, 80)}`)
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+  return next()
+})
+
 app.use('*', async (c, next) => {
   const tier = resolveRateTier(c.req.path, c.req.method)
   if (!tier) return next()
